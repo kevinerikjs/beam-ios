@@ -103,7 +103,7 @@ struct PairedMac: Codable {
     var lastConnected: Date
 }
 
-struct DiscoveredHost {
+struct DiscoveredHost: Equatable {
     let name: String
     let endpoint: NWEndpoint
     let port: UInt16
