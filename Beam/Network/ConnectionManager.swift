@@ -125,7 +125,7 @@ final class ConnectionManager {
             if let error { logger.error("Receive error: \(error)"); return }
             guard let data, data.count == 4 else { return }
 
-            let length = data.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+            let length = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
             guard length > 0, length < 10_000_000 else {  // sanity check
                 self.receiveNextPacket()
                 return

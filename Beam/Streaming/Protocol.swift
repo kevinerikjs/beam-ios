@@ -40,11 +40,11 @@ struct BeamPacketHeader {
 
     static func parse(from data: Data) -> BeamPacketHeader? {
         guard data.count >= BeamPacketHeader.size else { return nil }
-        let magic = data[0..<4].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+        let magic = data[0..<4].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
         guard magic == BeamPacketHeader.magic else { return nil }
         guard let type = BeamPacketType(rawValue: data[4]) else { return nil }
         let flags = data[5]
-        let length = data[6..<10].withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+        let length = data[6..<10].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
         return BeamPacketHeader(type: type, flags: flags, payloadLength: length)
     }
 }
@@ -61,10 +61,10 @@ struct BeamVideoPayloadHeader {
 
     static func parse(from data: Data) -> BeamVideoPayloadHeader? {
         guard data.count >= BeamVideoPayloadHeader.size else { return nil }
-        let fn  = data[0..<4].withUnsafeBytes  { $0.load(as: UInt32.self).bigEndian }
-        let fi  = data[4..<6].withUnsafeBytes  { $0.load(as: UInt16.self).bigEndian }
-        let tf  = data[6..<8].withUnsafeBytes  { $0.load(as: UInt16.self).bigEndian }
-        let ts  = data[8..<16].withUnsafeBytes { $0.load(as: Int64.self).bigEndian }
+        let fn  = data[0..<4].withUnsafeBytes  { $0.loadUnaligned(as: UInt32.self).bigEndian }
+        let fi  = data[4..<6].withUnsafeBytes  { $0.loadUnaligned(as: UInt16.self).bigEndian }
+        let tf  = data[6..<8].withUnsafeBytes  { $0.loadUnaligned(as: UInt16.self).bigEndian }
+        let ts  = data[8..<16].withUnsafeBytes { $0.loadUnaligned(as: Int64.self).bigEndian }
         return BeamVideoPayloadHeader(frameNumber: fn, fragmentIndex: fi, totalFragments: tf, presentationTimestamp: ts)
     }
 }
@@ -79,8 +79,8 @@ struct BeamAudioPayloadHeader {
 
     static func parse(from data: Data) -> BeamAudioPayloadHeader? {
         guard data.count >= BeamAudioPayloadHeader.size else { return nil }
-        let sn = data[0..<4].withUnsafeBytes  { $0.load(as: UInt32.self).bigEndian }
-        let ts = data[4..<12].withUnsafeBytes { $0.load(as: Int64.self).bigEndian }
+        let sn = data[0..<4].withUnsafeBytes  { $0.loadUnaligned(as: UInt32.self).bigEndian }
+        let ts = data[4..<12].withUnsafeBytes { $0.loadUnaligned(as: Int64.self).bigEndian }
         return BeamAudioPayloadHeader(sequenceNumber: sn, presentationTimestamp: ts)
     }
 }
