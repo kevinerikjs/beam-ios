@@ -118,6 +118,11 @@ final class StoreManager {
     }
 
     private func loadPurchaseState() async {
+        #if DEBUG
+        // Always treat as purchased in debug builds so the paywall doesn't block testing
+        await MainActor.run { isPurchased = true }
+        return
+        #endif
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = result,
                transaction.productID == kProductID,
