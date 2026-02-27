@@ -2,22 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- App Sandbox -->
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
-
-	<!-- Network -->
-	<key>com.apple.security.network.client</key>
-	<true/>
-
-	<!-- In-App Purchase -->
-	<key>com.apple.developer.in-app-payments</key>
-	<array>
-		<string>com.beam.ios.unlimited</string>
-	</array>
-
-	<!-- PiP -->
-	<key>com.apple.developer.avfoundation.multitasking-camera-access</key>
-	<false/>
+	<!-- In-App Purchase: enable once paid dev account is active -->
+	<!-- <key>com.apple.developer.in-app-payments</key> -->
+	<!-- <array><string>com.beam.ios.unlimited</string></array> -->
 </dict>
 </plist>
