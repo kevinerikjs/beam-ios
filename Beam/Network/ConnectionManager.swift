@@ -73,7 +73,7 @@ final class ConnectionManager {
         let auth = BeamPairingMessage(
             type: .authRequest,
             deviceName: UIDevice.current.name,
-            deviceID: UIDevice.current.identifierForVendor?.uuidString,
+            deviceID: KeyStore.shared.stableDeviceID, // must match the ID sent during pairing
             code: nil,
             sharedSecret: secretHex,
             error: nil
