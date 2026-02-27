@@ -125,23 +125,34 @@ final class StreamReceiver {
     }
 
     private func buildSampleBuffer(from annexBData: Data, pts: CMTime, isKeyframe: Bool) -> CMSampleBuffer? {
-        // Convert Annex B to a CMBlockBuffer
+        // Allocate an owned CMBlockBuffer and copy the Annex B bytes into it.
+        // We must not point directly into annexBData: that Data goes out of scope
+        // before AVSampleBufferDisplayLayer consumes the buffer on the main thread,
+        // causing a use-after-free crash (EXC_BAD_ACCESS).
         var blockBuffer: CMBlockBuffer?
-        let status = annexBData.withUnsafeBytes { ptr in
-            CMBlockBufferCreateWithMemoryBlock(
-                allocator: kCFAllocatorDefault,
-                memoryBlock: UnsafeMutableRawPointer(mutating: ptr.baseAddress!),
-                blockLength: annexBData.count,
-                blockAllocator: kCFAllocatorNull,  // Don't free - Data owns the memory
-                customBlockSource: nil,
-                offsetToData: 0,
-                dataLength: annexBData.count,
-                flags: 0,
-                blockBufferOut: &blockBuffer
+        var status = CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault,
+            memoryBlock: nil,                   // CF allocates the memory
+            blockLength: annexBData.count,
+            blockAllocator: kCFAllocatorDefault,
+            customBlockSource: nil,
+            offsetToData: 0,
+            dataLength: annexBData.count,
+            flags: 0,
+            blockBufferOut: &blockBuffer
+        )
+        guard status == kCMBlockBufferNoErr, let blockBuffer else { return nil }
+
+        // Copy the Annex B payload into the CF-owned buffer
+        status = annexBData.withUnsafeBytes { ptr in
+            CMBlockBufferReplaceDataBytes(
+                with: ptr.baseAddress!,
+                blockBuffer: blockBuffer,
+                offsetIntoDestination: 0,
+                dataLength: annexBData.count
             )
         }
-
-        guard status == kCMBlockBufferNoErr, let blockBuffer else { return nil }
+        guard status == kCMBlockBufferNoErr else { return nil }
 
         // Format description (needed for keyframes; subsequent frames can reuse)
         var formatDesc: CMFormatDescription?

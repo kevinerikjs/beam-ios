@@ -44,7 +44,8 @@ final class AudioPlayer {
             try session.setCategory(
                 .playback,
                 mode: .default,
-                options: [.mixWithOthers, .allowBluetoothHFP, .allowAirPlay]
+                options: [.mixWithOthers, .allowAirPlay]
+                // .allowBluetoothHFP is .playAndRecord only; .playback uses A2DP automatically
             )
             try session.setActive(true)
         } catch {
