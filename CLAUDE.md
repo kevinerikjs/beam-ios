@@ -1,7 +1,7 @@
 # Beam iOS Client App
 
 ## Overview
-iPhone app that connects to a paired Mac running Beam Host and displays the Mac's screen stream with audio. Supports PiP and basic media controls.
+iPhone app that connects to a paired Mac running Beacon and displays the Mac's screen stream with audio. Supports PiP and basic media controls.
 
 ## Key References
 - **PRD:** `../PRD.md` (source of truth for all requirements)

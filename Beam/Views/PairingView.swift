@@ -1,29 +1,22 @@
 // PairingView.swift
-// First-time pairing flow: QR scanner + manual 6-digit code entry.
+// First-time pairing flow: 6-digit code entry.
 //
 // Flow:
 //  1. PairingView appears → auto-connects to discovered Mac, sends "hello"
-//  2. Mac generates 6-digit code, shows it (+ QR) in its pairing window
+//  2. Mac generates 6-digit code, shows it in its pairing window
 //  3. iPhone receives "challenge" → shows code-entry screen
-//  4a. User types the code shown on Mac  — OR —
-//  4b. User scans the QR from the Mac screen (auto-submits the code)
+//  4. User types the code shown on Mac
 //  5. Mac verifies → sends shared secret → paired ✅
 
 import SwiftUI
-import AVFoundation
 
 struct PairingView: View {
     @Environment(BeamAppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
-    @State private var showQRScanner = false
     @State private var manualCode = ""
-    @State private var cameraPermissionDenied = false
-
-    /// Code parsed from a QR scan, held until the challenge arrives.
-    @State private var pendingQRCode: String? = nil
-
     @State private var pairingManager = PairingManager.shared
+    @State private var didCopyDownloadLink = false
 
     var body: some View {
         NavigationStack {
@@ -57,14 +50,6 @@ struct PairingView: View {
         }
         .onAppear {
             autoConnect()
-        }
-        .onChange(of: pairingManager.isAwaitingCodeEntry) { _, awaiting in
-            // If the user already scanned a QR, auto-submit the code now that
-            // the challenge has arrived and the connection is ready.
-            if awaiting, let code = pendingQRCode {
-                pendingQRCode = nil
-                pairingManager.submitCode(code)
-            }
         }
         .onChange(of: pairingManager.isPairSuccess) { _, success in
             if success {
@@ -109,6 +94,42 @@ struct PairingView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
             Spacer()
+
+            // Mac app download link
+            VStack(spacing: 8) {
+                Text("Need the Mac app?")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Button {
+                    withAnimation(.spring(duration: 0.2)) {
+                        UIPasteboard.general.string = "https://beamscreen.app/#download"
+                        didCopyDownloadLink = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation(.spring(duration: 0.2)) {
+                            didCopyDownloadLink = false
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: didCopyDownloadLink ? "checkmark" : "doc.on.doc")
+                            .font(.caption.weight(.medium))
+                        Text(didCopyDownloadLink ? "Copied!" : "beamscreen.app/#download")
+                            .font(.system(.caption, design: .monospaced).weight(.medium))
+                    }
+                    .foregroundStyle(didCopyDownloadLink ? .green : .orange)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(
+                        (didCopyDownloadLink ? Color.green : Color.orange).opacity(0.12)
+                    )
+                    .clipShape(Capsule())
+                    .animation(.spring(duration: 0.2), value: didCopyDownloadLink)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.bottom, 24)
         }
         .onChange(of: appState.discoveredHost) { _, host in
             if let host, !pairingManager.isPairing {
@@ -175,12 +196,6 @@ struct PairingView: View {
                 }
                 .buttonStyle(BeamPrimaryButtonStyle())
                 .disabled(manualCode.count != 6)
-
-                // QR scan as an alternative
-                Button("Scan QR instead") {
-                    showQRScanner = true
-                }
-                .buttonStyle(BeamSecondaryButtonStyle())
             }
 
             if let error = pairingManager.pairingError {
@@ -192,12 +207,6 @@ struct PairingView: View {
             Spacer()
         }
         .padding(.horizontal, 24)
-        .sheet(isPresented: $showQRScanner) {
-            QRScannerSheet { scannedString in
-                showQRScanner = false
-                handleQRCode(scannedString)
-            }
-        }
     }
 
     @ViewBuilder
@@ -217,82 +226,4 @@ struct PairingView: View {
         }
     }
 
-    // MARK: - QR Handling
-
-    private func handleQRCode(_ string: String) {
-        guard let url = URL(string: string),
-              url.scheme == "beamlink",
-              url.host == "pair",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
-            return
-        }
-
-        if pairingManager.isAwaitingCodeEntry {
-            // Already connected and waiting — submit immediately
-            pairingManager.submitCode(code)
-        } else {
-            // Store it; will be submitted once the challenge arrives
-            pendingQRCode = code
-            if !pairingManager.isPairing, let host = appState.discoveredHost {
-                pairingManager.startPairing(with: host)
-            }
-        }
-    }
-
-    private func checkCameraPermission(completion: @escaping (Bool) -> Void) {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized:
-            completion(true)
-        case .denied, .restricted:
-            completion(false)
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { completion($0) }
-        @unknown default:
-            completion(false)
-        }
-    }
-}
-
-// MARK: - QR Scanner Sheet
-
-struct QRScannerSheet: View {
-    let onScanned: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var permissionDenied = false
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                if permissionDenied {
-                    VStack(spacing: 16) {
-                        Image(systemName: "camera.slash").font(.largeTitle).foregroundStyle(.secondary)
-                        Text("Camera access required").foregroundStyle(.secondary)
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
-                        }
-                    }
-                } else {
-                    QRScannerView(onScanned: onScanned)
-                        .ignoresSafeArea()
-                }
-            }
-            .navigationTitle("Scan QR Code")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundStyle(.orange)
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
-        .onAppear {
-            AVCaptureDevice.requestAccess(for: .video) { granted in
-                DispatchQueue.main.async { permissionDenied = !granted }
-            }
-        }
-    }
 }

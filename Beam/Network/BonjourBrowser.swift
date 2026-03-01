@@ -1,5 +1,5 @@
 // BonjourBrowser.swift
-// Discovers Beam Host services on the local network via Bonjour.
+// Discovers Beacon services on the local network via Bonjour.
 
 import Network
 import OSLog
@@ -76,7 +76,7 @@ final class BonjourBrowser {
                     endpoint: result.endpoint,
                     port: port.rawValue
                 )
-                logger.info("Discovered Beam host: \(serviceName) on port \(port.rawValue)")
+                logger.info("Discovered Beacon: \(serviceName) on port \(port.rawValue)")
                 self?.onHostFound?(discoveredHost)
                 connection.cancel()
             case .failed:

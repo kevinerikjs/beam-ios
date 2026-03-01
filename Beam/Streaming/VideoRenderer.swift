@@ -35,6 +35,20 @@ final class VideoRenderer: UIView {
     private func setupLayer() {
         layer.addSublayer(displayLayer)
         backgroundColor = .black
+
+        // Tie the display layer's clock to the iOS host clock so frame PTSs
+        // (which we stamp with the local iOS time) render immediately.
+        var timebase: CMTimebase?
+        CMTimebaseCreateWithSourceClock(
+            allocator: kCFAllocatorDefault,
+            sourceClock: CMClockGetHostTimeClock(),
+            timebaseOut: &timebase
+        )
+        if let timebase {
+            CMTimebaseSetRate(timebase, rate: 1.0)
+            CMTimebaseSetTime(timebase, time: CMClockGetTime(CMClockGetHostTimeClock()))
+            displayLayer.controlTimebase = timebase
+        }
     }
 
     override func layoutSubviews() {

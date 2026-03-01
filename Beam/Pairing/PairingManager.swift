@@ -187,10 +187,17 @@ final class PairingConnection {
     private func receiveNext() {
         connection?.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] data, _, _, _ in
             guard let self, let data, data.count == 4 else { return }
-            let length = data.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
+            let length = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
             self.connection?.receive(minimumIncompleteLength: Int(length), maximumLength: Int(length)) { [weak self] payload, _, _, _ in
                 guard let self, let payload else { return }
-                if let msg = try? JSONDecoder().decode(BeamPairingMessage.self, from: payload) {
+                // macOS wraps all outgoing messages in a BeamPacketHeader — strip it before JSON decoding
+                let jsonData: Data
+                if let header = BeamPacketHeader.parse(from: payload), header.type == .control {
+                    jsonData = Data(payload.dropFirst(BeamPacketHeader.size))
+                } else {
+                    jsonData = payload
+                }
+                if let msg = try? JSONDecoder().decode(BeamPairingMessage.self, from: jsonData) {
                     self.delegate?.pairingConnection(self, didReceive: msg)
                 }
                 self.receiveNext()

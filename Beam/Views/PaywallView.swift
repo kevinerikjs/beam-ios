@@ -1,18 +1,20 @@
 // PaywallView.swift
-// Shown when the 10-minute free session ends. Offers one-time IAP unlock.
+// Shown when the 30-minute free session limit is hit, or when the user taps
+// "Unlock Beam Unlimited" from the daily-limit state on HomeView.
 
 import SwiftUI
 
 struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var store = StoreManager.shared
+    @State private var showSuccess = false
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Close button
+                // Close button — plain style prevents the default blue tint
                 HStack {
                     Spacer()
                     Button {
@@ -20,71 +22,62 @@ struct PaywallView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.title2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.35))
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 20)
 
                 Spacer()
 
-                // Content
-                VStack(spacing: 32) {
+                // Main content
+                VStack(spacing: 36) {
                     // Icon + title
-                    VStack(spacing: 16) {
+                    VStack(spacing: 14) {
                         ZStack {
                             Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.orange.opacity(0.3), .yellow.opacity(0.1)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .frame(width: 80, height: 80)
+                                .fill(Color.orange.opacity(0.12))
+                                .frame(width: 72, height: 72)
 
                             Image(systemName: "infinity.circle.fill")
-                                .font(.system(size: 36))
+                                .font(.system(size: 32))
                                 .foregroundStyle(.orange)
                         }
 
-                        VStack(spacing: 8) {
+                        VStack(spacing: 6) {
                             Text("Your free session has ended")
                                 .font(.title3.weight(.semibold))
                                 .foregroundStyle(.white)
 
-                            Text("Unlock unlimited streaming with a one-time purchase.")
+                            Text("Get unlimited streaming with a one-time purchase.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
-                                .padding(.horizontal, 32)
+                                .padding(.horizontal, 24)
                         }
                     }
 
                     // Feature list
-                    VStack(alignment: .leading, spacing: 12) {
-                        FeatureRow(icon: "infinity", text: "Unlimited session length")
-                        FeatureRow(icon: "iphone", text: "Stream from any Mac, anytime")
-                        FeatureRow(icon: "pip", text: "Picture-in-Picture support")
+                    VStack(spacing: 10) {
+                        FeatureRow(icon: "infinity",   text: "Unlimited session length")
+                        FeatureRow(icon: "iphone",     text: "Stream from any Mac, anytime")
+                        FeatureRow(icon: "pip",        text: "Picture-in-Picture support")
                         FeatureRow(icon: "music.note", text: "Full media controls")
                     }
-                    .padding(.horizontal, 40)
+                    .padding(.horizontal, 32)
 
-                    // Purchase button
-                    VStack(spacing: 12) {
+                    // Actions
+                    VStack(spacing: 10) {
                         Button {
                             Task { await store.purchase() }
                         } label: {
-                            VStack(spacing: 4) {
+                            Group {
                                 if store.isPurchasing {
                                     ProgressView().tint(.black)
                                 } else {
-                                    Text("Beam Unlimited")
-                                        .fontWeight(.bold)
-                                    if let price = store.product?.displayPrice {
-                                        Text("\(price) — one-time")
-                                            .font(.callout)
-                                    }
+                                    Text("Purchase Beam Unlimited for $3.79")
+                                        .fontWeight(.semibold)
                                 }
                             }
                             .frame(maxWidth: .infinity)
@@ -99,19 +92,26 @@ struct PaywallView: View {
                             .foregroundStyle(.black)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                         }
-                        .disabled(store.isPurchasing || store.product == nil)
+                        .disabled(store.isPurchasing)
 
-                        Button("Try again tomorrow") {
-                            dismiss()
-                        }
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                        HStack(spacing: 20) {
+                            Button("Try again tomorrow") {
+                                dismiss()
+                            }
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .buttonStyle(.plain)
 
-                        Button("Restore Purchase") {
-                            Task { await store.restore() }
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+
+                            Button("Restore Purchase") {
+                                Task { await store.restore() }
+                            }
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .buttonStyle(.plain)
                         }
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 28)
 
@@ -125,10 +125,63 @@ struct PaywallView: View {
                 }
 
                 Spacer()
+
+                Text("One-time purchase · No subscription")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 20)
+            }
+            .opacity(showSuccess ? 0 : 1)
+
+            // Purchase success overlay
+            if showSuccess {
+                purchaseSuccessView
+                    .transition(.opacity)
             }
         }
         .task {
             await store.loadProduct()
+        }
+        .onChange(of: store.isPurchased) { _, purchased in
+            if purchased {
+                withAnimation(.spring(duration: 0.4)) {
+                    showSuccess = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    // MARK: - Success Screen
+
+    @ViewBuilder
+    private var purchaseSuccessView: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.12))
+                    .frame(width: 88, height: 88)
+
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.green)
+            }
+
+            VStack(spacing: 8) {
+                Text("You're all set!")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                Text("Beam Unlimited is now active.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
         }
     }
 }
@@ -144,11 +197,11 @@ struct FeatureRow: View {
             Image(systemName: icon)
                 .font(.body)
                 .foregroundStyle(.orange)
-                .frame(width: 24)
+                .frame(width: 22)
 
             Text(text)
                 .font(.callout)
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(.white.opacity(0.85))
 
             Spacer()
         }

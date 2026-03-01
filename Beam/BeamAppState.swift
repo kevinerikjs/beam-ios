@@ -9,9 +9,10 @@ final class BeamAppState {
 
     // MARK: - Onboarding / Pairing
 
-    var hasCompletedOnboarding: Bool {
-        get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }
-        set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
+    // Stored property so @Observable can track changes and re-render RootView.
+    // Computed UserDefaults properties are invisible to the observation system.
+    var hasCompletedOnboarding: Bool = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+        didSet { UserDefaults.standard.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding") }
     }
 
     /// The Mac this iPhone is paired with, if any.
@@ -30,6 +31,21 @@ final class BeamAppState {
 
     /// Connection quality (0.0 - 1.0), updated from packet stats.
     var connectionQuality: Double = 1.0
+
+    /// The quality preset currently active on the host (set from .qualityChanged messages).
+    var currentQualityPreset: StreamQualityPreset = .p1080_30
+
+    /// The user's preferred quality preset (persisted, sent to host on connect).
+    var preferredQualityPreset: StreamQualityPreset {
+        get {
+            let raw = UserDefaults.standard.string(forKey: "preferredQualityPreset") ?? ""
+            return StreamQualityPreset(rawValue: raw) ?? .auto
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "preferredQualityPreset")
+            connectionManager?.sendQualityRequest(newValue)
+        }
+    }
 
     // MARK: - Purchase State
 
@@ -80,7 +96,9 @@ final class BeamAppState {
     @MainActor
     func startStream() async {
         guard let host = discoveredHost, let mac = pairedMac else { return }
+        guard isPurchased || !sessionManager.isInCooldown else { return }
 
+        connectionManager?.disconnect()
         let manager = ConnectionManager(host: host, pairedMac: mac, appState: self)
         self.connectionManager = manager
         await manager.connect()
@@ -91,6 +109,11 @@ final class BeamAppState {
         connectionManager?.disconnect()
         connectionManager = nil
         isStreaming = false
+    }
+
+    func handleScenePhaseChange(_ phase: ScenePhase) {
+        guard phase == .active else { return }
+        connectionManager?.performForegroundHealthCheck()
     }
 }
 
