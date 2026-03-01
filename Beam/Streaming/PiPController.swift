@@ -16,16 +16,18 @@ final class PiPController: NSObject {
 
     var isPiPActive: Bool = false
     var isPiPPossible: Bool = false
+    var isPiPSupported: Bool = AVPictureInPictureController.isPictureInPictureSupported()
 
     private var pipController: AVPictureInPictureController?
     private weak var renderer: VideoRenderer?
+    private var pipPossibleObservation: NSKeyValueObservation?
 
     // MARK: - Setup
 
     func setup(with renderer: VideoRenderer) {
         self.renderer = renderer
 
-        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+        guard isPiPSupported else {
             logger.warning("PiP not supported on this device")
             return
         }
@@ -42,7 +44,11 @@ final class PiPController: NSObject {
         controller.canStartPictureInPictureAutomaticallyFromInline = true
 
         self.pipController = controller
-        isPiPPossible = controller.isPictureInPicturePossible
+        pipPossibleObservation = controller.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] observed, _ in
+            DispatchQueue.main.async {
+                self?.isPiPPossible = observed.isPictureInPicturePossible
+            }
+        }
         logger.info("PiPController set up")
     }
 
@@ -50,15 +56,18 @@ final class PiPController: NSObject {
         if isPiPActive {
             pipController?.stopPictureInPicture()
         }
+        pipPossibleObservation = nil
         pipController = nil
         renderer = nil
+        isPiPActive = false
+        isPiPPossible = false
     }
 
     // MARK: - Control
 
     func start() {
-        guard isPiPPossible else {
-            logger.warning("PiP not currently possible")
+        guard isPiPSupported else {
+            logger.warning("PiP not supported")
             return
         }
         pipController?.startPictureInPicture()
@@ -74,6 +83,10 @@ final class PiPController: NSObject {
 extension PiPController: AVPictureInPictureControllerDelegate {
 
     func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        logger.info("PiP will start")
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
         isPiPActive = true
         logger.info("PiP started")
     }

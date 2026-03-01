@@ -6,6 +6,11 @@ import SwiftUI
 struct HomeView: View {
     @Environment(BeamAppState.self) private var appState
     @State private var showPairing = false
+    @State private var showPaywall = false
+
+    // Drives real-time cooldown countdown without requiring SessionManager to own a display timer.
+    @State private var now = Date()
+    private let clockTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
@@ -33,10 +38,16 @@ struct HomeView: View {
             PairingView()
                 .environment(appState)
         }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+        }
         .onAppear {
             if appState.pairedMac != nil {
                 appState.startBrowsing()
             }
+        }
+        .onReceive(clockTick) { tick in
+            now = tick
         }
     }
 
@@ -44,37 +55,19 @@ struct HomeView: View {
 
     @ViewBuilder
     private var logoSection: some View {
-        VStack(spacing: 16) {
-            // Beam icon - radiating arcs
-            ZStack {
-                ForEach([0, 1, 2], id: \.self) { i in
-                    Circle()
-                        .stroke(
-                            LinearGradient(
-                                colors: [.orange, .yellow.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 2
-                        )
-                        .frame(width: CGFloat(60 + i * 28), height: CGFloat(60 + i * 28))
-                        .opacity(1.0 - Double(i) * 0.25)
-                }
-                Image(systemName: "dot.radiowaves.right")
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.orange, .yellow],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-            .frame(width: 116, height: 116)
+        VStack(spacing: 10) {
+            Image("BrandFullIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 56, height: 56)
+                .shadow(color: Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255).opacity(0.15), radius: 3)
 
-            Text("Beam")
-                .font(.system(size: 36, weight: .bold, design: .default))
-                .foregroundStyle(.white)
+            Text("beam")
+                .font(.custom("Plus Jakarta Sans", size: 30))
+                .fontWeight(.black)
+                .kerning(-1.2)
+                .foregroundStyle(Color(red: 240 / 255, green: 240 / 255, blue: 242 / 255))
+                .textCase(.lowercase)
         }
     }
 
@@ -95,6 +88,9 @@ struct HomeView: View {
                     }
                     .buttonStyle(BeamPrimaryButtonStyle())
                 }
+            } else if !appState.isPurchased && appState.sessionManager.isInCooldown {
+                // Daily free limit reached — show countdown + upgrade CTA
+                dailyLimitSection
             } else if appState.isSearchingForMac {
                 // Searching
                 VStack(spacing: 16) {
@@ -145,25 +141,64 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - Daily Limit Section
+
+    @ViewBuilder
+    private var dailyLimitSection: some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(.orange.opacity(0.75))
+                        .frame(width: 8, height: 8)
+                    Text("Daily limit reached")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Available in \(appState.sessionManager.formattedCooldownRemaining)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.orange.opacity(0.85))
+                    .id(now)
+            }
+
+            Button("Unlock Beam Unlimited") {
+                showPaywall = true
+            }
+            .buttonStyle(BeamPrimaryButtonStyle())
+        }
+    }
+
     // MARK: - Bottom Bar
 
     @ViewBuilder
     private var bottomBar: some View {
         HStack {
-            if !StoreManager.shared.isPurchased {
+            if StoreManager.shared.isPurchased {
+                // Subtle "Beam Unlimited" indicator
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange.opacity(0.75))
+                    Text("Beam Unlimited")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
                 // Free tier status
                 if SessionManager.shared.isInCooldown {
-                    Label("Available in \(SessionManager.shared.formattedCooldownRemaining)", systemImage: "clock")
+                    Label("Available in \(appState.sessionManager.formattedCooldownRemaining)", systemImage: "clock")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .id(now)
                 } else {
-                    Label("10 min free session", systemImage: "timer")
+                    Label(SessionManager.shared.formattedFreeTimeRemainingToday, systemImage: "timer")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .id(now)
                 }
             }
             Spacer()
-            // Settings gear (placeholder - opens sheet in v2)
         }
         .padding(.bottom, 24)
     }

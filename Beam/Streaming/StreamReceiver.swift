@@ -32,6 +32,7 @@ private struct VideoFrameBuffer {
 final class StreamReceiver {
 
     weak var videoRenderer: VideoRenderer?
+    weak var audioPlayer: AudioPlayer?
 
     // SPS/PPS parameter sets for H.264
     private var parameterSets: Data? = nil
@@ -40,16 +41,36 @@ final class StreamReceiver {
     private var frameBuffers: [UInt32: VideoFrameBuffer] = [:]
     private var lastDeliveredFrameNumber: UInt32 = UInt32.max
 
+    // Cached format description — built once from SPS/PPS, reused for every frame
+    private var cachedFormatDesc: CMFormatDescription?
+
     // Audio sequence tracking
     private var lastAudioSequenceNumber: UInt32 = UInt32.max
 
     private let assemblyQueue = DispatchQueue(label: "com.beam.ios.assembly", qos: .userInteractive)
 
+    func reset() {
+        assemblyQueue.async { [weak self] in
+            guard let self else { return }
+            parameterSets = nil
+            frameBuffers.removeAll()
+            cachedFormatDesc = nil
+            lastDeliveredFrameNumber = UInt32.max
+            lastAudioSequenceNumber = UInt32.max
+            audioPlayer?.resetSync()
+        }
+    }
+
     // MARK: - Parameter Sets
 
     func receiveParameterSets(_ data: Data) {
         assemblyQueue.async { [weak self] in
-            self?.parameterSets = data
+            guard let self else { return }
+            self.parameterSets = data
+            // Pre-build and cache the format description so it's ready for the first IDR frame
+            var desc: CMFormatDescription?
+            self.buildFormatDescription(from: data, into: &desc)
+            self.cachedFormatDesc = desc
             logger.info("Received SPS/PPS parameter sets (\(data.count) bytes)")
         }
     }
@@ -118,6 +139,7 @@ final class StreamReceiver {
             logger.error("Failed to build sample buffer for frame \(frameNumber)")
             return
         }
+        audioPlayer?.updateVideoClock(remotePresentationTimestampUs: pts)
 
         DispatchQueue.main.async {
             renderer.enqueue(sampleBuffer)
@@ -125,51 +147,50 @@ final class StreamReceiver {
     }
 
     private func buildSampleBuffer(from annexBData: Data, pts: CMTime, isKeyframe: Bool) -> CMSampleBuffer? {
-        // Allocate an owned CMBlockBuffer and copy the Annex B bytes into it.
-        // We must not point directly into annexBData: that Data goes out of scope
-        // before AVSampleBufferDisplayLayer consumes the buffer on the main thread,
-        // causing a use-after-free crash (EXC_BAD_ACCESS).
+        // AVSampleBufferDisplayLayer with a CMVideoFormatDescription from
+        // CMVideoFormatDescriptionCreateFromH264ParameterSets(nalUnitHeaderLength: 4) expects
+        // AVCC format (4-byte big-endian length prefix before each NAL unit), NOT Annex B.
+        // Convert here since the macOS side sends Annex B over the wire.
+        let avccData = annexBToAVCC(annexBData)
+        guard !avccData.isEmpty else { return nil }
+
+        // Allocate CF-owned CMBlockBuffer and copy the AVCC bytes in.
         var blockBuffer: CMBlockBuffer?
         var status = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
-            memoryBlock: nil,                   // CF allocates the memory
-            blockLength: annexBData.count,
+            memoryBlock: nil,
+            blockLength: avccData.count,
             blockAllocator: kCFAllocatorDefault,
             customBlockSource: nil,
             offsetToData: 0,
-            dataLength: annexBData.count,
+            dataLength: avccData.count,
             flags: 0,
             blockBufferOut: &blockBuffer
         )
         guard status == kCMBlockBufferNoErr, let blockBuffer else { return nil }
 
-        // Copy the Annex B payload into the CF-owned buffer
-        status = annexBData.withUnsafeBytes { ptr in
+        status = avccData.withUnsafeBytes { ptr in
             CMBlockBufferReplaceDataBytes(
                 with: ptr.baseAddress!,
                 blockBuffer: blockBuffer,
                 offsetIntoDestination: 0,
-                dataLength: annexBData.count
+                dataLength: avccData.count
             )
         }
         guard status == kCMBlockBufferNoErr else { return nil }
 
-        // Format description (needed for keyframes; subsequent frames can reuse)
-        var formatDesc: CMFormatDescription?
-        if isKeyframe, let paramData = parameterSets {
-            buildFormatDescription(from: paramData, into: &formatDesc)
-        }
-
-        // Build sample buffer
+        // Stamp with the iOS local host time so AVSampleBufferDisplayLayer renders immediately.
+        // The macOS PTS is from the Mac's host clock (unrelated scale to iPhone's host clock),
+        // so using it directly would schedule frames years into the past/future and drop them.
+        let localPTS = CMClockGetTime(CMClockGetHostTimeClock())
         var timingInfo = CMSampleTimingInfo(
             duration: CMTime(value: 1, timescale: 30),
-            presentationTimeStamp: pts,
+            presentationTimeStamp: localPTS,
             decodeTimeStamp: .invalid
         )
 
         var sampleBuffer: CMSampleBuffer?
-        let sampleSize = annexBData.count
-        var sampleSizeCopy = sampleSize
+        var sampleSizeCopy = avccData.count
 
         CMSampleBufferCreate(
             allocator: kCFAllocatorDefault,
@@ -177,7 +198,7 @@ final class StreamReceiver {
             dataReady: true,
             makeDataReadyCallback: nil,
             refcon: nil,
-            formatDescription: formatDesc,
+            formatDescription: cachedFormatDesc,
             sampleCount: 1,
             sampleTimingEntryCount: 1,
             sampleTimingArray: &timingInfo,
@@ -187,6 +208,38 @@ final class StreamReceiver {
         )
 
         return sampleBuffer
+    }
+
+    /// Convert Annex B (0x00 0x00 0x00 0x01 start-code prefixed) → AVCC (4-byte big-endian length prefixed).
+    /// This is the inverse of VideoEncoder.convertToAnnexB on the macOS side.
+    private func annexBToAVCC(_ annexB: Data) -> Data {
+        var result = Data()
+        var offset = 0
+        let startCode: [UInt8] = [0x00, 0x00, 0x00, 0x01]
+
+        while offset + 4 <= annexB.count {
+            guard Array(annexB[offset..<offset+4]) == startCode else { offset += 1; continue }
+            offset += 4  // skip start code
+
+            // Find the end of this NAL unit (next start code or end of buffer)
+            var end = offset
+            while end + 4 <= annexB.count {
+                if Array(annexB[end..<end+4]) == startCode { break }
+                end += 1
+            }
+            if end + 4 > annexB.count { end = annexB.count }
+
+            let nalLength = end - offset
+            guard nalLength > 0 else { continue }
+
+            // Write 4-byte big-endian length prefix
+            var length = UInt32(nalLength).bigEndian
+            withUnsafeBytes(of: &length) { result.append(contentsOf: $0) }
+            result.append(annexB[offset..<end])
+            offset = end
+        }
+
+        return result
     }
 
     private func buildFormatDescription(from spsPpsData: Data, into desc: inout CMFormatDescription?) {
@@ -245,8 +298,18 @@ final class StreamReceiver {
 
     func receive(audioPayload: Data, player: AudioPlayer) {
         guard let header = BeamAudioPayloadHeader.parse(from: audioPayload) else { return }
-        let aacData = Data(audioPayload.dropFirst(BeamAudioPayloadHeader.size))
-        let pts = CMTime.fromMicroseconds(header.presentationTimestamp)
-        player.enqueue(aacData, presentationTime: pts)
+        if lastAudioSequenceNumber != UInt32.max,
+           !isNewerAudioSequence(header.sequenceNumber, than: lastAudioSequenceNumber) {
+            return
+        }
+        lastAudioSequenceNumber = header.sequenceNumber
+
+        let pcmData = Data(audioPayload.dropFirst(BeamAudioPayloadHeader.size))
+        player.enqueue(pcmData, remotePresentationTimestampUs: header.presentationTimestamp)
+    }
+
+    private func isNewerAudioSequence(_ sequence: UInt32, than previous: UInt32) -> Bool {
+        let diff = sequence &- previous
+        return diff != 0 && diff < (UInt32.max / 2)
     }
 }

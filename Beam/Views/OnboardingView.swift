@@ -82,14 +82,6 @@ struct OnboardingView: View {
                             .foregroundStyle(.black)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
-
-                    if currentPage == pages.count - 1 {
-                        Button("Skip setup, do it later") {
-                            appState.hasCompletedOnboarding = true
-                        }
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    }
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 48)

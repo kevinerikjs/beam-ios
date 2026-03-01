@@ -21,6 +21,7 @@ struct BeamApp: App {
 
 struct RootView: View {
     @Environment(BeamAppState.self) private var appState
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -36,5 +37,8 @@ struct RootView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: appState.isStreaming)
         .animation(.easeInOut(duration: 0.3), value: appState.hasCompletedOnboarding)
+        .onChange(of: scenePhase) { _, phase in
+            appState.handleScenePhaseChange(phase)
+        }
     }
 }

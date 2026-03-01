@@ -6,6 +6,74 @@
 import Foundation
 import CoreMedia
 
+// MARK: - Stream Quality Presets
+
+enum StreamQualityPreset: String, Codable, CaseIterable, Identifiable {
+    case auto     = "auto"
+    case p360_30  = "360p30"
+    case p480_30  = "480p30"
+    case p720_30  = "720p30"
+    case p720_60  = "720p60"
+    case p1080_30 = "1080p30"
+    case p1080_60 = "1080p60"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .auto:     return "Auto"
+        case .p360_30:  return "360p · 30 fps"
+        case .p480_30:  return "480p · 30 fps"
+        case .p720_30:  return "720p · 30 fps"
+        case .p720_60:  return "720p · 60 fps"
+        case .p1080_30: return "1080p · 30 fps"
+        case .p1080_60: return "1080p · 60 fps"
+        }
+    }
+
+    var width: Int {
+        switch self {
+        case .auto:                   return 1920
+        case .p360_30:                return 640
+        case .p480_30:                return 854
+        case .p720_30, .p720_60:      return 1280
+        case .p1080_30, .p1080_60:    return 1920
+        }
+    }
+
+    var height: Int {
+        switch self {
+        case .auto:                   return 1080
+        case .p360_30:                return 360
+        case .p480_30:                return 480
+        case .p720_30, .p720_60:      return 720
+        case .p1080_30, .p1080_60:    return 1080
+        }
+    }
+
+    var fps: Double {
+        switch self {
+        case .auto, .p360_30, .p480_30, .p720_30, .p1080_30: return 30
+        case .p720_60, .p1080_60:                             return 60
+        }
+    }
+
+    var bitrateMbps: Double {
+        switch self {
+        case .auto:    return 6
+        case .p360_30: return 1.5
+        case .p480_30: return 2.5
+        case .p720_30: return 4
+        case .p720_60: return 6
+        case .p1080_30: return 6
+        case .p1080_60: return 10
+        }
+    }
+
+    /// Non-auto presets ordered lowest → highest (for auto-adaptation tiering).
+    static let autoTiers: [StreamQualityPreset] = [.p360_30, .p480_30, .p720_30, .p1080_30]
+}
+
 // MARK: - Packet Types
 
 enum BeamPacketType: UInt8 {
@@ -94,6 +162,10 @@ enum BeamControlMessageType: String, Codable {
     case streamRequest      = "stream_request"
     case streamStop         = "stream_stop"
     case qualityFeedback    = "quality_feedback"
+    case qualityRequest     = "quality_request"   // iOS → macOS: change to this preset
+    case qualityChanged     = "quality_changed"   // macOS → iOS: current preset is now this
+    case viewportLockRequest = "viewport_lock_request" // iOS → macOS: lock capture to viewport rect
+    case audioFormatChanged = "audio_format_changed" // macOS → iOS: active audio sample rate/channels
 }
 
 struct BeamControlMessage: Codable {
@@ -104,25 +176,32 @@ struct BeamControlMessage: Codable {
 enum BeamControlPayload: Codable {
     case mediaKey(BeamMediaKeyPayload)
     case qualityFeedback(BeamQualityFeedbackPayload)
+    case qualityRequest(BeamQualityPayload)
+    case qualityChanged(BeamQualityPayload)
+    case viewportLock(BeamViewportLockPayload)
+    case audioFormat(BeamAudioFormatPayload)
     case empty
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        if let mk = try? container.decode(BeamMediaKeyPayload.self) {
-            self = .mediaKey(mk)
-        } else if let qf = try? container.decode(BeamQualityFeedbackPayload.self) {
-            self = .qualityFeedback(qf)
-        } else {
-            self = .empty
-        }
+        if let v = try? container.decode(BeamMediaKeyPayload.self)        { self = .mediaKey(v); return }
+        if let v = try? container.decode(BeamQualityPayload.self)         { self = .qualityRequest(v); return }
+        if let v = try? container.decode(BeamQualityFeedbackPayload.self) { self = .qualityFeedback(v); return }
+        if let v = try? container.decode(BeamViewportLockPayload.self)    { self = .viewportLock(v); return }
+        if let v = try? container.decode(BeamAudioFormatPayload.self)     { self = .audioFormat(v); return }
+        self = .empty
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
-        case .mediaKey(let mk):     try container.encode(mk)
-        case .qualityFeedback(let qf): try container.encode(qf)
-        case .empty:                try container.encodeNil()
+        case .mediaKey(let v):        try container.encode(v)
+        case .qualityFeedback(let v): try container.encode(v)
+        case .qualityRequest(let v):  try container.encode(v)
+        case .qualityChanged(let v):  try container.encode(v)
+        case .viewportLock(let v):    try container.encode(v)
+        case .audioFormat(let v):     try container.encode(v)
+        case .empty:                  try container.encodeNil()
         }
     }
 }
@@ -136,9 +215,30 @@ struct BeamMediaKeyPayload: Codable {
     let key: Key
 }
 
+/// Quality feedback payload — carries a 0.0–1.0 quality score from iOS to macOS.
 struct BeamQualityFeedbackPayload: Codable {
-    let droppedFrames: Int
-    let bufferMs: Int
+    let quality: Double  // 0.0–1.0
+}
+
+/// Unified payload for qualityRequest / qualityChanged messages (both carry a preset).
+struct BeamQualityPayload: Codable {
+    let preset: StreamQualityPreset
+}
+
+/// Viewport lock payload used by iOS to request host-side capture cropping.
+/// Values are normalized to 0...1 in the currently streamed full-display coordinate space.
+struct BeamViewportLockPayload: Codable {
+    let locked: Bool
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+}
+
+/// Audio format payload sent by host when active stream audio format changes.
+struct BeamAudioFormatPayload: Codable {
+    let sampleRate: Double
+    let channels: Int
 }
 
 // MARK: - Pairing Messages
@@ -152,6 +252,7 @@ enum BeamPairingMessageType: String, Codable {
     case authRequest    = "auth_request"
     case authSuccess    = "auth_success"
     case authFailed     = "auth_failed"
+    case unpaired       = "unpaired"    // macOS → iOS: device was unpaired by the host
 }
 
 struct BeamPairingMessage: Codable {
