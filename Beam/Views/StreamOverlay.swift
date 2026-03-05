@@ -14,6 +14,7 @@ struct StreamOverlay: View {
     let onConfirmViewportLockSelection: () -> Void
     let onUnlockViewport: () -> Void
     let onOpenQualityPicker: () -> Void
+    let onUpgrade: () -> Void
     let onDisconnect: () -> Void
 
     var body: some View {
@@ -36,7 +37,7 @@ struct StreamOverlay: View {
             Spacer()
 
             if !StoreManager.shared.isPurchased, let remaining = SessionManager.shared.secondsRemaining {
-                sessionTimerBadge(remaining: remaining)
+                sessionTimerBadge(remaining: remaining, onUpgrade: onUpgrade)
             }
 
             Spacer()
@@ -190,14 +191,28 @@ struct StreamOverlay: View {
     // MARK: - Session Timer
 
     @ViewBuilder
-    private func sessionTimerBadge(remaining: TimeInterval) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "timer")
-                .font(.caption2)
-            Text(SessionManager.shared.formattedTimeRemaining)
-                .font(.system(.caption, design: .monospaced).weight(.medium))
+    private func sessionTimerBadge(remaining: TimeInterval, onUpgrade: @escaping () -> Void) -> some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 4) {
+                Image(systemName: "timer")
+                    .font(.caption2)
+                Text(SessionManager.shared.formattedTimeRemaining)
+                    .font(.system(.caption, design: .monospaced).weight(.medium))
+            }
+            .foregroundStyle(remaining < 60 ? Color.orange : Color.white)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.2))
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, 8)
+
+            Button("Upgrade") {
+                onUpgrade()
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.orange)
+            .buttonStyle(.plain)
         }
-        .foregroundStyle(remaining < 60 ? Color.orange : Color.white)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .beamGlass()

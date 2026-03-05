@@ -12,7 +12,7 @@ struct OnboardingView: View {
         OnboardingPage(
             icon: "film.fill",
             title: "Never lose your place",
-            body: "Watching something on your Mac? Beam streams your screen directly to your iPhone — instantly.",
+            body: "Watching something on your Mac? Beam streams your screen directly to your iPhone, instantly.",
             color: .orange
         ),
         OnboardingPage(
@@ -60,7 +60,7 @@ struct OnboardingView: View {
                 Spacer()
 
                 // CTA
-                VStack(spacing: 16) {
+                VStack(spacing: 12) {
                     Button {
                         if currentPage < pages.count - 1 {
                             withAnimation { currentPage += 1 }
@@ -81,6 +81,14 @@ struct OnboardingView: View {
                             )
                             .foregroundStyle(.black)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    if currentPage == pages.count - 1 {
+                        Text("3 days free with no limits, then 30 min/day or upgrade anytime")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                            .transition(.opacity)
                     }
                 }
                 .padding(.horizontal, 32)

@@ -224,9 +224,11 @@ final class ConnectionManager {
         switch msg.type {
         case .authSuccess:
             logger.info("Authenticated with \(self.host.name), stream starting")
+            // Record first stream to start the 3-day free trial clock (no-op after first time)
+            SessionManager.shared.recordFirstStream()
             Task { @MainActor in
                 appState?.isStreaming = true
-                // Start free tier timer if not purchased
+                // Start free tier timer if not purchased and not in trial
                 if !(appState?.isPurchased ?? false) {
                     SessionManager.shared.startSession()
                 }

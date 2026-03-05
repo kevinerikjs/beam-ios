@@ -55,6 +55,7 @@
 ### Core Product
 - [x] **Rolling session timer** — 30-minute (1800s) accumulated active stream time per 24h window, Keychain-backed; resets every 24h; lockout when exhausted (`kSessionLimitSeconds` in `SessionManager.swift`)
 - [x] **Paywall + IAP** — show paywall when session expires; one-time $3.79 unlock; purchase success screen; `HomeView` daily-limit section with countdown + "Unlock Beam Unlimited" CTA; subtle "Beam Unlimited" badge in bottomBar post-purchase; debug bypass removed from `StoreManager` so paywall is testable
+- [x] **3-day free trial** — `SessionManager.recordFirstStream()` sets Keychain-backed `trialStartDate` on first authSuccess; `isInTrial` bypasses 30-min timer for 3 days; trial chip in `HomeView` bottomBar ("3 days free · Upgrade →"); one-time trial-expired modal when trial ends (→ "your trial ended, 30 min/day now"); `OnboardingView` last page footnote explains the model; `StreamOverlay` timer badge gains inline "Upgrade" button (timer | divider | Upgrade) during free-tier sessions
 
 ### UI / Polish
 - [ ] **Icons + branding** — update app icon, stream landing, and start pages to match beamscreen.app branding

@@ -20,10 +20,13 @@ private let logger = Logger(subsystem: "com.beam.ios", category: "SessionManager
 private let kSessionStartKey: String   = "free_session_start"
 private let kUsedSecondsKey: String    = "free_used_seconds"
 private let kWindowStartKey: String    = "free_window_start"
+private let kTrialStartKey: String     = "free_trial_start"
 
 /// Total free streaming seconds per 24h window. 30 minutes.
 private let kSessionLimitSeconds: TimeInterval = 30 * 60
 private let kCooldownSeconds: TimeInterval     = 24 * 60 * 60
+/// Free trial duration: 3 days from first successful stream.
+private let kTrialDurationSeconds: TimeInterval = 3 * 24 * 60 * 60
 
 @Observable
 final class SessionManager {
@@ -34,6 +37,39 @@ final class SessionManager {
 
     /// Seconds remaining in the current session (running or paused). `nil` = no active session.
     private(set) var secondsRemaining: TimeInterval? = nil
+
+    // MARK: - Trial State
+
+    /// `true` while the 3-day free trial (from first successful stream) is still active.
+    var isInTrial: Bool {
+        guard !StoreManager.shared.isPurchased else { return false }
+        guard let start = trialStartDate else { return false }
+        return Date().timeIntervalSince(start) < kTrialDurationSeconds
+    }
+
+    /// Remaining trial time in whole days, rounded up (1–3). Returns 0 when expired or not started.
+    var trialDaysRemaining: Int {
+        guard let start = trialStartDate else { return 0 }
+        let remaining = kTrialDurationSeconds - Date().timeIntervalSince(start)
+        return max(0, Int(ceil(remaining / (24 * 60 * 60))))
+    }
+
+    /// Whether a trial was ever started (used to detect first-time expiry for the transition modal).
+    var hasTrialStarted: Bool { trialStartDate != nil }
+
+    /// Human-readable remaining trial label for the bottom bar chip.
+    /// Returns a "start your trial" label if the trial hasn't been triggered yet.
+    var formattedTrialDaysRemaining: String {
+        guard hasTrialStarted else { return "3-day free trial" }
+        switch trialDaysRemaining {
+        case 3:  return "3 days free"
+        case 2:  return "2 days free"
+        case 1:  return "1 day free"
+        default: return "< 1 day free"
+        }
+    }
+
+    // MARK: - 24h Cooldown State
 
     /// `true` when the user has exhausted their daily allowance and the 24h window hasn't reset.
     var isInCooldown: Bool {
@@ -82,6 +118,11 @@ final class SessionManager {
         set { saveDate(newValue, key: kWindowStartKey) }
     }
 
+    private var trialStartDate: Date? {
+        get { loadDate(key: kTrialStartKey) }
+        set { saveDate(newValue, key: kTrialStartKey) }
+    }
+
     // MARK: - Init
 
     private init() {
@@ -96,9 +137,19 @@ final class SessionManager {
 
     // MARK: - Session Control
 
-    /// Start a new session (called on authSuccess). No-op for purchased users.
+    /// Records the start of the 3-day free trial on the very first successful stream.
+    /// No-op if the trial has already been started or the user has purchased.
+    func recordFirstStream() {
+        guard !StoreManager.shared.isPurchased else { return }
+        guard trialStartDate == nil else { return }
+        trialStartDate = Date()
+        logger.info("Free trial started")
+    }
+
+    /// Start a new session (called on authSuccess). No-op for purchased or trial users.
     func startSession() {
         guard !StoreManager.shared.isPurchased else { return }
+        guard !isInTrial else { return }
 
         resetWindowIfExpired()
 

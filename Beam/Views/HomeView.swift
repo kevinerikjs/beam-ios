@@ -7,6 +7,8 @@ struct HomeView: View {
     @Environment(BeamAppState.self) private var appState
     @State private var showPairing = false
     @State private var showPaywall = false
+    @State private var showTrialExpiredModal = false
+    @AppStorage("beam.trialExpiredModalShown") private var trialExpiredModalShown = false
 
     // Drives real-time cooldown countdown without requiring SessionManager to own a display timer.
     @State private var now = Date()
@@ -48,7 +50,72 @@ struct HomeView: View {
         }
         .onReceive(clockTick) { tick in
             now = tick
+            checkTrialExpiry()
         }
+        .onAppear {
+            checkTrialExpiry()
+        }
+        .sheet(isPresented: $showTrialExpiredModal) {
+            trialExpiredModal
+        }
+    }
+
+    // MARK: - Trial Expiry Check
+
+    private func checkTrialExpiry() {
+        guard !trialExpiredModalShown,
+              !StoreManager.shared.isPurchased,
+              SessionManager.shared.hasTrialStarted,
+              !SessionManager.shared.isInTrial else { return }
+        trialExpiredModalShown = true
+        showTrialExpiredModal = true
+    }
+
+    // MARK: - Trial Expired Modal
+
+    @ViewBuilder
+    private var trialExpiredModal: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 28) {
+                VStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.orange.opacity(0.12))
+                            .frame(width: 80, height: 80)
+                        Image(systemName: "timer")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Your free trial has ended")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                    Text("You can still stream up to 30 minutes per day for free, or upgrade for unlimited access.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                }
+
+                VStack(spacing: 12) {
+                    Button("See Beam Unlimited") {
+                        showTrialExpiredModal = false
+                        showPaywall = true
+                    }
+                    .buttonStyle(BeamPrimaryButtonStyle())
+
+                    Button("Continue with free tier") {
+                        showTrialExpiredModal = false
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .padding(32)
+        }
+        .preferredColorScheme(.dark)
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
     }
 
     // MARK: - Logo
@@ -184,6 +251,28 @@ struct HomeView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+            } else if SessionManager.shared.isInTrial || !SessionManager.shared.hasTrialStarted {
+                // Trial chip: days remaining + subtle upgrade link
+                Button {
+                    showPaywall = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "sparkles")
+                            .font(.caption2)
+                            .foregroundStyle(.orange.opacity(0.75))
+                        Text(appState.sessionManager.formattedTrialDaysRemaining)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("·")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text("Upgrade →")
+                            .font(.caption)
+                            .foregroundStyle(.orange.opacity(0.7))
+                    }
+                }
+                .buttonStyle(.plain)
+                .id(now)
             } else {
                 // Free tier status
                 if SessionManager.shared.isInCooldown {
