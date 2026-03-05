@@ -101,6 +101,7 @@ struct StreamView: View {
                         showOverlay = true
                         showQualityPicker = true
                     },
+                    onUpgrade: { showPaywall = true },
                     onDisconnect: { appState.stopStream() }
                 )
                 .transition(.opacity)
@@ -117,7 +118,7 @@ struct StreamView: View {
             // during background transitions where PiP should continue.
         }
         .sheet(isPresented: $showPaywall) {
-            PaywallView()
+            PaywallView(triggeredByExpiry: true)
         }
         .sheet(isPresented: $showQualityPicker) {
             QualityPickerSheet(appState: appState)

@@ -96,7 +96,7 @@ final class BeamAppState {
     @MainActor
     func startStream() async {
         guard let host = discoveredHost, let mac = pairedMac else { return }
-        guard isPurchased || !sessionManager.isInCooldown else { return }
+        guard isPurchased || sessionManager.isInTrial || !sessionManager.isInCooldown else { return }
 
         connectionManager?.disconnect()
         let manager = ConnectionManager(host: host, pairedMac: mac, appState: self)
