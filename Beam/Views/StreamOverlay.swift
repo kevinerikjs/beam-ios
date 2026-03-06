@@ -77,9 +77,11 @@ struct StreamOverlay: View {
     @ViewBuilder
     private var mediaControls: some View {
         HStack(spacing: 4) {
+            MediaButton(systemName: "arrow.counterclockwise", label: "Seek Backward") { appState.connectionManager?.sendMediaKey(.seekBackward) }
             MediaButton(systemName: "backward.fill",   label: "Previous") { appState.connectionManager?.sendMediaKey(.previous) }
             MediaButton(systemName: "playpause.fill",  label: "Play/Pause", large: true) { appState.connectionManager?.sendMediaKey(.playPause) }
             MediaButton(systemName: "forward.fill",    label: "Next") { appState.connectionManager?.sendMediaKey(.next) }
+            MediaButton(systemName: "arrow.clockwise", label: "Seek Forward") { appState.connectionManager?.sendMediaKey(.seekForward) }
         }
         .padding(10)
         .beamGlass()

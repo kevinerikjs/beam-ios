@@ -208,9 +208,11 @@ enum BeamControlPayload: Codable {
 
 struct BeamMediaKeyPayload: Codable {
     enum Key: String, Codable {
-        case playPause  = "play_pause"
-        case next       = "next"
-        case previous   = "previous"
+        case playPause      = "play_pause"
+        case next           = "next"
+        case previous       = "previous"
+        case seekBackward   = "seek_backward"
+        case seekForward    = "seek_forward"
     }
     let key: Key
 }
