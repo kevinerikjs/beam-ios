@@ -20,6 +20,8 @@ final class VideoRenderer: UIView {
         return layer
     }()
 
+    var onSampleBuffer: ((CMSampleBuffer) -> Void)?
+
     private var hasReceivedFirstFrame = false
 
     override init(frame: CGRect) {
@@ -71,6 +73,7 @@ final class VideoRenderer: UIView {
         }
 
         displayLayer.enqueue(sampleBuffer)
+        onSampleBuffer?(sampleBuffer)
 
         if !hasReceivedFirstFrame {
             hasReceivedFirstFrame = true

@@ -58,6 +58,25 @@ final class BeamAppState {
 
     var sessionManager = SessionManager.shared
 
+    // MARK: - Viewport Lock
+
+    /// Last viewport lock rect sent to the host.
+    /// Persisted to UserDefaults so it survives app restarts — the host keeps the lock
+    /// on its end, and on next authSuccess ConnectionManager re-sends it automatically.
+    var lockedViewportRect: CGRect? = {
+        guard let str = UserDefaults.standard.string(forKey: "lockedViewportRect") else { return nil }
+        let r = NSCoder.cgRect(for: str)
+        return r.width > 0 ? r : nil
+    }() {
+        didSet {
+            if let r = lockedViewportRect {
+                UserDefaults.standard.set(NSCoder.string(for: r), forKey: "lockedViewportRect")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "lockedViewportRect")
+            }
+        }
+    }
+
     // MARK: - Managers
 
     let bonjourBrowser = BonjourBrowser()
