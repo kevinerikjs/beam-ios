@@ -204,8 +204,7 @@ struct StreamView: View {
             setupStreaming()
             scheduleOverlayHide()
             isViewportLocked = appState.lockedViewportRect != nil
-            // Viewport is now applied client-side; re-apply transform when container
-            // size becomes known (onChange fires once layout is complete).
+            renderer.cropRect = appState.lockedViewportRect
         }
         .onDisappear {
             // Don't tear down PiP/renderer on view disappearance because this can be triggered
@@ -225,7 +224,7 @@ struct StreamView: View {
         .onChange(of: appState.isStreaming) { _, isStreaming in
             if isStreaming {
                 isViewportLocked = appState.lockedViewportRect != nil
-                if isViewportLocked { applyViewportLockTransform() }
+                renderer.cropRect = appState.lockedViewportRect
             } else {
                 pipController.teardown()
                 renderer.flush()
@@ -244,10 +243,6 @@ struct StreamView: View {
             default:
                 break
             }
-        }
-        .onChange(of: videoContainerSize) { _, _ in
-            // Re-apply viewport transform after rotation or initial layout
-            if isViewportLocked { applyViewportLockTransform() }
         }
         .onChange(of: pipController.isPiPActive) { _, isActive in
             guard appState.isStreaming else { return }
@@ -343,16 +338,23 @@ struct StreamView: View {
         appState.lockedViewportRect = lockedRect
         isViewportLocked = true
         isSelectingViewportLock = false
-        withAnimation(.spring(duration: 0.35)) { applyViewportLockTransform() }
+        renderer.cropRect = lockedRect   // pre-process stream so PiP shows the viewport too
+        resetZoom()                       // stream crop drives the display; no additional zoom needed
         scheduleOverlayHide()
     }
 
     private func unlockViewport() {
         guard let manager = appState.connectionManager else { return }
+        // Apply the client-side zoom transform that matches the locked viewport.
+        // This makes the transition seamless: the full stream arrives with the same
+        // visible region as the crop, then we animate back to full view.
+        applyViewportLockTransform()
+        renderer.cropRect = nil           // stop stream-level crop; full frames now incoming
         appState.lockedViewportRect = nil
         isViewportLocked = false
         isSelectingViewportLock = false
         manager.sendViewportLock(nil)
+        withAnimation(.spring(duration: 0.4)) { resetZoom() }
     }
 
     private func startAutoDetection() {
@@ -382,7 +384,8 @@ struct StreamView: View {
             detectionLockHaptic.toggle()
             isViewportLocked = true
             isSelectingViewportLock = false
-            withAnimation(.spring(duration: 0.35)) { applyViewportLockTransform() }
+            renderer.cropRect = detected   // pre-process stream so PiP shows the viewport too
+            resetZoom()
             scheduleOverlayHide()
         } else {
             // Nothing detected — stay in selection mode so user can try again or select manually
