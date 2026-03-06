@@ -268,7 +268,7 @@ final class VideoMotionDetector {
         //   • Unpainted cells → 150% of base ratio (suppresses unrelated motion)
         let baseRatio = Self.requiredRatio(activeFrames: activeFrameCount)
         let hasMask = !paintedCells.isEmpty
-        var minX = gW, maxX = -1, minY = gH, maxY = -1
+        var hotCells = Set<Int>()
 
         for gy in 0..<gH {
             for gx in 0..<gW {
@@ -277,10 +277,34 @@ final class VideoMotionDetector {
                 let cellRatio: Float = hasMask
                     ? (paintedCells.contains(i) ? baseRatio * 0.55 : baseRatio * 1.5)
                     : baseRatio
-                if f >= cellRatio {
-                    if gx < minX { minX = gx }; if gx > maxX { maxX = gx }
-                    if gy < minY { minY = gy }; if gy > maxY { maxY = gy }
-                }
+                if f >= cellRatio { hotCells.insert(i) }
+            }
+        }
+        guard !hotCells.isEmpty else { return }
+
+        // ── Connected-blob filter (paint mask only) ───────────────────────────
+        // Flood-fill from painted hot cells to find the contiguous blob anchored
+        // to the user's indicated area. Isolated hot blobs in other parts of the
+        // screen (background terminal updates, clock, etc.) are excluded because
+        // they're not reachable from the painted seed cells.
+        let activeCells: Set<Int> = hasMask
+            ? paintAnchoredBlob(hotCells: hotCells, gW: gW, gH: gH)
+            : hotCells
+
+        // ── Bounding box ─────────────────────────────────────────────────────
+        var minX = gW, maxX = -1, minY = gH, maxY = -1
+        for i in activeCells {
+            let gx = i % gW, gy = i / gW
+            if gx < minX { minX = gx }; if gx > maxX { maxX = gx }
+            if gy < minY { minY = gy }; if gy > maxY { maxY = gy }
+        }
+        // Expand to cover the full painted extent — includes static chrome/borders
+        // that the user dragged over, even if those cells never moved.
+        if hasMask {
+            for i in paintedCells {
+                let gx = i % gW, gy = i / gW
+                if gx < minX { minX = gx }; if gx > maxX { maxX = gx }
+                if gy < minY { minY = gy }; if gy > maxY { maxY = gy }
             }
         }
         guard maxX >= minX, maxY >= minY else { return }
@@ -312,6 +336,36 @@ final class VideoMotionDetector {
     }
 
     // MARK: - Helpers
+
+    /// BFS flood-fill from painted cells that are also hot, expanding to all
+    /// 8-connected hot neighbours. Returns the blob anchored to the painted area.
+    /// Falls back to the full hotCells set when no painted cell is hot (user hasn't
+    /// painted over any moving content yet).
+    private func paintAnchoredBlob(hotCells: Set<Int>, gW: Int, gH: Int) -> Set<Int> {
+        let seeds = paintedCells.filter { hotCells.contains($0) }
+        guard !seeds.isEmpty else { return hotCells }
+
+        var blob = Set<Int>(minimumCapacity: seeds.count * 4)
+        var queue = Array(seeds)
+        blob.formUnion(seeds)
+
+        while !queue.isEmpty {
+            let cell = queue.removeLast()
+            let cx = cell % gW, cy = cell / gW
+            for dy in -1...1 {
+                for dx in -1...1 {
+                    guard dx != 0 || dy != 0 else { continue }
+                    let nx = cx + dx, ny = cy + dy
+                    guard nx >= 0, nx < gW, ny >= 0, ny < gH else { continue }
+                    let ni = ny * gW + nx
+                    guard hotCells.contains(ni), !blob.contains(ni) else { continue }
+                    blob.insert(ni)
+                    queue.append(ni)
+                }
+            }
+        }
+        return blob
+    }
 
     private func rectsAreSimilar(_ a: CGRect, _ b: CGRect) -> Bool {
         let e = Self.stableEpsilon
