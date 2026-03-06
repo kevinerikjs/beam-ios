@@ -31,14 +31,6 @@ final class ConnectionManager {
     private let controlInactivityTimeout: TimeInterval = 12
     private let mediaInactivityTimeout: TimeInterval = 6
 
-    // Post-auth media watchdog — detects wedged host pipeline (auth succeeded, no media flows)
-    private var postAuthWatchdog: DispatchSourceTimer?
-    private var hasReceivedFirstMedia = false
-    /// True while we're silently reconnecting due to a wedged stream (suppresses connectionManager teardown).
-    private var isAutoReconnecting = false
-    /// Prevents infinite auto-reconnect loops — only one silent retry per ConnectionManager lifetime.
-    private var autoReconnectAttempted = false
-
     init(host: DiscoveredHost, pairedMac: PairedMac, appState: BeamAppState) {
         self.host = host
         self.pairedMac = pairedMac
@@ -49,10 +41,8 @@ final class ConnectionManager {
     // MARK: - Connect
 
     @MainActor
-    func connect(isAutoReconnect: Bool = false) async {
+    func connect() async {
         isDisconnecting = false
-        hasReceivedFirstMedia = false
-        if !isAutoReconnect { autoReconnectAttempted = false }
         lastPacketReceivedAt = Date()
         lastMediaPacketReceivedAt = Date()
         streamReceiver.reset()
@@ -127,7 +117,6 @@ final class ConnectionManager {
         guard !isDisconnecting else { return }
         isDisconnecting = true
 
-        cancelPostAuthWatchdog()
         qualityTimer?.cancel()
         qualityTimer = nil
         SessionManager.shared.stopSession()
@@ -136,14 +125,10 @@ final class ConnectionManager {
         connection = nil
         streamReceiver.reset()
         audioPlayer.stop()
-        let autoReconnecting = isAutoReconnecting
         Task { @MainActor in
             appState?.isStreaming = false
             appState?.connectionQuality = 1.0
-            // Keep connectionManager alive during silent auto-reconnect so we can reuse it
-            if !autoReconnecting {
-                appState?.connectionManager = nil
-            }
+            appState?.connectionManager = nil
         }
         logger.info("Disconnected from \(self.host.name)")
     }
@@ -185,7 +170,6 @@ final class ConnectionManager {
         switch header.type {
         case .video, .videoIDR:
             lastMediaPacketReceivedAt = Date()
-            if !hasReceivedFirstMedia { hasReceivedFirstMedia = true; cancelPostAuthWatchdog() }
             streamReceiver.receive(videoPayload: Data(payload), isKeyframe: header.type == .videoIDR)
 
         case .spsPps:
@@ -193,7 +177,6 @@ final class ConnectionManager {
 
         case .audio:
             lastMediaPacketReceivedAt = Date()
-            if !hasReceivedFirstMedia { hasReceivedFirstMedia = true; cancelPostAuthWatchdog() }
             streamReceiver.receive(audioPayload: Data(payload), player: audioPlayer)
 
         case .control:
@@ -258,9 +241,6 @@ final class ConnectionManager {
             if let rect = appState?.lockedViewportRect {
                 sendViewportLock(rect)
             }
-            // Watchdog: if the host pipeline is wedged, no media will arrive despite a
-            // successful auth. Detect this and silently reconnect once.
-            startPostAuthWatchdog()
 
         case .authFailed:
             logger.error("Auth failed: \(msg.error ?? "unknown")")
@@ -375,52 +355,6 @@ final class ConnectionManager {
         )
         guard let data = try? JSONEncoder().encode(msg) else { return }
         sendTCP(data.lengthPrefixed())
-    }
-
-    // MARK: - Post-Auth Watchdog
-
-    private func startPostAuthWatchdog() {
-        cancelPostAuthWatchdog()
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.schedule(deadline: .now() + 5)
-        timer.setEventHandler { [weak self] in
-            guard let self, !hasReceivedFirstMedia else { return }
-            postAuthWatchdog = nil
-            logger.warning("No media received 5s after auth — host pipeline may be wedged, attempting silent reconnect")
-            Task { @MainActor in self.handleWedgedStream() }
-        }
-        timer.resume()
-        postAuthWatchdog = timer
-    }
-
-    private func cancelPostAuthWatchdog() {
-        postAuthWatchdog?.cancel()
-        postAuthWatchdog = nil
-    }
-
-    /// Called when auth succeeded but no media arrived — silently reconnects once.
-    /// On the second failure the user is returned to the home screen normally.
-    @MainActor
-    private func handleWedgedStream() {
-        guard !autoReconnectAttempted else {
-            logger.error("Stream still wedged after auto-reconnect — giving up, returning to home")
-            isAutoReconnecting = false
-            disconnect()
-            return
-        }
-        guard !isDisconnecting else { return }
-        autoReconnectAttempted = true
-        isAutoReconnecting = true
-        logger.info("Wedged stream — disconnecting and reconnecting in 1.5s")
-        disconnect()
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: .seconds(1.5))
-            isAutoReconnecting = false
-            // Only proceed if we're still the active connection manager
-            guard appState?.connectionManager === self, appState?.pairedMac != nil else { return }
-            await connect(isAutoReconnect: true)
-        }
     }
 
     // MARK: - TCP Send
