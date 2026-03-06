@@ -42,7 +42,7 @@ final class StreamReceiver {
     private var lastDeliveredFrameNumber: UInt32 = UInt32.max
 
     // Cached format description — built once from SPS/PPS, reused for every frame
-    private var cachedFormatDesc: CMFormatDescription?
+    private(set) var cachedFormatDesc: CMFormatDescription?
 
     // Audio sequence tracking
     private var lastAudioSequenceNumber: UInt32 = UInt32.max

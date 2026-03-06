@@ -237,6 +237,10 @@ final class ConnectionManager {
             // Send our quality preference to the host immediately after auth
             let preferred = appState?.preferredQualityPreset ?? .auto
             sendQualityRequest(preferred)
+            // Re-apply any viewport lock from the previous session
+            if let rect = appState?.lockedViewportRect {
+                sendViewportLock(rect)
+            }
 
         case .authFailed:
             logger.error("Auth failed: \(msg.error ?? "unknown")")

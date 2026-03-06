@@ -16,6 +16,11 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>BeamIAPProductIDs</key>
+	<array>
+		<string>com.beamapp.ios.unlimited</string>
+		<string>com.beam.ios.unlimited</string>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -37,8 +42,8 @@
 	<array>
 		<string>audio</string>
 	</array>
-	<key>UILaunchScreen</key>
-	<dict/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>PlusJakartaSans-Variable.ttf</string>

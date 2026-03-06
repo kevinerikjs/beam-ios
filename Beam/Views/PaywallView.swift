@@ -13,7 +13,10 @@ struct PaywallView: View {
     @State private var showSuccess = false
 
     private var priceLabel: String {
-        "Purchase Beam Unlimited for \(store.product?.displayPrice ?? "$3.79")"
+        if let product = store.product {
+            return "Purchase Beam Unlimited for \(product.displayPrice)"
+        }
+        return "Load Beam Unlimited Pricing"
     }
 
     var body: some View {
@@ -93,7 +96,13 @@ struct PaywallView: View {
                 // CTA + actions
                 VStack(spacing: 12) {
                     Button {
-                        Task { await store.purchase() }
+                        Task {
+                            if store.product == nil {
+                                await store.loadProduct()
+                            } else {
+                                await store.purchase()
+                            }
+                        }
                     } label: {
                         Group {
                             if store.isPurchasing {
@@ -119,6 +128,12 @@ struct PaywallView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
                     .disabled(store.isPurchasing)
+
+                    if store.product == nil {
+                        Text("Fetching live App Store pricing…")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
 
                     HStack(spacing: 20) {
                         Button(triggeredByExpiry ? "Try again tomorrow" : "Maybe later") {
@@ -175,7 +190,12 @@ struct PaywallView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .task { await store.loadProduct() }
+        .task {
+            await store.refreshStoreState()
+            if store.isPurchased {
+                dismiss()
+            }
+        }
         .onChange(of: store.isPurchased) { _, purchased in
             if purchased {
                 withAnimation(.spring(duration: 0.4)) { showSuccess = true }
