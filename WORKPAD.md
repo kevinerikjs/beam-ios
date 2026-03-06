@@ -1,6 +1,6 @@
 # Beam iOS - Work State
 
-## Current Status: Active Development — Testing + Feature Pass
+## Current Status: v1 Feature Complete — Pending App Store Review + Icons/Branding
 
 ---
 
@@ -58,8 +58,9 @@
 - [x] **3-day free trial** — `SessionManager.recordFirstStream()` sets Keychain-backed `trialStartDate` on first authSuccess; `isInTrial` bypasses 30-min timer for 3 days; trial chip in `HomeView` bottomBar ("3 days free · Upgrade →"); one-time trial-expired modal when trial ends (→ "your trial ended, 30 min/day now"); `OnboardingView` last page footnote explains the model; `StreamOverlay` timer badge gains inline "Upgrade" button (timer | divider | Upgrade) during free-tier sessions
 
 ### UI / Polish
-- [x] **Auto video detection via long press** — `VideoMotionDetector` class decodes H.264 frames via `VTDecompressionSession`; frequency-based luma grid (96×54) with spatial noise filter (min 30 coarse-changed cells/frame); detected rect = bounding box of cells changing in ≥35% of active frames (adaptive ratio); `isConfident` after 3 stable frames; detection keeps running after confidence for ongoing refinement; locked rect expanded to 16:9 before sending; marching-ants→glow border in `AutoDetectOverlay`; hold ONLY works in viewport-lock selection mode; `DragGesture(minimumDistance:0)` + manual Task timer (0.6s, cancels on >15pt movement) so panning still works; haptics via `.sensoryFeedback`
-- [x] **Hex glass reveal + user painting** — `HexRevealOverlay`: Canvas-based pointy-top hex grid that reveals itself via expanding ripple from touch point (`.screen` blendMode, sky blue strokes, turquoise for painted cells); pressure glow at fingertip with pulse animation; after detection starts, finger movement "paints" priority regions into `VideoMotionDetector.setPaintMask()` — painted cells get 55% threshold (captures static borders), unpainted cells get 150% threshold (suppresses unrelated motion); `addPaintPoint()` deduplicates and converts screen coords to grid cells with 2-cell brush radius
+- [x] **Auto video detection via long press** — `VideoMotionDetector` class decodes H.264 frames via `VTDecompressionSession`; motion heatmap (96×54 luma grid) + 3×3 spatial blur + BFS connected blob selection scored by energy×paint-overlap; 95th-percentile bounding box trim; paint area is warm attractor signal (3× boost); edge contrast as secondary signal (0.12 weight); analyzes every 3rd frame (~10fps) of all frames (not just keyframes); `isConfident` after 2 stable frames; locked rect expanded to 16:9 before sending; radar-ripple→glow border in `AutoDetectOverlay`; hold from anywhere (not just selection mode); haptics via `.sensoryFeedback`
+- [x] **Hex glass reveal + user painting** — `HexRevealOverlay`: Canvas-based pointy-top hex grid that reveals itself via expanding ripple from touch point (`.screen` blendMode, sky blue strokes, turquoise for painted cells); circular glass indicator (52pt, centered on hold point); pressure glow at fingertip with pulse animation; after detection starts, finger movement "paints" priority regions into `VideoMotionDetector.setPaintMask()` — painted cells get 3× motion weight boost; neighbor cells get 1.5× boost; `addPaintPoint()` deduplicates and converts screen coords to grid cells with 2-cell brush radius
+- [x] **Seek backward/forward buttons** — circular arrow icons on left/right edges of media controls HUD; maps to left/right arrow key presses on Mac (works in QuickTime, VLC, browsers, etc.)
 - [ ] **Icons + branding** — update app icon, stream landing, and start pages to match beamscreen.app branding
 
 ---
