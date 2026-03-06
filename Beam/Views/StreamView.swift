@@ -203,9 +203,9 @@ struct StreamView: View {
         .onAppear {
             setupStreaming()
             scheduleOverlayHide()
-            // Restore lock UI state from the previous session — the host re-applies
-            // the lock on authSuccess, so we just need the button to reflect it.
             isViewportLocked = appState.lockedViewportRect != nil
+            // Viewport is now applied client-side; re-apply transform when container
+            // size becomes known (onChange fires once layout is complete).
         }
         .onDisappear {
             // Don't tear down PiP/renderer on view disappearance because this can be triggered
@@ -224,8 +224,8 @@ struct StreamView: View {
         }
         .onChange(of: appState.isStreaming) { _, isStreaming in
             if isStreaming {
-                // Restore UI lock state from previous session — host keeps the lock on its side.
                 isViewportLocked = appState.lockedViewportRect != nil
+                if isViewportLocked { applyViewportLockTransform() }
             } else {
                 pipController.teardown()
                 renderer.flush()
@@ -244,6 +244,10 @@ struct StreamView: View {
             default:
                 break
             }
+        }
+        .onChange(of: videoContainerSize) { _, _ in
+            // Re-apply viewport transform after rotation or initial layout
+            if isViewportLocked { applyViewportLockTransform() }
         }
         .onChange(of: pipController.isPiPActive) { _, isActive in
             guard appState.isStreaming else { return }
@@ -288,6 +292,38 @@ struct StreamView: View {
         baseOffset  = .zero
     }
 
+    /// Compute scale + offset to zoom the renderer so that `appState.lockedViewportRect`
+    /// fills the visible container (aspect-fit). Call after setting lockedViewportRect and
+    /// whenever the container size changes while locked.
+    private func applyViewportLockTransform() {
+        guard let rect = appState.lockedViewportRect, videoContainerSize != .zero else {
+            resetZoom()
+            return
+        }
+        let container = CGRect(origin: .zero, size: videoContainerSize)
+        let bvr = baseVideoRect(in: container)
+        guard bvr.width > 0, bvr.height > 0 else { resetZoom(); return }
+
+        let regionW = rect.width  * bvr.width
+        let regionH = rect.height * bvr.height
+        let regionCX = bvr.minX + rect.midX * bvr.width
+        let regionCY = bvr.minY + rect.midY * bvr.height
+
+        // Scale so the locked region fits the container (aspect-fit)
+        let scale = min(container.width / max(regionW, 1), container.height / max(regionH, 1))
+
+        // Offset: map region center to container center
+        // transformedX = cx + (pointX - cx) * scale + offsetX  →  cx = cx + (regionCX - cx) * scale + offsetX
+        let cx = container.midX, cy = container.midY
+        let offsetX = -(regionCX - cx) * scale
+        let offsetY = -(regionCY - cy) * scale
+
+        videoScale  = scale
+        baseScale   = scale
+        videoOffset = CGSize(width: offsetX, height: offsetY)
+        baseOffset  = videoOffset
+    }
+
     private func startViewportLockSelection() {
         guard !isViewportLocked else { return }
         isSelectingViewportLock = true
@@ -307,7 +343,7 @@ struct StreamView: View {
         appState.lockedViewportRect = lockedRect
         isViewportLocked = true
         isSelectingViewportLock = false
-        resetZoom()
+        withAnimation(.spring(duration: 0.35)) { applyViewportLockTransform() }
         scheduleOverlayHide()
     }
 
@@ -346,7 +382,7 @@ struct StreamView: View {
             detectionLockHaptic.toggle()
             isViewportLocked = true
             isSelectingViewportLock = false
-            resetZoom()
+            withAnimation(.spring(duration: 0.35)) { applyViewportLockTransform() }
             scheduleOverlayHide()
         } else {
             // Nothing detected — stay in selection mode so user can try again or select manually
