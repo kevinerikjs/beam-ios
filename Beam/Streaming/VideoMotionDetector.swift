@@ -1,17 +1,19 @@
 // VideoMotionDetector.swift
-// Frequency-based video region detector.
+// Motion-heatmap + spatial coherence video region detector.
 //
-// Core idea: only keyframes are decoded (I-frames are self-contained; P-frames
-// cause -12909 without reference context). For each decoded keyframe we compare
-// it to the previous one using temporal difference. A frame is "active" only if
-// enough cells changed — this spatial filter throws away clock ticks (~3 cells),
-// loading spinners (~15 cells) and cursor jitter.  For active frames we track
-// *how often* each grid cell changed.  Cells that change frequently (>= requiredRatio
-// of active frames) are classified as video content.  The bounding box of those
-// cells is the detected region.  This is precise because:
-//   • Video content  → changes on almost every active frame  (~80-100%)
-//   • Occasional UI  → changes rarely                        (~5-20%)
-//   • Static UI      → never changes                         (0%)
+// Algorithm overview:
+//   1. Accumulate per-cell luma change frequency over decoded keyframes.
+//   2. Build a weighted motion score: painted cells get a 3× boost so they
+//      attract the result, but the paint area is a hint not a hard boundary.
+//   3. 3×3 mean-blur the scores for spatial coherence — isolated single-cell
+//      noise (terminal newline, clock tick) blurs to near-zero while contiguous
+//      video blocks stay strong.
+//   4. Threshold the blurred map → connected blobs (8-connected BFS).
+//   5. Pick the best blob: highest total weighted energy, with an extra boost
+//      for overlap with the painted region when a paint mask is active.
+//   6. Compute the 95th-percentile bounding box of that blob: iteratively peel
+//      rows/columns from all four edges while retaining ≥95% of the blob's
+//      motion energy. This trims cold-periphery cells and gives a tight rect.
 
 import Foundation
 import CoreMedia
@@ -52,7 +54,7 @@ final class VideoMotionDetector {
     // MARK: - Tuning
 
     /// Luma grid size. 96×54 = 5184 cells over a 1920×1080 frame → each cell ≈ 20×20px.
-    /// Internal (not private) so StreamView can convert screen coords to grid cells for the paint mask.
+    /// Internal so StreamView can convert screen coords to grid cells for the paint mask.
     static let gridW = 96
     static let gridH = 54
 
@@ -62,31 +64,33 @@ final class VideoMotionDetector {
     /// Minimum luma delta for the spatial activity count (coarser — filters encoding noise).
     private static let coarseThreshold: Int = 22
 
-    /// Minimum number of coarse-changed cells for a frame to be counted as "active".
-    /// Clock digit flip:  ~4 cells.  Loading spinner: ~15 cells.  Video frame: 200+ cells.
+    /// Minimum coarse-changed cells for a frame to count as "active".
+    /// Clock digit flip: ~4. Spinner: ~15. Video frame: 200+.
     private static let minCellsForActiveFrame = 30
 
-    /// Minimum active frames before we publish any detection.
+    /// Minimum active frames before publishing any detection.
     private static let minActiveFrames = 2
 
-    /// Active frames required without rect change before `isConfident` flips true.
+    /// Active frames without rect change before `isConfident` flips true.
     private static let confidenceFrames = 3
-
-    /// Border of bounding box (in grid cells) added around hot region.
-    private static let cellPadding = 0
 
     /// Rects closer than this (normalised) are considered the same for stability tracking.
     private static let stableEpsilon: CGFloat = 0.02
 
-    /// Fraction of active frames a cell must have changed to be classified as "video".
-    /// Adaptive — stricter with few frames (less data), relaxed with more.
-    private static func requiredRatio(activeFrames: Int) -> Float {
-        switch activeFrames {
-        case 2:    return 0.55   // both frames changed
-        case 3...4: return 0.45
-        default:   return 0.35   // enough frames → 35% is reliably above noise
-        }
-    }
+    /// Motion weight for painted cells — makes the paint area a warm attractor.
+    private static let paintBoost: Float = 3.0
+
+    /// Motion weight for immediate neighbours of painted cells (smooth falloff).
+    private static let paintNeighborBoost: Float = 1.5
+
+    /// Minimum blurred motion score for a cell to be considered "hot".
+    /// After 3×3 blur, a single isolated cell changing 100% of frames blurs to ~0.11;
+    /// a terminal newline cluster (~3 cells at 0.2 rate) blurs to ~0.044–0.067.
+    /// Threshold of 0.08 excludes sparse noise while keeping any real video motion.
+    private static let hotCellThreshold: Float = 0.08
+
+    /// Fraction of the best blob's motion energy to retain when trimming the bbox.
+    private static let motionPercentile: Float = 0.95
 
     // MARK: - Queue-Confined State
 
@@ -100,9 +104,9 @@ final class VideoMotionDetector {
     private var lastPublishedRect: CGRect? = nil
     private var stableCount = 0
 
-    /// User-painted grid cell indices. Painted cells get a significantly lower detection threshold
-    /// so the algorithm locks onto the painted region's exact edges (including static border pixels).
-    /// Cells outside the painted region get a raised threshold to suppress noise elsewhere.
+    /// User-painted grid cell indices (set from main thread via setPaintMask).
+    /// Used as a warm-zone signal: painted cells get paintBoost weight, neighbours
+    /// get paintNeighborBoost. The result is NOT constrained to the painted area.
     private var paintedCells: Set<Int> = []
 
     // MARK: - Public API
@@ -132,8 +136,9 @@ final class VideoMotionDetector {
         DispatchQueue.main.async { [weak self] in self?.isDetecting = false }
     }
 
-    /// Update the paint mask from the main thread. Painted cells bias detection toward
-    /// the user-indicated region — lowering their threshold and raising it elsewhere.
+    /// Update the paint mask from the main thread.
+    /// Painted cells act as a warmer attractor for the algorithm — they bias
+    /// which blob wins without constraining the output rectangle.
     func setPaintMask(_ cells: Set<Int>) {
         queue.async { [weak self] in self?.paintedCells = cells }
     }
@@ -207,7 +212,6 @@ final class VideoMotionDetector {
     // MARK: - Analysis
 
     func processPixelBuffer(_ pixelBuffer: CVImageBuffer) {
-        // Synchronous VT decode → already on queue
         analyzePixelBuffer(pixelBuffer)
     }
 
@@ -218,14 +222,14 @@ final class VideoMotionDetector {
         guard CVPixelBufferGetPlaneCount(pixelBuffer) >= 1,
               let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return }
 
-        let pW   = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
-        let pH   = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+        let pW     = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+        let pH     = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
         let stride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
-        let luma = base.assumingMemoryBound(to: UInt8.self)
-        let gW   = Self.gridW, gH = Self.gridH
-        let size = gW * gH
+        let luma   = base.assumingMemoryBound(to: UInt8.self)
+        let gW     = Self.gridW, gH = Self.gridH
+        let size   = gW * gH
 
-        // Sample luma at grid positions
+        // ── Sample luma at grid positions ─────────────────────────────────────
         var current = [UInt8](repeating: 0, count: size)
         for gy in 0..<gH {
             let py = min(gy * pH / gH, pH - 1)
@@ -235,10 +239,9 @@ final class VideoMotionDetector {
             }
         }
 
-        // Need a previous frame to diff against
         guard prevGrid.count == size else { prevGrid = current; return }
 
-        // Compute per-cell absolute luma diffs
+        // ── Per-cell luma diffs ────────────────────────────────────────────────
         var diffs = [Int](repeating: 0, count: size)
         var coarseChanged = 0
         for i in 0..<size {
@@ -248,13 +251,12 @@ final class VideoMotionDetector {
         }
         prevGrid = current
 
-        // ── Spatial filter ───────────────────────────────────────────────────────
-        // If fewer than minCellsForActiveFrame cells changed coarsely, this is a
-        // noise frame (clock tick, spinner, cursor) — skip it entirely so those
-        // cells never accumulate frequency credit.
+        // ── Spatial filter: skip noise frames ─────────────────────────────────
+        // Fewer than minCellsForActiveFrame coarse-changed cells = clock tick,
+        // loading spinner, cursor blink — skip so they get no frequency credit.
         guard coarseChanged >= Self.minCellsForActiveFrame else { return }
 
-        // ── Active frame ─────────────────────────────────────────────────────────
+        // ── Accumulate change frequency ────────────────────────────────────────
         activeFrameCount += 1
         for i in 0..<size where diffs[i] > Self.fineThreshold {
             changeCount[i] += 1
@@ -262,65 +264,65 @@ final class VideoMotionDetector {
 
         guard activeFrameCount >= Self.minActiveFrames else { return }
 
-        // ── Frequency thresholding ────────────────────────────────────────────────
-        // When the user has painted a region, bias thresholds toward that area:
-        //   • Painted cells   → 55% of base ratio  (captures static borders too)
-        //   • Unpainted cells → 150% of base ratio (suppresses unrelated motion)
-        let baseRatio = Self.requiredRatio(activeFrames: activeFrameCount)
+        // ── Build paint-weighted motion scores ────────────────────────────────
+        // Painted cells get paintBoost (3×) and their immediate neighbours get
+        // paintNeighborBoost (1.5×). This makes the painted area a warm attractor
+        // without hard-constraining the output rectangle.
         let hasMask = !paintedCells.isEmpty
-        var hotCells = Set<Int>()
 
-        for gy in 0..<gH {
-            for gx in 0..<gW {
-                let i = gy * gW + gx
-                let f = Float(changeCount[i]) / Float(activeFrameCount)
-                let cellRatio: Float = hasMask
-                    ? (paintedCells.contains(i) ? baseRatio * 0.55 : baseRatio * 1.5)
-                    : baseRatio
-                if f >= cellRatio { hotCells.insert(i) }
-            }
-        }
-        guard !hotCells.isEmpty else { return }
-
-        // ── Connected-blob filter (paint mask only) ───────────────────────────
-        // Flood-fill from painted hot cells to find the contiguous blob anchored
-        // to the user's indicated area. Isolated hot blobs in other parts of the
-        // screen (background terminal updates, clock, etc.) are excluded because
-        // they're not reachable from the painted seed cells.
-        let activeCells: Set<Int> = hasMask
-            ? paintAnchoredBlob(hotCells: hotCells, gW: gW, gH: gH)
-            : hotCells
-
-        // ── Bounding box ─────────────────────────────────────────────────────
-        var minX = gW, maxX = -1, minY = gH, maxY = -1
-        for i in activeCells {
-            let gx = i % gW, gy = i / gW
-            if gx < minX { minX = gx }; if gx > maxX { maxX = gx }
-            if gy < minY { minY = gy }; if gy > maxY { maxY = gy }
-        }
-        // Expand to cover the full painted extent — includes static chrome/borders
-        // that the user dragged over, even if those cells never moved.
+        // Pre-compute neighbour ring of painted cells for the boost falloff.
+        var paintNeighbors = Set<Int>()
         if hasMask {
             for i in paintedCells {
-                let gx = i % gW, gy = i / gW
-                if gx < minX { minX = gx }; if gx > maxX { maxX = gx }
-                if gy < minY { minY = gy }; if gy > maxY { maxY = gy }
+                let cx = i % gW, cy = i / gW
+                for dy in -1...1 { for dx in -1...1 {
+                    let nx = cx + dx, ny = cy + dy
+                    guard nx >= 0, nx < gW, ny >= 0, ny < gH else { continue }
+                    let ni = ny * gW + nx
+                    if !paintedCells.contains(ni) { paintNeighbors.insert(ni) }
+                }}
             }
         }
-        guard maxX >= minX, maxY >= minY else { return }
 
-        let pad = Self.cellPadding
-        let x0 = max(0, minX - pad),  y0 = max(0, minY - pad)
-        let x1 = min(gW, maxX + pad + 1), y1 = min(gH, maxY + pad + 1)
+        var score = [Float](repeating: 0, count: size)
+        for i in 0..<size {
+            let base = Float(changeCount[i]) / Float(activeFrameCount)
+            let w: Float = hasMask
+                ? (paintedCells.contains(i)  ? Self.paintBoost
+                :  paintNeighbors.contains(i) ? Self.paintNeighborBoost
+                :  1.0)
+                : 1.0
+            score[i] = base * w
+        }
 
-        let normRect = CGRect(
-            x: CGFloat(x0) / CGFloat(gW),
-            y: CGFloat(y0) / CGFloat(gH),
-            width:  CGFloat(x1 - x0) / CGFloat(gW),
-            height: CGFloat(y1 - y0) / CGFloat(gH)
-        )
+        // ── 3×3 mean blur for spatial coherence ───────────────────────────────
+        // Isolated cells (terminal newline = 1–3 cells) blur to ~0.04–0.07 and
+        // fall below hotCellThreshold. Contiguous video blocks (100+ cells) stay
+        // at their full weighted value, reflecting localised correlated movement.
+        var blurred = [Float](repeating: 0, count: size)
+        for gy in 0..<gH {
+            for gx in 0..<gW {
+                var s: Float = 0; var n: Float = 0
+                for dy in -1...1 { for dx in -1...1 {
+                    let nx = gx + dx, ny = gy + dy
+                    guard nx >= 0, nx < gW, ny >= 0, ny < gH else { continue }
+                    s += score[ny * gW + nx]; n += 1
+                }}
+                blurred[gy * gW + gx] = s / n
+            }
+        }
 
-        // ── Stability / confidence ────────────────────────────────────────────────
+        // ── Find hot cells and their connected blobs ──────────────────────────
+        var hotSet = Set<Int>()
+        for i in 0..<size where blurred[i] >= Self.hotCellThreshold { hotSet.insert(i) }
+        guard !hotSet.isEmpty else { return }
+
+        let bestBlob = findBestBlob(hotCells: hotSet, blurred: blurred, gW: gW, gH: gH)
+
+        // ── 95th-percentile bounding box ──────────────────────────────────────
+        let normRect = percentileBoundingBox(cells: bestBlob, blurred: blurred, gW: gW, gH: gH)
+
+        // ── Stability / confidence ────────────────────────────────────────────
         if let last = lastPublishedRect, rectsAreSimilar(normRect, last) {
             stableCount += 1
         } else {
@@ -335,37 +337,110 @@ final class VideoMotionDetector {
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Blob Detection
 
-    /// BFS flood-fill from painted cells that are also hot, expanding to all
-    /// 8-connected hot neighbours. Returns the blob anchored to the painted area.
-    /// Falls back to the full hotCells set when no painted cell is hot (user hasn't
-    /// painted over any moving content yet).
-    private func paintAnchoredBlob(hotCells: Set<Int>, gW: Int, gH: Int) -> Set<Int> {
-        let seeds = paintedCells.filter { hotCells.contains($0) }
-        guard !seeds.isEmpty else { return hotCells }
+    /// BFS over hot cells to find all connected blobs (8-connectivity).
+    /// Scores each blob by total blurred motion energy, with an extra boost for
+    /// overlap with the painted region when a mask is active.
+    /// Returns the blob with the highest score.
+    private func findBestBlob(hotCells: Set<Int>, blurred: [Float], gW: Int, gH: Int) -> Set<Int> {
+        let hasMask = !paintedCells.isEmpty
+        var visited = Set<Int>(minimumCapacity: hotCells.count)
+        var bestBlob = Set<Int>()
+        var bestScore: Float = 0
 
-        var blob = Set<Int>(minimumCapacity: seeds.count * 4)
-        var queue = Array(seeds)
-        blob.formUnion(seeds)
+        for start in hotCells where !visited.contains(start) {
+            var blob = Set<Int>()
+            var queue = [start]
+            visited.insert(start)
+            var energy: Float = 0
 
-        while !queue.isEmpty {
-            let cell = queue.removeLast()
-            let cx = cell % gW, cy = cell / gW
-            for dy in -1...1 {
-                for dx in -1...1 {
+            while !queue.isEmpty {
+                let cell = queue.removeLast()
+                blob.insert(cell)
+                energy += blurred[cell]
+                let cx = cell % gW, cy = cell / gW
+                for dy in -1...1 { for dx in -1...1 {
                     guard dx != 0 || dy != 0 else { continue }
                     let nx = cx + dx, ny = cy + dy
                     guard nx >= 0, nx < gW, ny >= 0, ny < gH else { continue }
                     let ni = ny * gW + nx
-                    guard hotCells.contains(ni), !blob.contains(ni) else { continue }
-                    blob.insert(ni)
+                    guard hotCells.contains(ni), !visited.contains(ni) else { continue }
+                    visited.insert(ni)
                     queue.append(ni)
-                }
+                }}
             }
+
+            // Boost score by painted-region overlap: a blob that fully overlaps
+            // the painted area gets up to 4× its raw energy.
+            var blobScore = energy
+            if hasMask, !paintedCells.isEmpty {
+                let overlapCount = Float(blob.filter { paintedCells.contains($0) }.count)
+                let paintFraction = overlapCount / Float(paintedCells.count)
+                blobScore *= (1.0 + paintFraction * 3.0)
+            }
+
+            if blobScore > bestScore { bestScore = blobScore; bestBlob = blob }
         }
-        return blob
+        return bestBlob
     }
+
+    // MARK: - Percentile Bounding Box
+
+    /// Iteratively peels rows and columns from the bounding box of `cells` while
+    /// the remaining cells still account for ≥ motionPercentile of total energy.
+    /// This trims cold-periphery cells (scattered noise near the blob edge) to
+    /// produce a tight rectangle around the densest motion region.
+    private func percentileBoundingBox(cells: Set<Int>, blurred: [Float], gW: Int, gH: Int) -> CGRect {
+        var rowSum = [Float](repeating: 0, count: gH)
+        var colSum = [Float](repeating: 0, count: gW)
+        var total: Float = 0
+
+        for i in cells {
+            let gx = i % gW, gy = i / gW
+            let v = blurred[i]
+            rowSum[gy] += v; colSum[gx] += v; total += v
+        }
+
+        guard total > 0 else {
+            var minX = gW, maxX = 0, minY = gH, maxY = 0
+            for i in cells {
+                let gx = i % gW, gy = i / gW
+                minX = min(minX, gx); maxX = max(maxX, gx)
+                minY = min(minY, gy); maxY = max(maxY, gy)
+            }
+            return CGRect(x: CGFloat(minX) / CGFloat(gW), y: CGFloat(minY) / CGFloat(gH),
+                          width: CGFloat(maxX - minX + 1) / CGFloat(gW),
+                          height: CGFloat(maxY - minY + 1) / CGFloat(gH))
+        }
+
+        let target = total * Self.motionPercentile
+        var included = total
+
+        var r0 = (0..<gH).first(where: { rowSum[$0] > 0 }) ?? 0
+        var r1 = (0..<gH).last(where:  { rowSum[$0] > 0 }) ?? (gH - 1)
+        var c0 = (0..<gW).first(where: { colSum[$0] > 0 }) ?? 0
+        var c1 = (0..<gW).last(where:  { colSum[$0] > 0 }) ?? (gW - 1)
+
+        // Keep peeling the cheapest edge until no more can be removed.
+        var changed = true
+        while changed {
+            changed = false
+            if r0 < r1, included - rowSum[r0] >= target { included -= rowSum[r0]; r0 += 1; changed = true }
+            if r1 > r0, included - rowSum[r1] >= target { included -= rowSum[r1]; r1 -= 1; changed = true }
+            if c0 < c1, included - colSum[c0] >= target { included -= colSum[c0]; c0 += 1; changed = true }
+            if c1 > c0, included - colSum[c1] >= target { included -= colSum[c1]; c1 -= 1; changed = true }
+        }
+
+        return CGRect(
+            x:      CGFloat(c0)          / CGFloat(gW),
+            y:      CGFloat(r0)          / CGFloat(gH),
+            width:  CGFloat(c1 - c0 + 1) / CGFloat(gW),
+            height: CGFloat(r1 - r0 + 1) / CGFloat(gH)
+        )
+    }
+
+    // MARK: - Helpers
 
     private func rectsAreSimilar(_ a: CGRect, _ b: CGRect) -> Bool {
         let e = Self.stableEpsilon
