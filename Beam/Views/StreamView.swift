@@ -203,8 +203,9 @@ struct StreamView: View {
         .onAppear {
             setupStreaming()
             scheduleOverlayHide()
+            // Restore lock UI state from the previous session — the host re-applies
+            // the lock on authSuccess, so we just need the button to reflect it.
             isViewportLocked = appState.lockedViewportRect != nil
-            renderer.cropRect = appState.lockedViewportRect
         }
         .onDisappear {
             // Don't tear down PiP/renderer on view disappearance because this can be triggered
@@ -223,8 +224,8 @@ struct StreamView: View {
         }
         .onChange(of: appState.isStreaming) { _, isStreaming in
             if isStreaming {
+                // Restore UI lock state from previous session — host keeps the lock on its side.
                 isViewportLocked = appState.lockedViewportRect != nil
-                renderer.cropRect = appState.lockedViewportRect
             } else {
                 pipController.teardown()
                 renderer.flush()
@@ -287,38 +288,6 @@ struct StreamView: View {
         baseOffset  = .zero
     }
 
-    /// Compute scale + offset to zoom the renderer so that `appState.lockedViewportRect`
-    /// fills the visible container (aspect-fit). Call after setting lockedViewportRect and
-    /// whenever the container size changes while locked.
-    private func applyViewportLockTransform() {
-        guard let rect = appState.lockedViewportRect, videoContainerSize != .zero else {
-            resetZoom()
-            return
-        }
-        let container = CGRect(origin: .zero, size: videoContainerSize)
-        let bvr = baseVideoRect(in: container)
-        guard bvr.width > 0, bvr.height > 0 else { resetZoom(); return }
-
-        let regionW = rect.width  * bvr.width
-        let regionH = rect.height * bvr.height
-        let regionCX = bvr.minX + rect.midX * bvr.width
-        let regionCY = bvr.minY + rect.midY * bvr.height
-
-        // Scale so the locked region fits the container (aspect-fit)
-        let scale = min(container.width / max(regionW, 1), container.height / max(regionH, 1))
-
-        // Offset: map region center to container center
-        // transformedX = cx + (pointX - cx) * scale + offsetX  →  cx = cx + (regionCX - cx) * scale + offsetX
-        let cx = container.midX, cy = container.midY
-        let offsetX = -(regionCX - cx) * scale
-        let offsetY = -(regionCY - cy) * scale
-
-        videoScale  = scale
-        baseScale   = scale
-        videoOffset = CGSize(width: offsetX, height: offsetY)
-        baseOffset  = videoOffset
-    }
-
     private func startViewportLockSelection() {
         guard !isViewportLocked else { return }
         isSelectingViewportLock = true
@@ -338,23 +307,16 @@ struct StreamView: View {
         appState.lockedViewportRect = lockedRect
         isViewportLocked = true
         isSelectingViewportLock = false
-        renderer.cropRect = lockedRect   // pre-process stream so PiP shows the viewport too
-        resetZoom()                       // stream crop drives the display; no additional zoom needed
+        resetZoom()
         scheduleOverlayHide()
     }
 
     private func unlockViewport() {
         guard let manager = appState.connectionManager else { return }
-        // Apply the client-side zoom transform that matches the locked viewport.
-        // This makes the transition seamless: the full stream arrives with the same
-        // visible region as the crop, then we animate back to full view.
-        applyViewportLockTransform()
-        renderer.cropRect = nil           // stop stream-level crop; full frames now incoming
         appState.lockedViewportRect = nil
         isViewportLocked = false
         isSelectingViewportLock = false
         manager.sendViewportLock(nil)
-        withAnimation(.spring(duration: 0.4)) { resetZoom() }
     }
 
     private func startAutoDetection() {
@@ -384,7 +346,6 @@ struct StreamView: View {
             detectionLockHaptic.toggle()
             isViewportLocked = true
             isSelectingViewportLock = false
-            renderer.cropRect = detected   // pre-process stream so PiP shows the viewport too
             resetZoom()
             scheduleOverlayHide()
         } else {
@@ -626,8 +587,7 @@ private struct HexRevealOverlay: View {
     let videoOffset: CGSize
 
     private static let hexR: CGFloat = 21          // hex circumradius
-    private static let pillW: CGFloat = 66
-    private static let pillH: CGFloat = 42
+    private static let pillDiameter: CGFloat = 52  // glass circle diameter
     private static let orange = Color.orange
 
     @State private var pillScale: CGFloat = 0.5
@@ -685,10 +645,10 @@ private struct HexRevealOverlay: View {
             .blendMode(.screen)
             .allowsHitTesting(false)
 
-            // ── Liquid glass pill at finger position ─────────────────────────
+            // ── Liquid glass circle at finger position ───────────────────────
             if let hold = holdLocation {
                 GlassPill()
-                    .frame(width: Self.pillW, height: Self.pillH)
+                    .frame(width: Self.pillDiameter, height: Self.pillDiameter)
                     .scaleEffect(pillScale)
                     .opacity(pillOpacity)
                     .position(hold)
@@ -712,30 +672,28 @@ private struct HexRevealOverlay: View {
 }
 
 // MARK: - GlassPill
-// iOS 26+: native Liquid Glass capsule tinted blue.
-// iOS 17–25: frosted material capsule with blue tint border (visual parity fallback).
+// iOS 26+: native Liquid Glass circle.
+// iOS 17–25: frosted material circle with subtle border (visual parity fallback).
 
 private struct GlassPill: View {
     private static let orange = Color.orange
 
     var body: some View {
         ZStack {
-            // Subtle blue glow behind the glass — gives it the blue identity
+            // Subtle orange glow behind the glass — gives it the brand identity
             // without tinting the glass itself and killing the transparency.
-            Capsule()
+            Circle()
                 .fill(Self.orange.opacity(0.18))
                 .blur(radius: 10)
                 .scaleEffect(1.3)
 
             if #available(iOS 26, *) {
-                // No tint — pure transparent liquid glass over the glow
                 Color.clear
-                    .glassEffect(.regular, in: .capsule)
+                    .glassEffect(.regular, in: .circle)
             } else {
-                // Fallback: clear frosted capsule over the glow
-                Capsule()
+                Circle()
                     .fill(.ultraThinMaterial)
-                    .overlay(Capsule().stroke(Color.white.opacity(0.25), lineWidth: 0.5))
+                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.5))
             }
         }
     }
