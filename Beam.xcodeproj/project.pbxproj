@@ -37,9 +37,9 @@
 		CF3A2E1B7D94F05B8C112DA4 /* VideoMotionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D4E7920AF163C59E33F801 /* VideoMotionDetector.swift */; };
 		D9AADD4C2136A9B3E9FBE69B /* Protocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F04197677A8BDC5A22D7EB /* Protocol.swift */; };
 		E43D4BEA63BD3FA3463DA9AA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BCECC1EDA79E5FC2093937B8 /* Assets.xcassets */; };
-		F5B1A2C42F73000100CC3333 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F5B1A2C32F73000100CC3333 /* LaunchScreen.storyboard */; };
 		EA3B38C8EAA90D3740AA28EA /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A65CD0AFE8E225958BF62B85 /* CoreMedia.framework */; };
 		F4A1E1B62F63000100AA1111 /* PlusJakartaSans-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F4A1E1B52F63000100AA1111 /* PlusJakartaSans-Variable.ttf */; };
+		F5B1A2C42F73000100CC3333 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F5B1A2C32F73000100CC3333 /* LaunchScreen.storyboard */; };
 		FCD578E835F5374DBE2FC942 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1557FB665B475A9C150718B /* AudioPlayer.swift */; };
 /* End PBXBuildFile section */
 
@@ -78,8 +78,8 @@
 		DB2738F326A8777AAE99E234 /* StreamOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamOverlay.swift; path = Beam/Views/StreamOverlay.swift; sourceTree = SOURCE_ROOT; };
 		E6F04197677A8BDC5A22D7EB /* Protocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Protocol.swift; path = Beam/Streaming/Protocol.swift; sourceTree = SOURCE_ROOT; };
 		EB8AE8E491C431FF655FAEFA /* KeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KeyStore.swift; path = Beam/Pairing/KeyStore.swift; sourceTree = SOURCE_ROOT; };
-		F5B1A2C32F73000100CC3333 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Beam/Resources/LaunchScreen.storyboard; sourceTree = SOURCE_ROOT; };
 		F4A1E1B52F63000100AA1111 /* PlusJakartaSans-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "PlusJakartaSans-Variable.ttf"; path = "Beam/Resources/Fonts/PlusJakartaSans-Variable.ttf"; sourceTree = SOURCE_ROOT; };
+		F5B1A2C32F73000100CC3333 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Beam/Resources/LaunchScreen.storyboard; sourceTree = SOURCE_ROOT; };
 		F6E577754DB3922766E97475 /* PiPController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PiPController.swift; path = Beam/Streaming/PiPController.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -372,9 +372,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -437,9 +439,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
