@@ -72,7 +72,7 @@ final class VideoMotionDetector {
     private static let minActiveFrames = 2
 
     /// Active frames without rect change before `isConfident` flips true.
-    private static let confidenceFrames = 3
+    private static let confidenceFrames = 2
 
     /// Rects closer than this (normalised) are considered the same for stability tracking.
     private static let stableEpsilon: CGFloat = 0.02
@@ -92,6 +92,14 @@ final class VideoMotionDetector {
     /// Fraction of the best blob's motion energy to retain when trimming the bbox.
     private static let motionPercentile: Float = 0.95
 
+    /// Weight of the edge-contrast signal relative to motion.
+    /// Edge detection is a secondary, less reliable signal — it helps capture static
+    /// borders/chrome of content regions but is kept small to avoid false positives.
+    private static let edgeWeight: Float = 0.12
+
+    /// Analyse every Nth decoded frame. At 30 fps input this gives ~10 fps analysis.
+    private static let analyzeEveryNFrames = 3
+
     // MARK: - Queue-Confined State
 
     private let queue = DispatchQueue(label: "com.beam.ios.motiondetector", qos: .utility)
@@ -103,6 +111,10 @@ final class VideoMotionDetector {
     private var activeFrameCount = 0
     private var lastPublishedRect: CGRect? = nil
     private var stableCount = 0
+    /// True once the first IDR frame has been decoded — P-frames can be submitted after this.
+    private var hasSeenFirstKeyframe = false
+    /// Counts decoded frames; analysis runs every analyzeEveryNFrames frames.
+    private var framesSinceAnalysis = 0
 
     /// User-painted grid cell indices (set from main thread via setPaintMask).
     /// Used as a warm-zone signal: painted cells get paintBoost weight, neighbours
@@ -144,9 +156,16 @@ final class VideoMotionDetector {
     }
 
     func feed(_ sampleBuffer: CMSampleBuffer) {
-        guard isKeyframeSample(sampleBuffer) else { return }
+        // Check keyframe status on the caller's thread (avoids touching CMSampleBuffer off-thread).
+        let isKeyframe = isKeyframeSample(sampleBuffer)
         queue.async { [weak self] in
             guard let self, self.session != nil else { return }
+            // We must receive at least one IDR before submitting P-frames, otherwise
+            // the VTDecompressionSession has no reference frame and decode fails.
+            if isKeyframe { self.hasSeenFirstKeyframe = true }
+            guard self.hasSeenFirstKeyframe else { return }
+            // Submit every frame so the decoder can maintain its reference chain.
+            // Analysis is throttled inside processPixelBuffer.
             self.submitFrame(sampleBuffer)
         }
     }
@@ -212,6 +231,9 @@ final class VideoMotionDetector {
     // MARK: - Analysis
 
     func processPixelBuffer(_ pixelBuffer: CVImageBuffer) {
+        framesSinceAnalysis += 1
+        guard framesSinceAnalysis >= Self.analyzeEveryNFrames else { return }
+        framesSinceAnalysis = 0
         analyzePixelBuffer(pixelBuffer)
     }
 
@@ -264,6 +286,25 @@ final class VideoMotionDetector {
 
         guard activeFrameCount >= Self.minActiveFrames else { return }
 
+        // ── Edge contrast map (current frame) ────────────────────────────────
+        // Mean absolute luma difference with 4-connected neighbours, normalised
+        // to [0, 1]. High at content boundaries (video player chrome, window
+        // borders), low inside uniform regions. Added as a weak secondary signal.
+        var edgeScore = [Float](repeating: 0, count: size)
+        for gy in 0..<gH {
+            for gx in 0..<gW {
+                let i = gy * gW + gx
+                var eSum: Float = 0; var eCount: Float = 0
+                for (dx, dy): (Int, Int) in [(1,0),(-1,0),(0,1),(0,-1)] {
+                    let nx = gx + dx, ny = gy + dy
+                    guard nx >= 0, nx < gW, ny >= 0, ny < gH else { continue }
+                    eSum += Float(abs(Int(current[i]) - Int(current[ny * gW + nx])))
+                    eCount += 1
+                }
+                edgeScore[i] = (eSum / eCount) / 255.0
+            }
+        }
+
         // ── Build paint-weighted motion scores ────────────────────────────────
         // Painted cells get paintBoost (3×) and their immediate neighbours get
         // paintNeighborBoost (1.5×). This makes the painted area a warm attractor
@@ -292,7 +333,11 @@ final class VideoMotionDetector {
                 :  paintNeighbors.contains(i) ? Self.paintNeighborBoost
                 :  1.0)
                 : 1.0
-            score[i] = base * w
+            // Edge contrast is a secondary, less reliable signal. It gives a small
+            // boost to high-contrast boundary cells (video player chrome, window
+            // borders) helping them survive the 95% percentile trim. Kept at 0.12×
+            // so an edge-only cell (zero motion) can't cross hotCellThreshold alone.
+            score[i] = base * w + edgeScore[i] * Self.edgeWeight
         }
 
         // ── 3×3 mean blur for spatial coherence ───────────────────────────────
@@ -456,5 +501,7 @@ final class VideoMotionDetector {
         lastPublishedRect = nil
         stableCount = 0
         paintedCells = []
+        hasSeenFirstKeyframe = false
+        framesSinceAnalysis = 0
     }
 }
