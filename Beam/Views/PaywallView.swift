@@ -86,7 +86,7 @@ struct PaywallView: View {
                     UnlimitedFeatureRow(
                         icon: "lock.open.fill",
                         title: "One-time unlock",
-                        subtitle: "Pay once, keep forever. No subscription fees, ever"
+                        subtitle: "Pay once, keep forever."
                     )
                 }
                 .padding(.horizontal, 24)
