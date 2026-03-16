@@ -7,7 +7,10 @@ struct HomeView: View {
     @Environment(BeamAppState.self) private var appState
     @State private var showPairing = false
     @State private var showPaywall = false
+    @State private var showSettings = false
     @State private var showTrialExpiredModal = false
+    @State private var showSetupGuide = false
+    @State private var linkCopied = false
     @AppStorage("beam.trialExpiredModalShown") private var trialExpiredModalShown = false
 
     // Drives real-time cooldown countdown without requiring SessionManager to own a display timer.
@@ -35,6 +38,14 @@ struct HomeView: View {
                 bottomBar
             }
             .padding(.horizontal, 32)
+            .overlay(alignment: .topTrailing) {
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.35))
+                        .padding(24)
+                }
+            }
         }
         .sheet(isPresented: $showPairing) {
             PairingView()
@@ -57,6 +68,10 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showTrialExpiredModal) {
             trialExpiredModal
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environment(appState)
         }
     }
 
@@ -144,17 +159,8 @@ struct HomeView: View {
     private var statusSection: some View {
         VStack(spacing: 24) {
             if appState.pairedMac == nil {
-                // Not paired
-                VStack(spacing: 12) {
-                    Text("No Mac paired")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-
-                    Button("Pair Your Mac") {
-                        showPairing = true
-                    }
-                    .buttonStyle(BeamPrimaryButtonStyle())
-                }
+                // Not paired — show value prop + setup guide
+                unpairedSection
             } else if !appState.isPurchased && appState.sessionManager.isInCooldown {
                 // Daily free limit reached — show countdown + upgrade CTA
                 dailyLimitSection
@@ -204,6 +210,94 @@ struct HomeView: View {
                 StartBeamButton(appState: appState)
                     .disabled(true)
                     .opacity(0.4)
+            }
+        }
+    }
+
+    // MARK: - Unpaired Section
+
+    @ViewBuilder
+    private var unpairedSection: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 8) {
+                Text("Stream your screen to your phone")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                Text("Mirror your computer's display over your local WiFi network")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            // Expandable setup guide
+            DisclosureGroup(isExpanded: $showSetupGuide) {
+                VStack(alignment: .leading, spacing: 14) {
+                    setupStep(1, "Download Beacon on your Mac", "Free companion app at beamscreen.app")
+                    setupStep(2, "Tap \"Pair Your Mac\" below", "Enter the 6-digit code shown in Beacon")
+                    setupStep(3, "Tap \"Start Beam\"", "Your Mac's screen appears instantly")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } label: {
+                Text("How to get started")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .disclosureGroupStyle(BeamDrawerStyle())
+
+            // Mac app download link — matches PairingView style
+            VStack(spacing: 8) {
+                Text("Need the Mac app?")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Button {
+                    withAnimation(.spring(duration: 0.2)) {
+                        UIPasteboard.general.string = "https://beamscreen.app/#download"
+                        linkCopied = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation(.spring(duration: 0.2)) { linkCopied = false }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: linkCopied ? "checkmark" : "doc.on.doc")
+                            .font(.caption.weight(.medium))
+                        Text(linkCopied ? "Copied!" : "beamscreen.app/#download")
+                            .font(.system(.caption, design: .monospaced).weight(.medium))
+                    }
+                    .foregroundStyle(linkCopied ? .green : .orange)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background((linkCopied ? Color.green : Color.orange).opacity(0.12))
+                    .clipShape(Capsule())
+                    .animation(.spring(duration: 0.2), value: linkCopied)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button("Pair Your Mac") {
+                showPairing = true
+            }
+            .buttonStyle(BeamPrimaryButtonStyle())
+        }
+    }
+
+    private func setupStep(_ number: Int, _ title: String, _ subtitle: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.black)
+                .frame(width: 20, height: 20)
+                .background(Color.orange)
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.white)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -330,6 +424,44 @@ struct StartBeamButton: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
         }
         .frame(maxWidth: 280)
+    }
+}
+
+// MARK: - Drawer Disclosure Style
+
+struct BeamDrawerStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(spacing: 4) {
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    configuration.isExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    configuration.label
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(configuration.isExpanded ? 180 : 0))
+                        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: configuration.isExpanded)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+
+            configuration.content
+                .padding(16)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(height: configuration.isExpanded ? nil : 0, alignment: .top)
+                .clipped()
+                .opacity(configuration.isExpanded ? 1 : 0)
+                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: configuration.isExpanded)
+        }
     }
 }
 

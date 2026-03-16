@@ -41,6 +41,7 @@
 		F4A1E1B62F63000100AA1111 /* PlusJakartaSans-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F4A1E1B52F63000100AA1111 /* PlusJakartaSans-Variable.ttf */; };
 		F5B1A2C42F73000100CC3333 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F5B1A2C32F73000100CC3333 /* LaunchScreen.storyboard */; };
 		FCD578E835F5374DBE2FC942 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1557FB665B475A9C150718B /* AudioPlayer.swift */; };
+		C4F8A23B1D7E904200A5C316 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E6B91AC4508F3700E1B045 /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -55,6 +56,7 @@
 		6D6E4A914619A6B1C2E0BE06 /* PairingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PairingManager.swift; path = Beam/Pairing/PairingManager.swift; sourceTree = SOURCE_ROOT; };
 		702363BF75F70CE0CB89FCC2 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectionManager.swift; path = Beam/Network/ConnectionManager.swift; sourceTree = SOURCE_ROOT; };
 		70C0A32BFC27EE588C1ABA6B /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnboardingView.swift; path = Beam/Views/OnboardingView.swift; sourceTree = SOURCE_ROOT; };
+		D7E6B91AC4508F3700E1B045 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Beam/Views/SettingsView.swift; sourceTree = SOURCE_ROOT; };
 		7E5405EBBC16E1B03BCE3C3E /* CoreImage.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreImage.framework; path = System/Library/Frameworks/CoreImage.framework; sourceTree = SDKROOT; };
 		7EDCF096156004B9F6635C7F /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PaywallView.swift; path = Beam/Views/PaywallView.swift; sourceTree = SOURCE_ROOT; };
 		9103D00A2163CA9E73231F09 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
@@ -110,6 +112,7 @@
 				6BB8220BA909DEF51345ADED /* PairingView.swift */,
 				7EDCF096156004B9F6635C7F /* PaywallView.swift */,
 				70C0A32BFC27EE588C1ABA6B /* OnboardingView.swift */,
+				D7E6B91AC4508F3700E1B045 /* SettingsView.swift */,
 			);
 			name = Views;
 			sourceTree = "<group>";
@@ -311,6 +314,7 @@
 				6278C33D41F85F23AF8D869B /* PairingView.swift in Sources */,
 				23009CFC5E25DEE3603B26B0 /* PaywallView.swift in Sources */,
 				3DF9B22D2B8779A9318D1D63 /* OnboardingView.swift in Sources */,
+				C4F8A23B1D7E904200A5C316 /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

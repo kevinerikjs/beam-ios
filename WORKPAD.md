@@ -1,6 +1,58 @@
 # Beam iOS - Work State
 
-## Current Status: v1 Feature Complete — Pending App Store Review + Icons/Branding
+## Current Status: App Store Review Rejected — Ready to Resubmit
+
+---
+
+## 🔴 App Store Resubmission Checklist
+
+**Submission ID:** ea70fbb3-767c-49f6-852e-45607b597a47 | **Version:** 1.0 | **Reviewed:** March 11, 2026
+
+All code fixes are done and deployed. Two remaining actions are metadata-only (no code needed):
+
+### ✅ Issue 1: 5.2.5 — Trademark
+Apple flagged "Mac" and "iPhone" as product nouns in app name/subtitle.
+- **Fix (App Store Connect only):** Update name + subtitle — no Apple brand nouns
+- Name ideas: "Beam: Desktop Screen Mirror" / "Beam: Stream Your Screen" / "Beam: Local Screen Stream"
+- Subtitle: "Mirror your computer screen over WiFi"
+
+### ✅ Issue 2: 2.5.4 — Background Audio
+- **Why `audio` is in UIBackgroundModes:** Required for PiP with `AVSampleBufferDisplayLayer` — Apple's own docs require it. The app process must stay alive in background to feed frames to the PiP window. Removing it would break PiP entirely.
+- **Why reviewer couldn't hear audio:** They never reached streaming state (no Mac). The fix is a reviewer note, not a code change.
+- **Audio session** already deactivates cleanly on disconnect (`setActive(false)` in `AudioPlayer.stop()`) ✅
+- **Reviewer note:** "Background audio powers Picture-in-Picture streaming. To test: (1) install Beacon on a Mac from beamscreen.app, (2) pair the iOS app using the 6-digit code, (3) start a stream, (4) swipe home — PiP activates automatically and audio continues."
+
+### ✅ Issue 3: 4.2 — Minimum Functionality
+All code done and deployed to device:
+- `SettingsView.swift` added to Xcode target ✅
+- HomeView unpaired state: value prop, expandable setup guide, copy Mac download link ✅
+- Settings gear always visible (top-right overlay, no pairing required) ✅
+- IAP/paywall accessible from bottom bar without pairing ✅
+- Onboarding "Skip for now" button on last page — bypasses pairing and lands on HomeView ✅
+- **Reviewer note:** "Beam is a local network screen streaming companion app (similar to Steam Link or Moonlight). The iOS app requires the free Beam host app (Beacon) running on a Mac on the same WiFi. To fully evaluate: download Beacon at beamscreen.app, install on a Mac, pair using the 6-digit code shown in the iOS app, then tap Stream. The app includes a persistent settings screen, session management, free/paid tier controls, PiP streaming, media controls, and viewport lock — all accessible from the main screen without pairing."
+
+---
+
+## Remaining Actions (non-code)
+1. **TODO:** Update app name + subtitle in App Store Connect (remove "Mac"/"iPhone" as product nouns)
+2. **TODO:** Resubmit with the reviewer note drafts above combined into one note
+
+---
+
+## Additional Fixes (2026-03-17)
+
+- [x] **Onboarding skip** — "Skip for now" button on last onboarding page sets `hasCompletedOnboarding = true` directly, bypasses pairing, lands on HomeView
+- [x] **SettingsView added to Xcode target** — was created but never registered in project.pbxproj, causing build failure
+- [x] **Viewport lock not sent on reconnect** — `handlePairingMessage(.authSuccess)` now always calls `sendViewportLock(appState?.lockedViewportRect)` regardless of nil/non-nil, so host gets explicit unlock when keepViewportLock=false
+- [x] **IAP price updated** — $3.79 → $4.79 in memory; PRD was already correct
+- [x] **Stream overlay upgrade button** — replaced text "Upgrade" with `crown.fill` icon to prevent wrapping
+- [x] **Paywall dismiss copy** — "Try again tomorrow" now only shows on session expiry; voluntary upgrade tap shows "Maybe later"
+- [x] **Debug reset purchase button** — `#if DEBUG` only section in Settings; calls `AppStore.sync()` to reset entitlement state for testing
+- [x] **HomeView download button** — matches PairingView style exactly (capsule, monospaced URL, orange→green on copy)
+- [x] **Expandable setup guide animation** — replaced with `DisclosureGroup` + `BeamDrawerStyle`; uses `height: nil/0` + unified spring so chevron rotation and content reveal animate as one; no layout shift
+- [x] **Setup guide step 3 copy** — "Tap Stream" → `Tap "Start Beam"`
+
+---
 
 ---
 

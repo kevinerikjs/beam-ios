@@ -10,6 +10,7 @@ struct StreamView: View {
     @State private var showOverlay = true
     @State private var overlayHideTask: Task<Void, Never>? = nil
     @State private var showPaywall = false
+    @State private var paywallTriggeredByExpiry = false
     @State private var showQualityPicker = false
 
     // Renderer and PiP are created once and persist
@@ -190,7 +191,7 @@ struct StreamView: View {
                         showOverlay = true
                         showQualityPicker = true
                     },
-                    onUpgrade: { showPaywall = true },
+                    onUpgrade: { paywallTriggeredByExpiry = false; showPaywall = true },
                     onDisconnect: { appState.stopStream() }
                 )
                 .transition(.opacity)
@@ -212,7 +213,7 @@ struct StreamView: View {
             // during background transitions where PiP should continue.
         }
         .sheet(isPresented: $showPaywall) {
-            PaywallView(triggeredByExpiry: true)
+            PaywallView(triggeredByExpiry: paywallTriggeredByExpiry)
         }
         .sheet(isPresented: $showQualityPicker) {
             QualityPickerSheet(appState: appState)
@@ -256,6 +257,7 @@ struct StreamView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .sessionExpired)) { _ in
+            paywallTriggeredByExpiry = true
             showPaywall = true
             appState.stopStream()
         }
