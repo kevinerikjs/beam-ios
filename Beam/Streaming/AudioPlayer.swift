@@ -50,6 +50,7 @@ final class AudioPlayer {
             self.playerNode?.stop()
             self.engine = nil
             self.playerNode = nil
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             logger.info("AudioPlayer stopped")
         }
     }

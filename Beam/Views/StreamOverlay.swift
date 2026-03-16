@@ -208,11 +208,13 @@ struct StreamOverlay: View {
                 .frame(width: 1, height: 14)
                 .padding(.horizontal, 8)
 
-            Button("Upgrade") {
+            Button {
                 onUpgrade()
+            } label: {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.orange)
             }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.orange)
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)

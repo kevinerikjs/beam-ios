@@ -128,6 +128,8 @@ final class BeamAppState {
         connectionManager?.disconnect()
         connectionManager = nil
         isStreaming = false
+        let keepLock = UserDefaults.standard.object(forKey: "beam.keepViewportLock") as? Bool ?? true
+        if !keepLock { lockedViewportRect = nil }
     }
 
     func handleScenePhaseChange(_ phase: ScenePhase) {

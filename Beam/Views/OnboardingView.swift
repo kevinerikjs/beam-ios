@@ -89,6 +89,13 @@ struct OnboardingView: View {
                             .foregroundStyle(.tertiary)
                             .multilineTextAlignment(.center)
                             .transition(.opacity)
+
+                        Button("Skip for now") {
+                            appState.hasCompletedOnboarding = true
+                        }
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
                     }
                 }
                 .padding(.horizontal, 32)
