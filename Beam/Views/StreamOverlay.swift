@@ -200,8 +200,10 @@ struct StreamOverlay: View {
                     .font(.caption2)
                 Text(SessionManager.shared.formattedTimeRemaining)
                     .font(.system(.caption, design: .monospaced).weight(.medium))
+                    .fixedSize()
             }
             .foregroundStyle(remaining < 60 ? Color.orange : Color.white)
+            .lineLimit(1)
 
             Rectangle()
                 .fill(Color.white.opacity(0.2))
