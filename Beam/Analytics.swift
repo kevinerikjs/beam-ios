@@ -10,6 +10,9 @@ enum Analytics {
         let config = PostHogConfig(apiKey: "phc_h2gJDFJnFYT3CKU5pyuv2Yk5VE28YjS2mBvAQqTTNij", host: "https://w.beamscreen.app")
         config.captureScreenViews = false
         config.captureApplicationLifecycleEvents = true
+        #if DEBUG
+        config.flushAt = 1
+        #endif
         PostHogSDK.shared.setup(config)
     }
 
