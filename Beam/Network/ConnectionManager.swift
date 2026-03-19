@@ -30,6 +30,7 @@ final class ConnectionManager {
     private var qualityTimer: DispatchSourceTimer?
     private let controlInactivityTimeout: TimeInterval = 12
     private let mediaInactivityTimeout: TimeInterval = 6
+    private var streamStartedAt: Date? = nil
 
     init(host: DiscoveredHost, pairedMac: PairedMac, appState: BeamAppState) {
         self.host = host
@@ -119,6 +120,16 @@ final class ConnectionManager {
 
         qualityTimer?.cancel()
         qualityTimer = nil
+
+        // Analytics: stream ended
+        if let startedAt = streamStartedAt {
+            let duration = Date().timeIntervalSince(startedAt)
+            let isPurchased = appState?.isPurchased ?? false
+            Analytics.streamEnded(durationSeconds: duration, isPurchased: isPurchased)
+            streamStartedAt = nil
+            ReviewManager.recordStreamCompleted()
+        }
+
         SessionManager.shared.stopSession()
         sendStreamStop()
         connection?.cancel()
@@ -224,8 +235,13 @@ final class ConnectionManager {
         switch msg.type {
         case .authSuccess:
             logger.info("Authenticated with \(self.host.name), stream starting")
+            streamStartedAt = Date()
             // Record first stream to start the 3-day free trial clock (no-op after first time)
             SessionManager.shared.recordFirstStream()
+            let isPurchased = appState?.isPurchased ?? false
+            let isInTrial = SessionManager.shared.isInTrial
+            let quality = appState?.preferredQualityPreset.rawValue ?? "auto"
+            Analytics.streamStarted(isPurchased: isPurchased, isInTrial: isInTrial, qualityPreset: quality)
             Task { @MainActor in
                 appState?.isStreaming = true
                 // Start free tier timer if not purchased and not in trial

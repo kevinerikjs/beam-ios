@@ -12,6 +12,8 @@ struct PaywallView: View {
     @State private var store = StoreManager.shared
     @State private var showSuccess = false
 
+    private var paywallReason: String { triggeredByExpiry ? "session_expired" : "manual" }
+
     private var priceLabel: String {
         if let product = store.product {
             return "Purchase Beam Unlimited for \(product.displayPrice)"
@@ -190,6 +192,7 @@ struct PaywallView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .onAppear { Analytics.paywallShown(reason: paywallReason) }
         .task {
             await store.refreshStoreState()
             if store.isPurchased {
