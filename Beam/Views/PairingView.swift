@@ -1,12 +1,13 @@
 // PairingView.swift
-// First-time pairing flow: 6-digit code entry.
+// Pairing flow: discover nearby Macs, user picks one, then enter 6-digit code.
 //
 // Flow:
-//  1. PairingView appears → auto-connects to discovered Mac, sends "hello"
-//  2. Mac generates 6-digit code, shows it in its pairing window
-//  3. iPhone receives "challenge" → shows code-entry screen
-//  4. User types the code shown on Mac
-//  5. Mac verifies → sends shared secret → paired ✅
+//  1. PairingView appears → browses for all Beacon instances on the network
+//  2. User sees a list and taps the Mac they want to pair with
+//  3. Mac generates a 6-digit code, shows it in its pairing window
+//  4. iPhone receives "challenge" → shows code-entry screen
+//  5. User types the code shown on Mac
+//  6. Mac verifies → sends shared secret → paired ✅
 
 import SwiftUI
 
@@ -31,7 +32,7 @@ struct PairingView: View {
                     } else if pairingManager.isPairing {
                         connectingView
                     } else {
-                        waitingView
+                        deviceListView
                     }
                 }
             }
@@ -41,6 +42,7 @@ struct PairingView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         pairingManager.cancelPairing()
+                        appState.stopBrowsing()
                         dismiss()
                     }
                     .foregroundStyle(.orange)
@@ -49,7 +51,12 @@ struct PairingView: View {
             .preferredColorScheme(.dark)
         }
         .onAppear {
-            autoConnect()
+            appState.startBrowsingForPairing()
+        }
+        .onDisappear {
+            if !pairingManager.isPairSuccess {
+                appState.stopBrowsing()
+            }
         }
         .onChange(of: pairingManager.isPairSuccess) { _, success in
             if success {
@@ -61,38 +68,70 @@ struct PairingView: View {
         }
     }
 
-    // MARK: - Auto-connect
-
-    /// Immediately connect to the discovered Mac and send "hello" so it
-    /// generates the pairing code and shows it on screen.
-    private func autoConnect() {
-        guard !pairingManager.isPairing else { return }
-
-        if let host = appState.discoveredHost {
-            pairingManager.startPairing(with: host)
-        } else {
-            // Mac not found yet — start browsing and retry when discovered
-            appState.startBrowsing()
-        }
-    }
-
-    // MARK: - Views
+    // MARK: - Device List
 
     @ViewBuilder
-    private var waitingView: some View {
-        VStack(spacing: 24) {
+    private var deviceListView: some View {
+        VStack(spacing: 0) {
             Spacer()
-            ProgressView()
-                .tint(.orange)
-                .scaleEffect(1.5)
-            Text("Looking for your Mac…")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text("Make sure both devices are on the same Wi-Fi network.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+
+            if appState.discoveredHosts.isEmpty {
+                // Searching state
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .tint(.orange)
+                        .scaleEffect(1.5)
+                    Text("Looking for Macs running Beacon…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("Make sure both devices are on the same Wi-Fi network.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+            } else {
+                // Device picker
+                VStack(spacing: 16) {
+                    Text("Select your Mac")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text("Tap the Mac you want to pair with.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    VStack(spacing: 10) {
+                        ForEach(appState.discoveredHosts, id: \.name) { host in
+                            Button {
+                                pairingManager.startPairing(with: host)
+                            } label: {
+                                HStack(spacing: 14) {
+                                    Image(systemName: "desktopcomputer")
+                                        .font(.system(size: 22))
+                                        .foregroundStyle(.orange)
+                                        .frame(width: 32)
+                                    Text(host.name)
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundStyle(.white)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 16)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                }
+            }
+
             Spacer()
 
             // Mac app download link
@@ -107,9 +146,7 @@ struct PairingView: View {
                         didCopyDownloadLink = true
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation(.spring(duration: 0.2)) {
-                            didCopyDownloadLink = false
-                        }
+                        withAnimation(.spring(duration: 0.2)) { didCopyDownloadLink = false }
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -121,9 +158,7 @@ struct PairingView: View {
                     .foregroundStyle(didCopyDownloadLink ? .green : .orange)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(
-                        (didCopyDownloadLink ? Color.green : Color.orange).opacity(0.12)
-                    )
+                    .background((didCopyDownloadLink ? Color.green : Color.orange).opacity(0.12))
                     .clipShape(Capsule())
                     .animation(.spring(duration: 0.2), value: didCopyDownloadLink)
                 }
@@ -131,12 +166,9 @@ struct PairingView: View {
             }
             .padding(.bottom, 24)
         }
-        .onChange(of: appState.discoveredHost) { _, host in
-            if let host, !pairingManager.isPairing {
-                pairingManager.startPairing(with: host)
-            }
-        }
     }
+
+    // MARK: - Connecting
 
     @ViewBuilder
     private var connectingView: some View {
@@ -156,6 +188,8 @@ struct PairingView: View {
             Spacer()
         }
     }
+
+    // MARK: - Code Entry
 
     @ViewBuilder
     private var codeEntryView: some View {
@@ -209,6 +243,8 @@ struct PairingView: View {
         .padding(.horizontal, 24)
     }
 
+    // MARK: - Success
+
     @ViewBuilder
     private var successView: some View {
         VStack(spacing: 24) {
@@ -225,5 +261,4 @@ struct PairingView: View {
             Spacer()
         }
     }
-
 }
