@@ -88,6 +88,7 @@ extension PiPController: AVPictureInPictureControllerDelegate {
 
     func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
         isPiPActive = true
+        Analytics.pipActivated()
         logger.info("PiP started")
     }
 

@@ -107,6 +107,7 @@ final class StoreManager {
 
         isPurchasing = true
         purchaseError = nil
+        Analytics.iapInitiated()
 
         do {
             let result = try await product.purchase()
@@ -171,6 +172,7 @@ final class StoreManager {
                     activeProductID = transaction.productID
                     purchaseError = nil
                 }
+                Analytics.iapCompleted()
                 // Instantly disable free-tier countdown if user buys mid-session.
                 SessionManager.shared.stopSession()
                 logger.info("Beam Unlimited unlocked!")

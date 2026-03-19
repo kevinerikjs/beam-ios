@@ -7,12 +7,24 @@ import SwiftUI
 struct BeamApp: App {
 
     @State private var appState = BeamAppState()
+    @State private var showWhatsNew = WhatsNewManager.shouldShow
+
+    init() {
+        Analytics.start()
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(appState)
-                .preferredColorScheme(.dark)  // Dark mode first per PRD
+                .preferredColorScheme(.dark)
+                .sheet(isPresented: $showWhatsNew) {
+                    WhatsNewView {
+                        WhatsNewManager.markSeen()
+                        showWhatsNew = false
+                    }
+                    .interactiveDismissDisabled(false)
+                }
         }
     }
 }

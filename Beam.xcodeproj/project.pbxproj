@@ -42,6 +42,10 @@
 		F5B1A2C42F73000100CC3333 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F5B1A2C32F73000100CC3333 /* LaunchScreen.storyboard */; };
 		FCD578E835F5374DBE2FC942 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1557FB665B475A9C150718B /* AudioPlayer.swift */; };
 		C4F8A23B1D7E904200A5C316 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E6B91AC4508F3700E1B045 /* SettingsView.swift */; };
+		PH0000000000000000000001 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = PH0000000000000000000002 /* PostHog */; };
+		PH0000000000000000000008 /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = PH0000000000000000000009 /* Analytics.swift */; };
+		PH000000000000000000000A /* WhatsNewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PH000000000000000000000B /* WhatsNewView.swift */; };
+		PH000000000000000000000C /* ReviewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PH000000000000000000000D /* ReviewManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -83,6 +87,9 @@
 		F4A1E1B52F63000100AA1111 /* PlusJakartaSans-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "PlusJakartaSans-Variable.ttf"; path = "Beam/Resources/Fonts/PlusJakartaSans-Variable.ttf"; sourceTree = SOURCE_ROOT; };
 		F5B1A2C32F73000100CC3333 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Beam/Resources/LaunchScreen.storyboard; sourceTree = SOURCE_ROOT; };
 		F6E577754DB3922766E97475 /* PiPController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PiPController.swift; path = Beam/Streaming/PiPController.swift; sourceTree = SOURCE_ROOT; };
+		PH0000000000000000000009 /* Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Analytics.swift; path = Beam/Analytics.swift; sourceTree = SOURCE_ROOT; };
+		PH000000000000000000000B /* WhatsNewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WhatsNewView.swift; path = Beam/Views/WhatsNewView.swift; sourceTree = SOURCE_ROOT; };
+		PH000000000000000000000D /* ReviewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ReviewManager.swift; path = Beam/Store/ReviewManager.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +104,7 @@
 				3665053F2C6780F4503E54CB /* CoreImage.framework in Frameworks */,
 				B915726FD9B91F7789F98319 /* UIKit.framework in Frameworks */,
 				0A37CAD8BA0B45C4BA8DF6B2 /* Foundation.framework in Frameworks */,
+				PH0000000000000000000001 /* PostHog in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -113,6 +121,7 @@
 				7EDCF096156004B9F6635C7F /* PaywallView.swift */,
 				70C0A32BFC27EE588C1ABA6B /* OnboardingView.swift */,
 				D7E6B91AC4508F3700E1B045 /* SettingsView.swift */,
+				PH000000000000000000000B /* WhatsNewView.swift */,
 			);
 			name = Views;
 			sourceTree = "<group>";
@@ -152,6 +161,7 @@
 				9D2756146BBF8DAB1A0A053A /* Resources */,
 				37540EAF383436D43BB9228E /* BeamApp.swift */,
 				C2594BA6C3113019C21FE5EE /* BeamAppState.swift */,
+				PH0000000000000000000009 /* Analytics.swift */,
 				928BF22CC7D2A1A02E05FDF7 /* Info.plist */,
 				C9135D65FDFD011183B89FF0 /* Beam.entitlements */,
 			);
@@ -215,6 +225,7 @@
 			children = (
 				2047C6895121F9BD61AC82BC /* StoreManager.swift */,
 				1EAC2D093160731796098980 /* SessionManager.swift */,
+				PH000000000000000000000D /* ReviewManager.swift */,
 			);
 			name = Store;
 			sourceTree = "<group>";
@@ -233,6 +244,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			packageProductDependencies = (
+				PH0000000000000000000002 /* PostHog */,
 			);
 			name = Beam;
 			productName = Beam;
@@ -266,6 +280,9 @@
 			productRefGroup = 9ADC05CF3F61A78B58295B6B /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (
+				PH0000000000000000000003 /* XCRemoteSwiftPackageReference "posthog-ios" */,
+			);
 			targets = (
 				A5029E8CCFB0AE8123C734BC /* Beam */,
 			);
@@ -315,6 +332,9 @@
 				23009CFC5E25DEE3603B26B0 /* PaywallView.swift in Sources */,
 				3DF9B22D2B8779A9318D1D63 /* OnboardingView.swift in Sources */,
 				C4F8A23B1D7E904200A5C316 /* SettingsView.swift in Sources */,
+				PH0000000000000000000008 /* Analytics.swift in Sources */,
+				PH000000000000000000000A /* WhatsNewView.swift in Sources */,
+				PH000000000000000000000C /* ReviewManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -376,11 +396,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -443,11 +463,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -479,6 +499,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		PH0000000000000000000003 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PostHog/posthog-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		PH0000000000000000000002 /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PH0000000000000000000003 /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 95CF20AC821E96818B31FD65 /* Project object */;
 }
