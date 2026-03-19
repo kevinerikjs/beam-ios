@@ -10,11 +10,41 @@ final class BonjourBrowser {
 
     private var browser: NWBrowser?
     private var onHostFound: ((DiscoveredHost) -> Void)?
+    private var onHostsChanged: (([DiscoveredHost]) -> Void)?
+
+    // Tracks all currently visible hosts by service name
+    private var discoveredHosts: [String: DiscoveredHost] = [:]
 
     // MARK: - Browsing
 
+    /// Single-host callback — used by the streaming auto-connect path.
     func startBrowsing(onHostFound: @escaping (DiscoveredHost) -> Void) {
         self.onHostFound = onHostFound
+        self.onHostsChanged = nil
+        startBrowser()
+    }
+
+    /// Multi-host callback — used by the pairing picker.
+    func startBrowsing(onHostsChanged: @escaping ([DiscoveredHost]) -> Void) {
+        self.onHostsChanged = onHostsChanged
+        self.onHostFound = nil
+        discoveredHosts = [:]
+        startBrowser()
+    }
+
+    func stopBrowsing() {
+        browser?.cancel()
+        browser = nil
+        onHostFound = nil
+        onHostsChanged = nil
+        discoveredHosts = [:]
+        logger.info("Bonjour browser stopped")
+    }
+
+    // MARK: - Private
+
+    private func startBrowser() {
+        browser?.cancel()
 
         let params = NWParameters()
         params.includePeerToPeer = true
@@ -37,8 +67,12 @@ final class BonjourBrowser {
                 switch change {
                 case .added(let result):
                     self?.handleDiscoveredResult(result)
-                case .removed:
-                    break
+                case .removed(let result):
+                    if case .service(let name, _, _, _) = result.endpoint {
+                        self?.discoveredHosts.removeValue(forKey: name)
+                        let hosts = Array(self?.discoveredHosts.values ?? [:].values)
+                        Task { @MainActor in self?.onHostsChanged?(hosts) }
+                    }
                 default:
                     break
                 }
@@ -49,19 +83,11 @@ final class BonjourBrowser {
         logger.info("Bonjour browser started for _beam._tcp")
     }
 
-    func stopBrowsing() {
-        browser?.cancel()
-        browser = nil
-        onHostFound = nil
-        logger.info("Bonjour browser stopped")
-    }
-
     // MARK: - Result Handling
 
     private func handleDiscoveredResult(_ result: NWBrowser.Result) {
         guard case .service(let serviceName, _, _, _) = result.endpoint else { return }
 
-        // Resolve the endpoint to get host + port
         let connection = NWConnection(to: result.endpoint, using: .tcp)
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
@@ -71,13 +97,14 @@ final class BonjourBrowser {
                     connection.cancel()
                     return
                 }
-                let discoveredHost = DiscoveredHost(
-                    name: serviceName,
-                    endpoint: result.endpoint,
-                    port: port.rawValue
-                )
+                let host = DiscoveredHost(name: serviceName, endpoint: result.endpoint, port: port.rawValue)
                 logger.info("Discovered Beacon: \(serviceName) on port \(port.rawValue)")
-                self?.onHostFound?(discoveredHost)
+                self?.discoveredHosts[serviceName] = host
+                let allHosts = Array(self?.discoveredHosts.values ?? [:].values)
+                Task { @MainActor in
+                    self?.onHostFound?(host)
+                    self?.onHostsChanged?(allHosts)
+                }
                 connection.cancel()
             case .failed:
                 connection.cancel()

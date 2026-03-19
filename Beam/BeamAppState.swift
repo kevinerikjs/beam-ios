@@ -26,6 +26,9 @@ final class BeamAppState {
     /// The discovered Mac on the local network (Bonjour found it, not yet connected).
     var discoveredHost: DiscoveredHost? = nil
 
+    /// All Beacon instances currently visible on the network (used by pairing picker).
+    var discoveredHosts: [DiscoveredHost] = []
+
     /// Whether the app is actively looking for the paired Mac on the network.
     var isSearchingForMac: Bool = false
 
@@ -105,9 +108,22 @@ final class BeamAppState {
         }
     }
 
+    /// Used by PairingView — collects all visible Beacons into discoveredHosts.
+    func startBrowsingForPairing() {
+        isSearchingForMac = true
+        discoveredHosts = []
+        bonjourBrowser.startBrowsing { [weak self] hosts in
+            Task { @MainActor in
+                self?.discoveredHosts = hosts
+                self?.isSearchingForMac = hosts.isEmpty
+            }
+        }
+    }
+
     func stopBrowsing() {
         bonjourBrowser.stopBrowsing()
         isSearchingForMac = false
+        discoveredHosts = []
     }
 
     // MARK: - Streaming
