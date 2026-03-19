@@ -96,9 +96,12 @@ extension PairingManager: PairingConnectionDelegate {
                 sharedSecret: secretData,
                 lastConnected: Date()
             )
-            let isFirstPairing = KeyStore.shared.loadPairedMac() == nil
+            let isFirstPairing = !UserDefaults.standard.bool(forKey: "hasEverPaired")
             KeyStore.shared.savePairedMac(mac)
-            if isFirstPairing { Analytics.track("first_pair_completed") }
+            if isFirstPairing {
+                UserDefaults.standard.set(true, forKey: "hasEverPaired")
+                Analytics.track("first_pair_completed")
+            }
             logger.info("Paired successfully with '\(macName)'")
             Task { @MainActor in
                 self.isPairSuccess = true
