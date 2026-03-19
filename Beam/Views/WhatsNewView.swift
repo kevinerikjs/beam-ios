@@ -12,10 +12,7 @@ private struct ChangeEntry: Identifiable {
     let detail: String
 }
 
-private let changelog: [ChangeEntry] = [
-    ChangeEntry(icon: "chart.bar.fill",    title: "Analytics",       detail: "We now collect anonymous usage data to understand how Beam is used and improve the experience."),
-    ChangeEntry(icon: "bell.badge.fill",   title: "Review prompt",   detail: "After a few streams, Beam may ask for a quick App Store review. Tap Not Now to skip — we won't ask too often."),
-]
+private let changelog: [ChangeEntry] = []
 
 // MARK: - View
 
@@ -49,37 +46,39 @@ struct WhatsNewView: View {
             .padding(.bottom, 36)
 
             // Changelog entries
-            VStack(spacing: 20) {
-                ForEach(changelog) { entry in
-                    HStack(alignment: .top, spacing: 16) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color(hex: "#f59e0b").opacity(0.15))
-                                .frame(width: 44, height: 44)
-                            Image(systemName: entry.icon)
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [Color(hex: "#f59e0b"), Color(hex: "#f97316")],
-                                        startPoint: .top,
-                                        endPoint: .bottom
+            if !changelog.isEmpty {
+                VStack(spacing: 20) {
+                    ForEach(changelog) { entry in
+                        HStack(alignment: .top, spacing: 16) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color(hex: "#f59e0b").opacity(0.15))
+                                    .frame(width: 44, height: 44)
+                                Image(systemName: entry.icon)
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            colors: [Color(hex: "#f59e0b"), Color(hex: "#f97316")],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
                                     )
-                                )
+                            }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(entry.title)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text(entry.detail)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundColor(Color.white.opacity(0.55))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(entry.title)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white)
-                            Text(entry.detail)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(Color.white.opacity(0.55))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: 0)
                     }
                 }
+                .padding(.horizontal, 28)
             }
-            .padding(.horizontal, 28)
 
             Spacer(minLength: 40)
 
@@ -117,6 +116,7 @@ enum WhatsNewManager {
     private static let key = "whatsNewLastSeenVersion"
 
     static var shouldShow: Bool {
+        guard !changelog.isEmpty else { return false }
         let seen = UserDefaults.standard.string(forKey: key) ?? ""
         let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         return seen != current
