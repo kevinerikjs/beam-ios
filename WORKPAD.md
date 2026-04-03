@@ -1,6 +1,6 @@
 # Beam iOS - Work State
 
-## Current Status: v1.2 in progress — iOS 16 port (NOT committed, pending test)
+## Current Status: v1.2 — Submitted to App Store review
 
 **App Store URL:** https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962
 **Latest version:** 1.1 — published and approved
@@ -28,6 +28,12 @@
   - Settings gear always visible; IAP accessible without pairing
   - Onboarding skip button
 
+### v1.2 — iOS 16 Support + Feedback + Analytics
+- [x] **iOS 16 deployment target** — lowered from 17.0 to 16.0; full ObservableObject migration
+- [x] **In-app feedback** — FeedbackView sheet in Settings → Support; posts to beamscreen.app/api/feedback → Telegram
+- [x] **Analytics events** — `trial_expired` (once, on first post-trial open) and `daily_limit_reached` (each time 30m limit hit)
+- [x] **What's New changelog** updated for v1.2
+
 ### v1.1 — Analytics + What's New + Polish
 - [x] **PostHog analytics** — funnel event tracking; EU region; reverse proxy host; `analytics.ts`; `first_pair_completed` event
 - [x] **What's New screen** — shown on first launch after update; skipped when changelog is empty
@@ -42,7 +48,7 @@
 
 ## Next Up
 
-- [ ] **iOS 16 port — test & ship as v1.2** — changes made locally, NOT committed. Test on real device + iOS 16 simulator. If green: commit, bump version to 1.2, submit to App Store review.
+- [x] **iOS 16 port shipped as v1.2** — committed and submitted to App Store review
 - [ ] **iOS improvements** — post-1.1 features and bug fixes (TBD based on user feedback + analytics)
 
 ---
