@@ -54,4 +54,14 @@ extension Analytics {
     static func iapCompleted() {
         track("iap_purchase_completed")
     }
+
+    /// Fires once, the first time the app detects the 3-day free trial has expired.
+    static func trialExpired() {
+        track("trial_expired")
+    }
+
+    /// Fires each time a free-tier streaming session is cut short by the 30-minute daily limit.
+    static func dailyLimitReached() {
+        track("daily_limit_reached")
+    }
 }

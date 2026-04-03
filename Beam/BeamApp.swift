@@ -6,7 +6,7 @@ import SwiftUI
 @main
 struct BeamApp: App {
 
-    @State private var appState = BeamAppState()
+    @StateObject private var appState = BeamAppState()
     @State private var showWhatsNew = WhatsNewManager.shouldShow
 
     init() {
@@ -16,7 +16,7 @@ struct BeamApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(appState)
+                .environmentObject(appState)
                 .preferredColorScheme(.dark)
                 .sheet(isPresented: $showWhatsNew) {
                     WhatsNewView {
@@ -32,7 +32,7 @@ struct BeamApp: App {
 // MARK: - Root Navigation
 
 struct RootView: View {
-    @Environment(BeamAppState.self) private var appState
+    @EnvironmentObject var appState: BeamAppState
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -49,7 +49,7 @@ struct RootView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: appState.isStreaming)
         .animation(.easeInOut(duration: 0.3), value: appState.hasCompletedOnboarding)
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             appState.handleScenePhaseChange(phase)
         }
     }

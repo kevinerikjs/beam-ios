@@ -8,17 +8,16 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.beam.ios", category: "PairingManager")
 
-@Observable
-final class PairingManager {
+final class PairingManager: ObservableObject {
 
     static let shared = PairingManager()
 
     // MARK: - State
 
-    var isPairing: Bool = false
-    var isAwaitingCodeEntry: Bool = false
-    var pairingError: String? = nil
-    var isPairSuccess: Bool = false
+    @Published var isPairing: Bool = false
+    @Published var isAwaitingCodeEntry: Bool = false
+    @Published var pairingError: String? = nil
+    @Published var isPairSuccess: Bool = false
 
     private var connection: PairingConnection?
     private var pairingHost: DiscoveredHost?

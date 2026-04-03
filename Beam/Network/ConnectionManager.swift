@@ -8,7 +8,6 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.beam.ios", category: "ConnectionManager")
 
-@Observable
 final class ConnectionManager {
 
     let host: DiscoveredHost

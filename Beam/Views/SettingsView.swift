@@ -4,10 +4,13 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(BeamAppState.self) private var appState
+    @EnvironmentObject var appState: BeamAppState
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var session = SessionManager.shared
     @AppStorage("beam.keepViewportLock") private var keepViewportLock = true
     @State private var showPaywall = false
+    @State private var showFeedback = false
 
     var body: some View {
         NavigationStack {
@@ -17,6 +20,7 @@ struct SettingsView: View {
                     VStack(spacing: 32) {
                         streamCard
                         subscriptionCard
+                        supportCard
                         #if DEBUG
                         debugCard
                         #endif
@@ -39,6 +43,9 @@ struct SettingsView: View {
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showPaywall) {
             PaywallView()
+        }
+        .sheet(isPresented: $showFeedback) {
+            FeedbackView()
         }
     }
 
@@ -102,7 +109,7 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if StoreManager.shared.isPurchased {
+                    if store.isPurchased {
                         Image(systemName: "checkmark.seal.fill")
                             .foregroundStyle(.orange)
                             .font(.title3)
@@ -111,7 +118,7 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
 
-                if !StoreManager.shared.isPurchased {
+                if !store.isPurchased {
                     cardDivider
                     Button { showPaywall = true } label: {
                         HStack {
@@ -160,18 +167,44 @@ struct SettingsView: View {
     }
     #endif
 
+    // MARK: - Support card
+
+    private var supportCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Support")
+            VStack(spacing: 0) {
+                Button {
+                    showFeedback = true
+                } label: {
+                    HStack {
+                        Label("Send Feedback", systemImage: "bubble.left.and.bubble.right")
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+            }
+            .background(Color.white.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
     // MARK: - Helpers
 
     private var subscriptionTitle: String {
-        if StoreManager.shared.isPurchased { return "Beam Unlimited" }
-        if SessionManager.shared.isInTrial { return "Free Trial Active" }
+        if store.isPurchased { return "Beam Unlimited" }
+        if session.isInTrial { return "Free Trial Active" }
         return "Free Tier"
     }
 
     private var subscriptionSubtitle: String {
-        if StoreManager.shared.isPurchased { return "Unlimited streaming, no restrictions" }
-        if SessionManager.shared.isInTrial {
-            let d = SessionManager.shared.trialDaysRemaining
+        if store.isPurchased { return "Unlimited streaming, no restrictions" }
+        if session.isInTrial {
+            let d = session.trialDaysRemaining
             return "\(d) day\(d == 1 ? "" : "s") remaining in trial"
         }
         return "30 minutes of streaming per day"

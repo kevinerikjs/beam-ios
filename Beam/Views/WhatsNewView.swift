@@ -12,7 +12,18 @@ private struct ChangeEntry: Identifiable {
     let detail: String
 }
 
-private let changelog: [ChangeEntry] = []
+private let changelog: [ChangeEntry] = [
+    ChangeEntry(
+        icon: "iphone",
+        title: "iOS 16 Support",
+        detail: "Beam now runs on iOS 16 and newer, so older devices can join the party."
+    ),
+    ChangeEntry(
+        icon: "bubble.left.and.bubble.right",
+        title: "Send Feedback",
+        detail: "Found a bug or have an idea? Send feedback directly from Settings — it goes straight to the developer."
+    ),
+]
 
 // MARK: - View
 

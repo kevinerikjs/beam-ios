@@ -4,39 +4,36 @@
 import SwiftUI
 import Network
 
-@Observable
-final class BeamAppState {
+final class BeamAppState: ObservableObject {
 
     // MARK: - Onboarding / Pairing
 
-    // Stored property so @Observable can track changes and re-render RootView.
-    // Computed UserDefaults properties are invisible to the observation system.
-    var hasCompletedOnboarding: Bool = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+    @Published var hasCompletedOnboarding: Bool = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
         didSet { UserDefaults.standard.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding") }
     }
 
     /// The Mac this iPhone is paired with, if any.
-    var pairedMac: PairedMac? = nil
+    @Published var pairedMac: PairedMac? = nil
 
     // MARK: - Connection
 
     /// Whether a stream is currently active (receiving and displaying video).
-    var isStreaming: Bool = false
+    @Published var isStreaming: Bool = false
 
     /// The discovered Mac on the local network (Bonjour found it, not yet connected).
-    var discoveredHost: DiscoveredHost? = nil
+    @Published var discoveredHost: DiscoveredHost? = nil
 
     /// All Beacon instances currently visible on the network (used by pairing picker).
-    var discoveredHosts: [DiscoveredHost] = []
+    @Published var discoveredHosts: [DiscoveredHost] = []
 
     /// Whether the app is actively looking for the paired Mac on the network.
-    var isSearchingForMac: Bool = false
+    @Published var isSearchingForMac: Bool = false
 
     /// Connection quality (0.0 - 1.0), updated from packet stats.
-    var connectionQuality: Double = 1.0
+    @Published var connectionQuality: Double = 1.0
 
     /// The quality preset currently active on the host (set from .qualityChanged messages).
-    var currentQualityPreset: StreamQualityPreset = .p1080_30
+    @Published var currentQualityPreset: StreamQualityPreset = .p1080_30
 
     /// The user's preferred quality preset (persisted, sent to host on connect).
     var preferredQualityPreset: StreamQualityPreset {
@@ -66,7 +63,7 @@ final class BeamAppState {
     /// Last viewport lock rect sent to the host.
     /// Persisted to UserDefaults so it survives app restarts — the host keeps the lock
     /// on its end, and on next authSuccess ConnectionManager re-sends it automatically.
-    var lockedViewportRect: CGRect? = {
+    @Published var lockedViewportRect: CGRect? = {
         guard let str = UserDefaults.standard.string(forKey: "lockedViewportRect") else { return nil }
         let r = NSCoder.cgRect(for: str)
         return r.width > 0 ? r : nil
@@ -83,7 +80,7 @@ final class BeamAppState {
     // MARK: - Managers
 
     let bonjourBrowser = BonjourBrowser()
-    var connectionManager: ConnectionManager?
+    @Published var connectionManager: ConnectionManager?
 
     // MARK: - Init
 

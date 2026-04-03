@@ -15,6 +15,7 @@
 		134C7563E5A112DB0FD5B9F3 /* StoreManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2047C6895121F9BD61AC82BC /* StoreManager.swift */; };
 		149F3F329B89D0EF3DFAFDFF /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB8AE8E491C431FF655FAEFA /* KeyStore.swift */; };
 		23009CFC5E25DEE3603B26B0 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EDCF096156004B9F6635C7F /* PaywallView.swift */; };
+		DA44FBE23BC04632B9F0965C /* FeedbackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5D93CE4A074983AB6F606C /* FeedbackView.swift */; };
 		3665053F2C6780F4503E54CB /* CoreImage.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E5405EBBC16E1B03BCE3C3E /* CoreImage.framework */; };
 		3919EC08A0018D9D7390E92B /* Network.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B5F94B0F4BD70B35FC703EEE /* Network.framework */; };
 		3DF9B22D2B8779A9318D1D63 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70C0A32BFC27EE588C1ABA6B /* OnboardingView.swift */; };
@@ -63,6 +64,7 @@
 		D7E6B91AC4508F3700E1B045 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Beam/Views/SettingsView.swift; sourceTree = SOURCE_ROOT; };
 		7E5405EBBC16E1B03BCE3C3E /* CoreImage.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreImage.framework; path = System/Library/Frameworks/CoreImage.framework; sourceTree = SDKROOT; };
 		7EDCF096156004B9F6635C7F /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PaywallView.swift; path = Beam/Views/PaywallView.swift; sourceTree = SOURCE_ROOT; };
+		DE5D93CE4A074983AB6F606C /* FeedbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FeedbackView.swift; path = Beam/Views/FeedbackView.swift; sourceTree = SOURCE_ROOT; };
 		9103D00A2163CA9E73231F09 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		928BF22CC7D2A1A02E05FDF7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Beam/Info.plist; sourceTree = SOURCE_ROOT; };
 		9322E337B5373CB064616592 /* StreamReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamReceiver.swift; path = Beam/Streaming/StreamReceiver.swift; sourceTree = SOURCE_ROOT; };
@@ -119,6 +121,7 @@
 				DB2738F326A8777AAE99E234 /* StreamOverlay.swift */,
 				6BB8220BA909DEF51345ADED /* PairingView.swift */,
 				7EDCF096156004B9F6635C7F /* PaywallView.swift */,
+				DE5D93CE4A074983AB6F606C /* FeedbackView.swift */,
 				70C0A32BFC27EE588C1ABA6B /* OnboardingView.swift */,
 				D7E6B91AC4508F3700E1B045 /* SettingsView.swift */,
 				PH000000000000000000000B /* WhatsNewView.swift */,
@@ -330,6 +333,7 @@
 				B81E00A43A2907FB1F6F7DE5 /* StreamOverlay.swift in Sources */,
 				6278C33D41F85F23AF8D869B /* PairingView.swift in Sources */,
 				23009CFC5E25DEE3603B26B0 /* PaywallView.swift in Sources */,
+				DA44FBE23BC04632B9F0965C /* FeedbackView.swift in Sources */,
 				3DF9B22D2B8779A9318D1D63 /* OnboardingView.swift in Sources */,
 				C4F8A23B1D7E904200A5C316 /* SettingsView.swift in Sources */,
 				PH0000000000000000000008 /* Analytics.swift in Sources */,
@@ -376,7 +380,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -396,11 +400,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -443,7 +447,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -463,11 +467,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

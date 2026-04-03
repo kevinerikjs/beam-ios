@@ -28,15 +28,14 @@ private let kCooldownSeconds: TimeInterval     = 24 * 60 * 60
 /// Free trial duration: 3 days from first successful stream.
 private let kTrialDurationSeconds: TimeInterval = 3 * 24 * 60 * 60
 
-@Observable
-final class SessionManager {
+final class SessionManager: ObservableObject {
 
     static let shared = SessionManager()
 
     // MARK: - Observable State
 
     /// Seconds remaining in the current session (running or paused). `nil` = no active session.
-    private(set) var secondsRemaining: TimeInterval? = nil
+    @Published private(set) var secondsRemaining: TimeInterval? = nil
 
     // MARK: - Trial State
 
@@ -234,6 +233,7 @@ final class SessionManager {
             sessionTimer     = nil
             secondsRemaining = nil
             logger.info("Daily session limit reached")
+            Analytics.dailyLimitReached()
             DispatchQueue.main.async { self.onSessionExpired?() }
         } else {
             secondsRemaining = remaining
