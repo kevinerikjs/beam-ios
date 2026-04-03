@@ -11,20 +11,18 @@ private let kFallbackProductIDs = [
     "com.beam.ios.unlimited"
 ]
 
-@Observable
-final class StoreManager {
+final class StoreManager: ObservableObject {
 
     static let shared = StoreManager()
 
     // MARK: - State
 
-    private(set) var isPurchased: Bool = false
-    private(set) var product: Product? = nil
-    private(set) var activeProductID: String? = nil
-    private(set) var isPurchasing: Bool = false
-    private(set) var purchaseError: String? = nil
+    @Published private(set) var isPurchased: Bool = false
+    @Published private(set) var product: Product? = nil
+    @Published private(set) var activeProductID: String? = nil
+    @Published private(set) var isPurchasing: Bool = false
+    @Published private(set) var purchaseError: String? = nil
 
-    @ObservationIgnored
     private var transactionListener: Task<Void, Never>?
 
     // MARK: - Init

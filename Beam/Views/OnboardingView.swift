@@ -4,7 +4,7 @@
 import SwiftUI
 
 struct OnboardingView: View {
-    @Environment(BeamAppState.self) private var appState
+    @EnvironmentObject var appState: BeamAppState
     @State private var currentPage = 0
     @State private var showPairing = false
 
@@ -104,7 +104,7 @@ struct OnboardingView: View {
         }
         .sheet(isPresented: $showPairing) {
             PairingView()
-                .environment(appState)
+                .environmentObject(appState)
                 .onDisappear {
                     appState.hasCompletedOnboarding = true
                 }

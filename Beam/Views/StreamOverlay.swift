@@ -5,8 +5,10 @@
 import SwiftUI
 
 struct StreamOverlay: View {
-    let appState: BeamAppState
-    let pipController: PiPController
+    @ObservedObject var appState: BeamAppState
+    @ObservedObject var pipController: PiPController
+    @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var session = SessionManager.shared
     let isViewportLocked: Bool
     let isSelectingViewportLock: Bool
     let onStartViewportLockSelection: () -> Void
@@ -36,7 +38,7 @@ struct StreamOverlay: View {
 
             Spacer()
 
-            if !StoreManager.shared.isPurchased, let remaining = SessionManager.shared.secondsRemaining {
+            if !store.isPurchased, let remaining = session.secondsRemaining {
                 sessionTimerBadge(remaining: remaining, onUpgrade: onUpgrade)
             }
 
@@ -147,7 +149,6 @@ struct StreamOverlay: View {
                     }
                 } label: {
                     Image(systemName: isViewportLocked ? "lock.fill" : "lock.open.fill")
-                        .contentTransition(.symbolEffect(.replace))
                         .font(.title3)
                         .foregroundStyle(isViewportLocked ? Color.orange : .white)
                         .frame(width: 48, height: 48)
@@ -198,7 +199,7 @@ struct StreamOverlay: View {
             HStack(spacing: 4) {
                 Image(systemName: "timer")
                     .font(.caption2)
-                Text(SessionManager.shared.formattedTimeRemaining)
+                Text(session.formattedTimeRemaining)
                     .font(.system(.caption, design: .monospaced).weight(.medium))
                     .fixedSize()
             }
@@ -238,7 +239,6 @@ struct QualityPickerSheet: View {
             }
             .tint(.orange)
             .listStyle(.plain)
-            .contentMargins(.top, 0, for: .scrollContent)
             .navigationTitle("Stream Quality")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

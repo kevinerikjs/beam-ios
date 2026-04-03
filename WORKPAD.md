@@ -1,135 +1,76 @@
 # Beam iOS - Work State
 
-## Current Status: App Store Review Rejected — Ready to Resubmit
+## Current Status: v1.2 in progress — iOS 16 port (NOT committed, pending test)
+
+**App Store URL:** https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962
+**Latest version:** 1.1 — published and approved
 
 ---
 
-## 🔴 App Store Resubmission Checklist
+## Completed
 
-**Submission ID:** ea70fbb3-767c-49f6-852e-45607b597a47 | **Version:** 1.0 | **Reviewed:** March 11, 2026
+### v1.0 — Core App (App Store submission + fixes)
+- [x] **Core streaming** — TCP receive, H.264 AVCC decode, `AVSampleBufferDisplayLayer`, Float32 PCM audio
+- [x] **A/V sync** — video-master clock; audio scheduled against video PTS with bounded lead/drift
+- [x] **PiP** — `AVPictureInPictureController`; auto-PiP on home swipe; audio session `.playback` mode for reliable `isPictureInPicturePossible`
+- [x] **Quality picker** — `StreamQualityPreset` enum; `QualityPickerSheet`; liquid glass overlay; host applies + broadcasts `qualityChanged`
+- [x] **Viewport lock** — 16:9 selection overlay; confirmed crop sent to host as normalized rect; persists across reconnect/PiP
+- [x] **Auto video detection** — `VideoMotionDetector`; heatmap+blur+blob+percentile-trim; hex reveal overlay with user painting; haptics
+- [x] **Seek backward/forward** — circular arrow buttons in HUD; maps to left/right arrow keys on Mac
+- [x] **Pairing** — 6-digit code entry; `.unpaired` propagation; offline-unpair via `.authFailed`
+- [x] **Free tier / IAP** — 30-min/24h session limit (Keychain-backed); 3-day free trial; one-time $4.79 unlock (`com.beam.ios.unlimited`); paywall UI; `StoreManager` + `SessionManager`
+- [x] **Onboarding** — mandatory setup flow; "Skip for now" on last page lands on HomeView
+- [x] **Ghost session / reconnect fixes** — `isTerminated` guard; inactivity timeout; foreground stale-stream recovery
+- [x] **Dynamic audio format handshake** — rebuilds `AVAudioEngine` on `audio_format_changed`
+- [x] **App Store review fixes** (rejection → approval):
+  - SettingsView added to Xcode target
+  - HomeView unpaired state: value prop, expandable setup guide, Mac download link
+  - Settings gear always visible; IAP accessible without pairing
+  - Onboarding skip button
 
-All code fixes are done and deployed. Two remaining actions are metadata-only (no code needed):
-
-### ✅ Issue 1: 5.2.5 — Trademark
-Apple flagged "Mac" and "iPhone" as product nouns in app name/subtitle.
-- **Fix (App Store Connect only):** Update name + subtitle — no Apple brand nouns
-- Name ideas: "Beam: Desktop Screen Mirror" / "Beam: Stream Your Screen" / "Beam: Local Screen Stream"
-- Subtitle: "Mirror your computer screen over WiFi"
-
-### ✅ Issue 2: 2.5.4 — Background Audio
-- **Why `audio` is in UIBackgroundModes:** Required for PiP with `AVSampleBufferDisplayLayer` — Apple's own docs require it. The app process must stay alive in background to feed frames to the PiP window. Removing it would break PiP entirely.
-- **Why reviewer couldn't hear audio:** They never reached streaming state (no Mac). The fix is a reviewer note, not a code change.
-- **Audio session** already deactivates cleanly on disconnect (`setActive(false)` in `AudioPlayer.stop()`) ✅
-- **Reviewer note:** "Background audio powers Picture-in-Picture streaming. To test: (1) install Beacon on a Mac from beamscreen.app, (2) pair the iOS app using the 6-digit code, (3) start a stream, (4) swipe home — PiP activates automatically and audio continues."
-
-### ✅ Issue 3: 4.2 — Minimum Functionality
-All code done and deployed to device:
-- `SettingsView.swift` added to Xcode target ✅
-- HomeView unpaired state: value prop, expandable setup guide, copy Mac download link ✅
-- Settings gear always visible (top-right overlay, no pairing required) ✅
-- IAP/paywall accessible from bottom bar without pairing ✅
-- Onboarding "Skip for now" button on last page — bypasses pairing and lands on HomeView ✅
-- **Reviewer note:** "Beam is a local network screen streaming companion app (similar to Steam Link or Moonlight). The iOS app requires the free Beam host app (Beacon) running on a Mac on the same WiFi. To fully evaluate: download Beacon at beamscreen.app, install on a Mac, pair using the 6-digit code shown in the iOS app, then tap Stream. The app includes a persistent settings screen, session management, free/paid tier controls, PiP streaming, media controls, and viewport lock — all accessible from the main screen without pairing."
-
----
-
-## Remaining Actions (non-code)
-1. **TODO:** Update app name + subtitle in App Store Connect (remove "Mac"/"iPhone" as product nouns)
-2. **TODO:** Resubmit with the reviewer note drafts above combined into one note
+### v1.1 — Analytics + What's New + Polish
+- [x] **PostHog analytics** — funnel event tracking; EU region; reverse proxy host; `analytics.ts`; `first_pair_completed` event
+- [x] **What's New screen** — shown on first launch after update; skipped when changelog is empty
+- [x] **Review nudge** — prompts for App Store review at appropriate moment
+- [x] **Pairing UX** — show device list instead of auto-connecting to first found device
+- [x] **App icons + branding** — app icon updated; stream landing and start pages match beamscreen.app branding
+- [x] **IAP price** — updated to $4.79 (was $3.79)
+- [x] **Session badge polish** — timer text no longer wraps; stream overlay upgrade button uses `crown.fill` icon
+- [x] **Trademark fix** — app name/subtitle updated in App Store Connect (no Apple brand nouns per guideline 5.2.5)
 
 ---
 
-## Additional Fixes (2026-03-17)
+## Next Up
 
-- [x] **Onboarding skip** — "Skip for now" button on last onboarding page sets `hasCompletedOnboarding = true` directly, bypasses pairing, lands on HomeView
-- [x] **SettingsView added to Xcode target** — was created but never registered in project.pbxproj, causing build failure
-- [x] **Viewport lock not sent on reconnect** — `handlePairingMessage(.authSuccess)` now always calls `sendViewportLock(appState?.lockedViewportRect)` regardless of nil/non-nil, so host gets explicit unlock when keepViewportLock=false
-- [x] **IAP price updated** — $3.79 → $4.79 in memory; PRD was already correct
-- [x] **Stream overlay upgrade button** — replaced text "Upgrade" with `crown.fill` icon to prevent wrapping
-- [x] **Paywall dismiss copy** — "Try again tomorrow" now only shows on session expiry; voluntary upgrade tap shows "Maybe later"
-- [x] **Debug reset purchase button** — `#if DEBUG` only section in Settings; calls `AppStore.sync()` to reset entitlement state for testing
-- [x] **HomeView download button** — matches PairingView style exactly (capsule, monospaced URL, orange→green on copy)
-- [x] **Expandable setup guide animation** — replaced with `DisclosureGroup` + `BeamDrawerStyle`; uses `height: nil/0` + unified spring so chevron rotation and content reveal animate as one; no layout shift
-- [x] **Setup guide step 3 copy** — "Tap Stream" → `Tap "Start Beam"`
+- [ ] **iOS 16 port — test & ship as v1.2** — changes made locally, NOT committed. Test on real device + iOS 16 simulator. If green: commit, bump version to 1.2, submit to App Store review.
+- [ ] **iOS improvements** — post-1.1 features and bug fixes (TBD based on user feedback + analytics)
 
 ---
 
----
-
-## Completed (This Session)
-
-### Bug Fixes
-- [x] **Audio: non-interleaved format crash** — `AVAudioPlayerNode` requires `interleaved: false`; fixed outputFormat + decoder ASBD flags/sizes
-- [x] **Audio session -50 error** — removed `.allowAirPlay` from session options; kept `[.mixWithOthers]`
-- [x] **Black screen** — macOS sends Annex B; `AVSampleBufferDisplayLayer` expects AVCC. Added `annexBToAVCC()` + `cachedFormatDesc` in StreamReceiver
-- [x] **Continuous streaming stuck on first frame** — macOS/iOS host clocks are independent; stamped frames with `CMClockGetHostTimeClock()` + set `displayLayer.controlTimebase`
-- [x] **Unpair not propagating** — added `.unpaired` protocol message type; ConnectionManager clears KeyStore + sets `appState.pairedMac = nil`; also clears on `.authFailed "Device not paired"` for offline-unpair scenario
-- [x] **Pairing stuck at "Connecting to Mac"** — `loadUnaligned` fix + `BeamPacketHeader` stripping before JSON decode in PairingConnection
-- [x] **QR code removed** — scrapped QR for MVP; code-entry only flow
-- [x] **Post-pairing navigation** — `hasCompletedOnboarding` converted from computed UserDefaults to stored property with `didSet` so `@Observable` tracks it
-- [x] **Ghost sessions** — `isTerminated` guard on `disconnect()`; `receiveNextPacket()` calls `disconnect()` on `isComplete=true` and on errors
-- [x] **Pinch-to-zoom + pan** — `MagnificationGesture` (1×–5×) + `DragGesture` (only when zoomed, edge-clamped) + double-tap reset in StreamView
-- [x] **Quality picker selected value not updating** — host `qualityChanged` payload decodes shape-identical to `qualityRequest`; iOS now maps both payload cases on `.qualityChanged` messages so selected quality updates instantly in client UI
-- [x] **Stale/frozen stream sessions** — added inactivity timeout (`8s`) in `ConnectionManager` quality monitor; receiver state resets on connect/disconnect to avoid black-frame reconnect path
-- [x] **Quality picker sheet closes unexpectedly** — moved picker sheet ownership from auto-hiding `StreamOverlay` to `StreamView`; overlay lifecycle no longer dismisses the picker after 3s
-- [x] **Quality picker taps unreliable** — picker options now use full-row tap targets (`contentShape + onTapGesture`) to make selection behavior deterministic on iOS
-- [x] **Frozen-last-frame edge case** — split inactivity tracking into control vs media; iOS now force-disconnects stalled streams when media packets stop (even if heartbeat/control packets still arrive)
-- [x] **Reconnect cleanup hardening** — `ConnectionManager` disconnect is idempotent, send failures now force disconnect, and stream start always disconnects any previous manager first
-- [x] **Foreground stale-stream recovery** — on scene re-activation, app performs a media-flow health check and drops stale frozen sessions automatically
-- [x] **Audio playback restored end-to-end** — replaced fragile AAC/ADTS decode path with direct Float32 PCM playback (`AudioPlayer`), eliminating silent decode failures that caused no-audio streams
-- [x] **A/V sync stabilization (video-master clock)** — audio scheduling now follows video PTS timeline with bounded lead + soft catch-up (no routine late-packet drops), reducing drift without periodic click/gap artifacts
-- [x] **Dynamic audio format handshake** — host now broadcasts active audio sample rate/channels (`audio_format_changed`), and iOS rebuilds `AVAudioEngine` playback format on change to prevent pitch/tempo distortion from sample-rate mismatches
-
-### Features
-- [x] **StreamQualityPreset enum** — in Protocol.swift (both macOS + iOS); auto/360p30/480p30/720p30/720p60/1080p30/1080p60 with display names, dimensions, fps, bitrate
-- [x] **Quality control messages** — `qualityRequest` (iOS→macOS), `qualityChanged` (macOS→iOS) added to Protocol.swift; unified `BeamQualityPayload` struct; `BeamQualityFeedbackPayload` updated to `quality: Double`
-- [x] **BeamAppState quality state** — `currentQualityPreset` (updated from `.qualityChanged` messages), `preferredQualityPreset` (persisted to UserDefaults, sends `qualityRequest` to host on change)
-- [x] **ConnectionManager quality integration** — sends quality preference to host on `authSuccess`; handles `.qualityChanged` messages from macOS (updates `currentQualityPreset`); sends `qualityFeedback` every 2s from quality monitor; `sendQualityFeedback(_:)` and `sendQualityRequest(_:)` methods added; `.control` packets try both pairing and control message decoding
-- [x] **StreamOverlay rewrite** — Liquid Glass effect (iOS 26 `.glassEffect`, ultraThinMaterial fallback); quality picker button showing active preset; `QualityPickerSheet` with all presets + checkmark; `BeamGlassModifier` + `beamGlass()` View extension
-- [x] **HomeView Mac app download link** — "Copy Mac app download link" button when no Mac paired; copies `https://beamscreen.app/#download` to clipboard with visual confirmation feedback
-- [x] **Viewport lock control** — new liquid-glass lock/unlock button in `StreamOverlay`; animated lock symbol state; when locked, zoom/pan gestures are disabled and current zoom viewport is sent to host as normalized crop rectangle
-- [x] **Viewport lock 16:9 constraint** — lock requests now always send a centered 16:9 normalized rect (including zoomed state) so PiP/locked output stays framed to a fixed widescreen viewport
-- [x] **Viewport lock exact-selection flow** — lock now enters a dedicated selection state with visible 16:9 overlay and Cancel/Confirm actions; confirmed crop is derived from that exact on-screen frame (respecting current zoom/pan) before sending to host
-- [x] **Viewport lock preserved in windowed/PiP continuation** — removed automatic host unlock on `StreamView` disappearance so lock state persists when stream transitions out of full-screen view (for example PiP/windowed continuation)
-- [x] **Quality picker theme alignment** — removed blue accent behavior and forced orange-tinted controls/checkmarks for quality sheet actions
-- [x] **Home branding refresh** — added `BrandFullIcon` assets from root `full-icon.png`; main screen logo now uses icon + lowercase `beam` wordmark styling
-- [x] **Home logo parity with web header** — updated iOS home logo block to vertical icon-over-wordmark layout and matched web header wordmark style (`Plus Jakarta Sans`, heavy weight, 20pt, tight tracking, lowercase)
-- [x] **Onboarding skip removed** — removed "Skip setup, do it later"; setup flow is now mandatory
-- [x] **Quality modal header cleanup** — removed "Active: …" text and collapsed top list spacing so options start at the top of the modal
-- [x] **PiP regression fix (button + swipe-home)** — stopped tearing down PiP on `StreamView` disappear, added scene-phase background auto-start attempt, and switched PiP button disabling to support-based gating (with live `isPictureInPicturePossible` observation in controller)
-- [x] **PiP audio-session root-cause fix** — audio session is now promoted to `.playback, .moviePlayback, .mixWithOthers` in `AudioPlayer.setupAudioSession()` (at stream start), not at PiP tap time; this makes `isPictureInPicturePossible` true before the button is ever pressed so first-tap PiP works reliably; all mid-stream session-switching machinery removed from `PiPController` (no more `prepareAudioSessionForPiP` / `restoreAudioSessionAfterPiP` / `pendingPiPStart`); trade-off: hardware mute switch no longer silences inline stream audio (`.playback` ignores the ringer switch)
-- [x] **Auto-PiP on home swipe** — removed manual `startAutomaticallyForBackgroundTransition()` call from `StreamView.onChange(of: scenePhase)` (it fired on `.inactive` which also triggers for app-switcher opens, causing race conditions with the system's own auto-PiP mechanism and bad UX); `canStartPictureInPictureAutomaticallyFromInline = true` + `.playback` session handles this cleanly — the system starts PiP at exactly the right moment before the view leaves the screen
-
----
-
-## New Feature Queue (Priority Order)
-
-### Core Product
-- [x] **Rolling session timer** — 30-minute (1800s) accumulated active stream time per 24h window, Keychain-backed; resets every 24h; lockout when exhausted (`kSessionLimitSeconds` in `SessionManager.swift`)
-- [x] **Paywall + IAP** — show paywall when session expires; one-time $4.79 unlock; purchase success screen; `HomeView` daily-limit section with countdown + "Unlock Beam Unlimited" CTA; subtle "Beam Unlimited" badge in bottomBar post-purchase; debug bypass removed from `StoreManager` so paywall is testable
-- [x] **3-day free trial** — `SessionManager.recordFirstStream()` sets Keychain-backed `trialStartDate` on first authSuccess; `isInTrial` bypasses 30-min timer for 3 days; trial chip in `HomeView` bottomBar ("3 days free · Upgrade →"); one-time trial-expired modal when trial ends (→ "your trial ended, 30 min/day now"); `OnboardingView` last page footnote explains the model; `StreamOverlay` timer badge gains inline "Upgrade" button (timer | divider | Upgrade) during free-tier sessions
-
-### UI / Polish
-- [x] **Auto video detection via long press** — `VideoMotionDetector` class decodes H.264 frames via `VTDecompressionSession`; motion heatmap (96×54 luma grid) + 3×3 spatial blur + BFS connected blob selection scored by energy×paint-overlap; 95th-percentile bounding box trim; paint area is warm attractor signal (3× boost); edge contrast as secondary signal (0.12 weight); analyzes every 3rd frame (~10fps) of all frames (not just keyframes); `isConfident` after 2 stable frames; locked rect expanded to 16:9 before sending; radar-ripple→glow border in `AutoDetectOverlay`; hold from anywhere (not just selection mode); haptics via `.sensoryFeedback`
-- [x] **Hex glass reveal + user painting** — `HexRevealOverlay`: Canvas-based pointy-top hex grid that reveals itself via expanding ripple from touch point (`.screen` blendMode, sky blue strokes, turquoise for painted cells); circular glass indicator (52pt, centered on hold point); pressure glow at fingertip with pulse animation; after detection starts, finger movement "paints" priority regions into `VideoMotionDetector.setPaintMask()` — painted cells get 3× motion weight boost; neighbor cells get 1.5× boost; `addPaintPoint()` deduplicates and converts screen coords to grid cells with 2-cell brush radius
-- [x] **Seek backward/forward buttons** — circular arrow icons on left/right edges of media controls HUD; maps to left/right arrow key presses on Mac (works in QuickTime, VLC, browsers, etc.)
-- [ ] **Icons + branding** — update app icon, stream landing, and start pages to match beamscreen.app branding
+### iOS 16 Port — Change Summary (v1.2)
+- Deployment target: `17.0` → `16.0` in project.pbxproj
+- All `@Observable` → `ObservableObject` + `@Published` (7 classes: BeamAppState, PairingManager, PiPController, ConnectionManager, StoreManager, SessionManager, VideoMotionDetector)
+- All `@Environment(Type.self)` → `@EnvironmentObject` (6 views); `@State`/`@StateObject` creation site updated; singleton observation via `@ObservedObject`
+- All `.onChange(of:)` two-param `{ _, new in }` → single-param `{ new in }` (10 instances)
+- `@State` for ObservableObject class instances in views → `@StateObject` (PiPController, VideoMotionDetector in StreamView; PairingManager in PairingView; StoreManager in PaywallView)
+- `let detector` in AutoDetectOverlay sub-struct → `@ObservedObject var detector`
+- `.contentTransition(.symbolEffect(.replace))` removed (iOS 17+ only, lock icon still swaps correctly)
+- `.contentMargins(.top, 0, for: .scrollContent)` removed (iOS 17+ only, minor layout difference in quality picker)
+- `.sensoryFeedback` → UIKit `UIImpactFeedbackGenerator`/`UINotificationFeedbackGenerator` in `.onChange` (works iOS 16+, same haptic effect)
 
 ---
 
 ## Architecture Notes
 - `BeamAppState` is the observable hub; all views consume it via `@Environment`
-- `PairedMac.id` = the iOS device's Keychain-stable UUID (survives reinstall) - matches what macOS stores
-- `VideoRenderer` is a `UIView` subclass wrapping `AVSampleBufferDisplayLayer` - PiP works from day 1
-- Audio playback path: host sends Float32 interleaved PCM chunks; iOS deinterleaves into `AVAudioPCMBuffer` and schedules on `AVAudioPlayerNode`
-- Sync model: video is master; `StreamReceiver` feeds video PTS to `AudioPlayer`, which maps remote PTS deltas onto local host time and schedules audio with bounded lead/drift correction
+- `PairedMac.id` = iOS device's Keychain-stable UUID (survives reinstall) — matches what macOS stores
+- `VideoRenderer` is a `UIView` subclass wrapping `AVSampleBufferDisplayLayer` — PiP works from day 1
+- Audio path: host sends Float32 interleaved PCM; iOS deinterleaves into `AVAudioPCMBuffer` and schedules on `AVAudioPlayerNode`
+- Sync model: video is master; `StreamReceiver` feeds video PTS to `AudioPlayer`, which maps remote PTS deltas onto local host time
 - Free tier: Keychain timestamps survive reinstall; `StoreManager.isPurchased` checked before starting timer
-- Quality flow: iOS sends `qualityFeedback` every 2s → macOS `VideoQualityManager` adapts in auto mode; iOS sends `qualityRequest` on user picker change → macOS applies + broadcasts `qualityChanged` back
+- Quality flow: iOS sends `qualityFeedback` every 2s → macOS `VideoQualityManager` adapts in auto mode
+- iOS 26 Liquid Glass (`.glassEffect`) requires Xcode 16.4+; `#available(iOS 26, *)` guard ensures backward compat
 
 ## Known Issues / Notes for Testing
-- `ConnectionManager` uses TCP for all stream data. UDP upgrade possible in v2.
-- Validate on real device that audio format renegotiation is stable across route changes (speaker ↔ AirPods, control center output switch) during an active stream
-- PiP requires `audio` background mode in Info.plist AND AVAudioSession active
+- Validate audio format renegotiation stability across route changes (speaker ↔ AirPods) during active stream
 - StoreKit 2 product `com.beam.ios.unlimited` must exist in App Store Connect; use local `.storekit` config for dev testing
-- iOS 26 Liquid Glass (`.glassEffect`) requires Xcode 16.4+ to compile; `#available(iOS 26, *)` guard ensures backward compatibility
-- Viewport lock crop behavior should still be validated on real device + PiP path (especially landscape/portrait transitions), but lock rects are now forced to 16:9 on both iOS request generation and host `sourceRect` application
+- Viewport lock crop behavior should be validated on real device + PiP path (landscape/portrait transitions)

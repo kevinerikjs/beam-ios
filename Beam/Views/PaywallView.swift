@@ -9,7 +9,7 @@ struct PaywallView: View {
     var triggeredByExpiry: Bool = false
 
     @Environment(\.dismiss) private var dismiss
-    @State private var store = StoreManager.shared
+    @ObservedObject private var store = StoreManager.shared
     @State private var showSuccess = false
 
     private var paywallReason: String { triggeredByExpiry ? "session_expired" : "manual" }
@@ -199,7 +199,7 @@ struct PaywallView: View {
                 dismiss()
             }
         }
-        .onChange(of: store.isPurchased) { _, purchased in
+        .onChange(of: store.isPurchased) { purchased in
             if purchased {
                 withAnimation(.spring(duration: 0.4)) { showSuccess = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { dismiss() }

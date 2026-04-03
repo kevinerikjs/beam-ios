@@ -4,7 +4,8 @@
 import SwiftUI
 
 struct HomeView: View {
-    @Environment(BeamAppState.self) private var appState
+    @EnvironmentObject var appState: BeamAppState
+    @ObservedObject private var store = StoreManager.shared
     @State private var showPairing = false
     @State private var showPaywall = false
     @State private var showSettings = false
@@ -49,7 +50,7 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showPairing) {
             PairingView()
-                .environment(appState)
+                .environmentObject(appState)
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
@@ -71,7 +72,7 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
-                .environment(appState)
+                .environmentObject(appState)
         }
     }
 
@@ -84,6 +85,7 @@ struct HomeView: View {
               !SessionManager.shared.isInTrial else { return }
         trialExpiredModalShown = true
         showTrialExpiredModal = true
+        Analytics.trialExpired()
     }
 
     // MARK: - Trial Expired Modal
@@ -335,7 +337,7 @@ struct HomeView: View {
     @ViewBuilder
     private var bottomBar: some View {
         HStack {
-            if StoreManager.shared.isPurchased {
+            if store.isPurchased {
                 // Subtle "Beam Unlimited" indicator
                 HStack(spacing: 5) {
                     Image(systemName: "checkmark.seal.fill")

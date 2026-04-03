@@ -5,7 +5,7 @@ import SwiftUI
 import AVFoundation
 
 struct StreamView: View {
-    @Environment(BeamAppState.self) private var appState
+    @EnvironmentObject var appState: BeamAppState
     @Environment(\.scenePhase) private var scenePhase
     @State private var showOverlay = true
     @State private var overlayHideTask: Task<Void, Never>? = nil
@@ -15,7 +15,7 @@ struct StreamView: View {
 
     // Renderer and PiP are created once and persist
     @State private var renderer = VideoRenderer(frame: .zero)
-    @State private var pipController = PiPController()
+    @StateObject private var pipController = PiPController()
 
     // Pinch-to-zoom + pan state
     @State private var videoScale: CGFloat = 1.0
@@ -27,7 +27,7 @@ struct StreamView: View {
     @State private var isSelectingViewportLock = false
 
     // Auto video detection
-    @State private var motionDetector = VideoMotionDetector()
+    @StateObject private var motionDetector = VideoMotionDetector()
     @State private var isAutoDetecting = false
     @State private var holdTimer: Task<Void, Never>? = nil
     @State private var detectionStartHaptic = false
@@ -51,7 +51,7 @@ struct StreamView: View {
                     .scaleEffect(videoScale)
                     .offset(videoOffset)
                     .onAppear { videoContainerSize = geometry.size }
-                    .onChange(of: geometry.size) { _, newSize in
+                    .onChange(of: geometry.size) { newSize in
                         videoContainerSize = newSize
                     }
                     .gesture(
@@ -197,8 +197,12 @@ struct StreamView: View {
                 .transition(.opacity)
             }
         }
-        .sensoryFeedback(.impact(weight: .medium), trigger: detectionStartHaptic)
-        .sensoryFeedback(.success, trigger: detectionLockHaptic)
+        .onChange(of: detectionStartHaptic) { _ in
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+        .onChange(of: detectionLockHaptic) { _ in
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
         .statusBarHidden(true)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -223,7 +227,7 @@ struct StreamView: View {
                     scheduleOverlayHide()
                 }
         }
-        .onChange(of: appState.isStreaming) { _, isStreaming in
+        .onChange(of: appState.isStreaming) { isStreaming in
             if isStreaming {
                 // Restore UI lock state from previous session — host keeps the lock on its side.
                 isViewportLocked = appState.lockedViewportRect != nil
@@ -232,7 +236,7 @@ struct StreamView: View {
                 renderer.flush()
             }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             guard appState.isStreaming else { return }
             switch phase {
             case .background:
@@ -246,7 +250,7 @@ struct StreamView: View {
                 break
             }
         }
-        .onChange(of: pipController.isPiPActive) { _, isActive in
+        .onChange(of: pipController.isPiPActive) { isActive in
             guard appState.isStreaming else { return }
             if isActive {
                 // PiP started — user is still watching, resume if we paused during the transition.
@@ -659,7 +663,7 @@ private struct HexRevealOverlay: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
-        .onChange(of: holdLocation) { _, newLoc in
+        .onChange(of: holdLocation) { newLoc in
             if newLoc != nil {
                 withAnimation(.spring(duration: 0.25, bounce: 0.35)) {
                     pillScale = 1.0; pillOpacity = 1.0
@@ -746,7 +750,7 @@ private struct ViewportLockSelectionOverlay: View {
 // Marching-ants border while scanning; solid glow border when confident.
 
 private struct AutoDetectOverlay: View {
-    let detector: VideoMotionDetector
+    @ObservedObject var detector: VideoMotionDetector
     let containerSize: CGSize
     let baseVideoRect: CGRect
     let videoScale: CGFloat
@@ -775,7 +779,7 @@ private struct AutoDetectOverlay: View {
             }
         }
         .onAppear { startAnimations() }
-        .onChange(of: detector.isConfident) { _, confident in
+        .onChange(of: detector.isConfident) { confident in
             if confident {
                 // Switch to slow glow pulse
                 withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {

@@ -11,12 +11,11 @@ private let logger = Logger(subsystem: "com.beam.ios", category: "PiP")
 
 // MARK: - PiPController
 
-@Observable
-final class PiPController: NSObject {
+final class PiPController: NSObject, ObservableObject {
 
-    var isPiPActive: Bool = false
-    var isPiPPossible: Bool = false
-    var isPiPSupported: Bool = AVPictureInPictureController.isPictureInPictureSupported()
+    @Published var isPiPActive: Bool = false
+    @Published var isPiPPossible: Bool = false
+    @Published var isPiPSupported: Bool = AVPictureInPictureController.isPictureInPictureSupported()
 
     private var pipController: AVPictureInPictureController?
     private weak var renderer: VideoRenderer?

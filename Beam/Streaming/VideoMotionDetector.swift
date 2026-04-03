@@ -19,7 +19,6 @@ import Foundation
 import CoreMedia
 import VideoToolbox
 import CoreVideo
-import Observation
 import OSLog
 
 private let logger = Logger(subsystem: "com.beam.ios", category: "VideoMotionDetector")
@@ -42,14 +41,13 @@ private func vtDecompressionCallback(
 
 // MARK: - VideoMotionDetector
 
-@Observable
-final class VideoMotionDetector {
+final class VideoMotionDetector: ObservableObject {
 
     // MARK: - Observable (main thread)
 
-    private(set) var detectedRect: CGRect? = nil
-    private(set) var isConfident: Bool = false
-    private(set) var isDetecting: Bool = false
+    @Published private(set) var detectedRect: CGRect? = nil
+    @Published private(set) var isConfident: Bool = false
+    @Published private(set) var isDetecting: Bool = false
 
     // MARK: - Tuning
 

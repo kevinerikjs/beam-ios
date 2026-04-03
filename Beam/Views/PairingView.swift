@@ -12,11 +12,11 @@
 import SwiftUI
 
 struct PairingView: View {
-    @Environment(BeamAppState.self) private var appState
+    @EnvironmentObject var appState: BeamAppState
     @Environment(\.dismiss) private var dismiss
 
     @State private var manualCode = ""
-    @State private var pairingManager = PairingManager.shared
+    @ObservedObject private var pairingManager = PairingManager.shared
     @State private var didCopyDownloadLink = false
 
     var body: some View {
@@ -58,7 +58,7 @@ struct PairingView: View {
                 appState.stopBrowsing()
             }
         }
-        .onChange(of: pairingManager.isPairSuccess) { _, success in
+        .onChange(of: pairingManager.isPairSuccess) { success in
             if success {
                 appState.pairedMac = KeyStore.shared.loadPairedMac()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -221,7 +221,7 @@ struct PairingView: View {
                     .background(Color.white.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal, 48)
-                    .onChange(of: manualCode) { _, val in
+                    .onChange(of: manualCode) { val in
                         if val.count > 6 { manualCode = String(val.prefix(6)) }
                     }
 
