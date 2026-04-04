@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DL00000000000000BLDFILE1 /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DL00000000000000FILEREF1 /* DiagnosticLogger.swift */; };
 		02B9154D6D615FEE38E9E6B4 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B77BDBB88ACD0081106E6E1E /* StreamView.swift */; };
 		0A36844D2F5382D700094AA9 /* beam.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0A36844C2F5382D700094AA9 /* beam.icon */; };
 		0A37CAD8BA0B45C4BA8DF6B2 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4E2E4616A1F68806AFBD50C /* Foundation.framework */; };
@@ -67,6 +68,7 @@
 		DE5D93CE4A074983AB6F606C /* FeedbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FeedbackView.swift; path = Beam/Views/FeedbackView.swift; sourceTree = SOURCE_ROOT; };
 		9103D00A2163CA9E73231F09 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		928BF22CC7D2A1A02E05FDF7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Beam/Info.plist; sourceTree = SOURCE_ROOT; };
+		DL00000000000000FILEREF1 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiagnosticLogger.swift; path = Beam/Streaming/DiagnosticLogger.swift; sourceTree = SOURCE_ROOT; };
 		9322E337B5373CB064616592 /* StreamReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamReceiver.swift; path = Beam/Streaming/StreamReceiver.swift; sourceTree = SOURCE_ROOT; };
 		9ACF70A03BF4F22D5208B421 /* ControlChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ControlChannel.swift; path = Beam/Network/ControlChannel.swift; sourceTree = SOURCE_ROOT; };
 		A65CD0AFE8E225958BF62B85 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
@@ -149,6 +151,7 @@
 				B8D4E7920AF163C59E33F801 /* VideoMotionDetector.swift */,
 				C1557FB665B475A9C150718B /* AudioPlayer.swift */,
 				F6E577754DB3922766E97475 /* PiPController.swift */,
+				DL00000000000000FILEREF1 /* DiagnosticLogger.swift */,
 			);
 			name = Streaming;
 			sourceTree = "<group>";
@@ -313,6 +316,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0C5790B90BD40678F9EBDDB5 /* BeamApp.swift in Sources */,
+				DL00000000000000BLDFILE1 /* DiagnosticLogger.swift in Sources */,
 				5E496367CF5B6DD66C3FCFF7 /* BeamAppState.swift in Sources */,
 				D9AADD4C2136A9B3E9FBE69B /* Protocol.swift in Sources */,
 				989ADF5A9A63C04AD682D821 /* StreamReceiver.swift in Sources */,

@@ -3,8 +3,8 @@
 // Handles authentication, receives stream packets, and dispatches to StreamReceiver.
 
 import Network
-import UIKit
 import OSLog
+import UIKit
 
 private let logger = Logger(subsystem: "com.beam.ios", category: "ConnectionManager")
 
@@ -27,9 +27,19 @@ final class ConnectionManager {
     private var lastPacketReceivedAt: Date = Date()
     private var lastMediaPacketReceivedAt: Date = Date()
     private var qualityTimer: DispatchSourceTimer?
-    private let controlInactivityTimeout: TimeInterval = 12
-    private let mediaInactivityTimeout: TimeInterval = 6
+    private let controlInactivityTimeout: TimeInterval = 20
+    private let mediaInactivityTimeoutForeground: TimeInterval = 8
+    private let mediaInactivityTimeoutBackground: TimeInterval = 22
     private var streamStartedAt: Date? = nil
+
+    /// Set to true while PiP is active so timeouts are relaxed for background operation.
+    var isPiPActive: Bool = false
+
+    /// Called when the connection drops due to inactivity / unexpected error (not user-initiated).
+    /// Set by BeamAppState to trigger auto-reconnect.
+    var onUnexpectedDisconnect: (() -> Void)?
+
+    private var pathMonitor: NWPathMonitor?
 
     init(host: DiscoveredHost, pairedMac: PairedMac, appState: BeamAppState) {
         self.host = host
@@ -46,6 +56,7 @@ final class ConnectionManager {
         lastPacketReceivedAt = Date()
         lastMediaPacketReceivedAt = Date()
         streamReceiver.reset()
+        DiagnosticLogger.shared.log("Connecting to \(host.name)", category: "Connection")
         let conn = NWConnection(to: host.endpoint, using: .tcp)
         self.connection = conn
 
@@ -58,18 +69,22 @@ final class ConnectionManager {
         conn.start(queue: .global(qos: .userInteractive))
         receiveNextPacket()
         startQualityMonitor()
+        startPathMonitor()
     }
 
     private func handleConnectionState(_ state: NWConnection.State) {
         switch state {
         case .ready:
             logger.info("Connected to \(self.host.name)")
+            DiagnosticLogger.shared.log("TCP connected to \(host.name)", category: "Connection")
             sendAuthRequest()
         case .waiting(let error):
             logger.warning("Connection waiting: \(error)")
+            DiagnosticLogger.shared.log("Connection waiting: \(error)", category: "Connection")
         case .failed(let error):
             logger.error("Connection failed: \(error)")
-            disconnect()
+            DiagnosticLogger.shared.log("Connection failed: \(error)", category: "Connection")
+            triggerUnexpectedDisconnect()
         case .cancelled:
             Task { @MainActor in appState?.isStreaming = false }
         default:
@@ -120,6 +135,9 @@ final class ConnectionManager {
         qualityTimer?.cancel()
         qualityTimer = nil
 
+        pathMonitor?.cancel()
+        pathMonitor = nil
+
         // Analytics: stream ended
         if let startedAt = streamStartedAt {
             let duration = Date().timeIntervalSince(startedAt)
@@ -129,6 +147,7 @@ final class ConnectionManager {
             ReviewManager.recordStreamCompleted()
         }
 
+        DiagnosticLogger.shared.log("Disconnected from \(host.name)", category: "Connection")
         SessionManager.shared.stopSession()
         sendStreamStop()
         connection?.cancel()
@@ -143,13 +162,29 @@ final class ConnectionManager {
         logger.info("Disconnected from \(self.host.name)")
     }
 
+    /// Triggers the unexpected-disconnect path: tears down and calls back to allow reconnect.
+    private func triggerUnexpectedDisconnect() {
+        let callback = onUnexpectedDisconnect
+        disconnect()
+        callback?()
+    }
+
     // MARK: - Receive Loop
 
     private func receiveNextPacket() {
         connection?.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] data, _, isComplete, error in
             guard let self else { return }
-            if let error { logger.error("Receive error: \(error)"); self.disconnect(); return }
-            if isComplete { self.disconnect(); return }
+            if let error {
+                logger.error("Receive error: \(error)")
+                DiagnosticLogger.shared.log("Receive error: \(error)", category: "Connection")
+                self.triggerUnexpectedDisconnect()
+                return
+            }
+            if isComplete {
+                DiagnosticLogger.shared.log("Connection closed by remote (isComplete)", category: "Connection")
+                self.triggerUnexpectedDisconnect()
+                return
+            }
             guard let data, data.count == 4 else { return }
 
             let length = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
@@ -163,8 +198,17 @@ final class ConnectionManager {
                 maximumLength: Int(length)
             ) { [weak self] payload, _, isComplete, error in
                 guard let self else { return }
-                if let error { logger.error("Payload receive error: \(error)"); self.disconnect(); return }
-                if isComplete { self.disconnect(); return }
+                if let error {
+                    logger.error("Payload receive error: \(error)")
+                    DiagnosticLogger.shared.log("Payload receive error: \(error)", category: "Connection")
+                    self.triggerUnexpectedDisconnect()
+                    return
+                }
+                if isComplete {
+                    DiagnosticLogger.shared.log("Connection closed by remote during payload read", category: "Connection")
+                    self.triggerUnexpectedDisconnect()
+                    return
+                }
                 guard let payload else { return }
                 self.handleIncomingPacket(payload)
                 self.receiveNextPacket()
@@ -234,6 +278,7 @@ final class ConnectionManager {
         switch msg.type {
         case .authSuccess:
             logger.info("Authenticated with \(self.host.name), stream starting")
+            DiagnosticLogger.shared.log("Auth success, stream starting", category: "Connection")
             streamStartedAt = Date()
             // Record first stream to start the 3-day free trial clock (no-op after first time)
             SessionManager.shared.recordFirstStream()
@@ -292,14 +337,27 @@ final class ConnectionManager {
             guard let self else { return }
             let controlElapsed = Date().timeIntervalSince(lastPacketReceivedAt)
             let mediaElapsed = Date().timeIntervalSince(lastMediaPacketReceivedAt)
+
+            // Relax timeouts when PiP is active — iOS throttles background network delivery,
+            // so short timeouts cause spurious disconnects when the user is still watching.
+            let mediaTimeout = isPiPActive ? mediaInactivityTimeoutBackground : mediaInactivityTimeoutForeground
+
             if controlElapsed >= controlInactivityTimeout {
                 logger.warning("No packets for \(controlElapsed, format: .fixed(precision: 1))s, disconnecting")
-                self.disconnect()
+                DiagnosticLogger.shared.log(
+                    "Control timeout (\(String(format: "%.1f", controlElapsed))s, PiP=\(isPiPActive))",
+                    category: "Timeout"
+                )
+                self.triggerUnexpectedDisconnect()
                 return
             }
-            if mediaElapsed >= mediaInactivityTimeout {
-                logger.warning("No media packets for \(mediaElapsed, format: .fixed(precision: 1))s, disconnecting stalled stream")
-                self.disconnect()
+            if mediaElapsed >= mediaTimeout {
+                logger.warning("No media packets for \(mediaElapsed, format: .fixed(precision: 1))s (timeout=\(mediaTimeout)s, PiP=\(isPiPActive)), disconnecting stalled stream")
+                DiagnosticLogger.shared.log(
+                    "Media timeout (\(String(format: "%.1f", mediaElapsed))s, threshold=\(String(format: "%.0f", mediaTimeout))s, PiP=\(isPiPActive))",
+                    category: "Timeout"
+                )
+                self.triggerUnexpectedDisconnect()
                 return
             }
             let quality: Double
@@ -317,6 +375,23 @@ final class ConnectionManager {
         }
         timer.resume()
         qualityTimer = timer
+    }
+
+    // MARK: - Network Path Monitor
+
+    private func startPathMonitor() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { path in
+            let ifaces = path.availableInterfaces.map(\.name).joined(separator: ",")
+            let expensive = path.isExpensive ? ",expensive" : ""
+            let constrained = path.isConstrained ? ",constrained" : ""
+            DiagnosticLogger.shared.log(
+                "Network path: \(path.status) via [\(ifaces)\(expensive)\(constrained)]",
+                category: "Network"
+            )
+        }
+        monitor.start(queue: .global(qos: .utility))
+        pathMonitor = monitor
     }
 
     // MARK: - Quality

@@ -49,7 +49,103 @@
 ## Next Up
 
 - [x] **iOS 16 port shipped as v1.2** — committed and submitted to App Store review
+- [ ] **v1.3 — PiP stability + diagnostics** — see below
 - [ ] **iOS improvements** — post-1.1 features and bug fixes (TBD based on user feedback + analytics)
+
+---
+
+## v1.3 — PiP Stability + Diagnostic Logging (in progress)
+
+**Motivation:** User feedback — connection cuts during PiP streaming after upgrading (purchased IAP).
+
+### Root Causes Identified
+1. `mediaInactivityTimeout` was 6s — too short for background/PiP operation where iOS throttles network delivery
+2. No auto-reconnect — any disconnect was terminal; user had to manually restart stream
+3. No in-app diagnostic log — impossible to investigate reported issues without device access
+
+### Changes Made
+- **`ConnectionManager.swift`**
+  - `controlInactivityTimeout` 12s → 20s (more headroom for background)
+  - Split media timeout: `foreground=8s`, `background=22s` (PiP-aware)
+  - Added `isPiPActive: Bool` — set by StreamView's `onChange(of: pipController.isPiPActive)`
+  - Added `onUnexpectedDisconnect: (() -> Void)?` callback for reconnect signaling
+  - Added `triggerUnexpectedDisconnect()` — distinguishes unexpected from user-initiated stops
+  - Wired `DiagnosticLogger` at all key events (connect, auth, timeout, receive errors)
+
+- **`BeamAppState.swift`**
+  - `startStream()` sets `onUnexpectedDisconnect` → `scheduleReconnect()`
+  - `scheduleReconnect()` — exponential backoff 1s/3s/9s/27s, up to 4 attempts
+  - `stopStream()` cancels any pending reconnect task
+
+- **`StreamView.swift`**
+  - `onChange(of: pipController.isPiPActive)` forwards state to `connectionManager?.isPiPActive`
+
+- **`DiagnosticLogger.swift`** (new, replaces in-memory-only version)
+  - Appends each log entry to `Caches/beam_diagnostic.log` on a background queue — **survives app kill**
+  - Loads previous session entries automatically on init (writes a session-start marker with app version + iOS version)
+  - Rotates file at 100 KB, keeping most recent 50 KB — no unbounded growth
+  - `export() -> String` — reads full file contents, includes all previous sessions
+  - `clear()` — deletes the file
+
+- **`FeedbackView.swift`**
+  - Added "Include connection log" toggle
+  - When enabled, sends full file contents as `"diagnostics"` in feedback payload
+
+- **`beam-web/api/feedback.ts`**
+  - Now parses `diagnostics` from body
+  - Main message includes `📋 Connection log attached` note if diagnostics present
+  - Sends diagnostics as `sendDocument` (`.txt` file) replying to the main message — clean notification, full log available on tap, no spam
+
+- **`ConnectionManager.swift`**
+  - Added `NWPathMonitor` — logs network path changes (status, interfaces, expensive/constrained flags)
+  - Started alongside stream, torn down on disconnect
+
+- **`AudioPlayer.swift`**
+  - Logs audio session active (with current output route) or failed
+  - Logs audio engine started (sample rate + channels) or failed
+  - Observes `AVAudioSession.interruptionNotification` → logs began/ended + shouldResume
+  - Observes `AVAudioSession.routeChangeNotification` → logs reason + new route (e.g. headphones removed)
+  - Logs hard A/V resyncs when drift exceeds 850ms threshold
+
+- **`BonjourBrowser.swift`**
+  - Logs host appeared / host disappeared events (critical for "Mac not found" reports)
+  - Logs browser ready / failed state
+
+- **`BeamApp.swift`**
+  - Observes `UIApplication.didReceiveMemoryWarningNotification` → logs with thermal state
+  - Scene phase changes logged via `RootView.onChange(of: scenePhase)` with streaming state
+
+- **`StreamReceiver.swift`**
+  - SPS/PPS parse success/failure logged (failure = video will never decode)
+  - Sample buffer build failures logged with frame number, keyframe status, format desc presence
+
+- **`DiagnosticLogView.swift`** (new)
+  - Full-screen scrollable monospaced log view
+  - Scrolls to bottom on open (most recent entries visible)
+  - Copy button copies full log to clipboard
+
+- **`SettingsView.swift`**
+  - Added "Connection Log" row in Support card → opens `DiagnosticLogView`
+  - Can ask users "Settings → Connection Log → screenshot" without waiting for feedback
+
+### What the log covers (complete picture)
+| Category | Events logged |
+|---|---|
+| Session | App launch + version + iOS version + thermal state |
+| Lifecycle | Scene phase changes with streaming state |
+| System | Memory warnings with thermal state |
+| Discovery | Bonjour browser ready/failed, host appeared/disappeared |
+| Connection | Connect attempt, TCP ready, auth success/fail, receive errors, remote close |
+| Network | Path status changes, interfaces, expensive/constrained flags |
+| Timeout | Control timeout (full TCP dead), media timeout (Mac stopped sending), both with PiP state |
+| Reconnect | Attempt scheduling with backoff delays, outcome |
+| Audio | Session active/failed + route, engine start/fail, interruptions, route changes, hard resyncs |
+| Video | SPS/PPS received/failed, sample buffer build failures |
+
+### Still Needed
+- [ ] Test on real device: confirm PiP stream stays alive during extended background use
+- [ ] Confirm Telegram `sendDocument` with `FormData` works in Vercel edge runtime (edge runtime has limited Web APIs — may need to manually build multipart/form-data if Blob upload fails)
+- [ ] Add new files to Xcode target (DiagnosticLogger.swift, DiagnosticLogView.swift) — they need to be added in Xcode project navigator
 
 ---
 

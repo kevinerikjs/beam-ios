@@ -10,7 +10,7 @@ iPhone app that connects to a paired Mac running Beacon and displays the Mac's s
 
 ## Tech Stack
 - Swift / SwiftUI
-- iOS 17.0+ deployment target
+- iOS 16.0+ deployment target
 - Network.framework (UDP stream receiving + TCP control)
 - Bonjour / NWBrowser (discover Mac on network)
 - AVSampleBufferDisplayLayer (low-latency video rendering)

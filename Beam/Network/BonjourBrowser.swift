@@ -55,8 +55,10 @@ final class BonjourBrowser {
             switch state {
             case .ready:
                 logger.info("Bonjour browser ready")
+                DiagnosticLogger.shared.log("Bonjour browser ready", category: "Discovery")
             case .failed(let error):
                 logger.error("Bonjour browser failed: \(error)")
+                DiagnosticLogger.shared.log("Bonjour browser failed: \(error)", category: "Discovery")
             default:
                 break
             }
@@ -66,9 +68,13 @@ final class BonjourBrowser {
             for change in changes {
                 switch change {
                 case .added(let result):
+                    if case .service(let name, _, _, _) = result.endpoint {
+                        DiagnosticLogger.shared.log("Host appeared: \(name)", category: "Discovery")
+                    }
                     self?.handleDiscoveredResult(result)
                 case .removed(let result):
                     if case .service(let name, _, _, _) = result.endpoint {
+                        DiagnosticLogger.shared.log("Host disappeared: \(name)", category: "Discovery")
                         self?.discoveredHosts.removeValue(forKey: name)
                         let hosts = Array(self?.discoveredHosts.values ?? [:].values)
                         Task { @MainActor in self?.onHostsChanged?(hosts) }

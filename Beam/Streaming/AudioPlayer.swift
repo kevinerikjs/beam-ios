@@ -88,9 +88,53 @@ final class AudioPlayer {
             // (music, podcasts) continue alongside the stream.
             try session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
             try session.setActive(true)
+            let route = session.currentRoute.outputs.map { $0.portName }.joined(separator: ",")
+            DiagnosticLogger.shared.log("Audio session active — route: [\(route)]", category: "Audio")
         } catch {
             logger.error("Failed to configure audio session: \(error)")
+            DiagnosticLogger.shared.log("Audio session setup failed: \(error)", category: "Audio")
         }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: session
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRouteChange),
+            name: AVAudioSession.routeChangeNotification,
+            object: session
+        )
+    }
+
+    @objc private func handleAudioInterruption(_ note: Notification) {
+        guard let typeRaw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeRaw) else { return }
+        switch type {
+        case .began:
+            DiagnosticLogger.shared.log("Audio session interrupted (began) — PiP/stream may drop", category: "Audio")
+        case .ended:
+            let optionsRaw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: optionsRaw).contains(.shouldResume)
+            DiagnosticLogger.shared.log("Audio interruption ended (shouldResume=\(shouldResume))", category: "Audio")
+            if shouldResume {
+                renderQueue.async { [weak self] in
+                    try? self?.engine?.start()
+                    self?.playerNode?.play()
+                }
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    @objc private func handleRouteChange(_ note: Notification) {
+        guard let reasonRaw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonRaw) else { return }
+        let route = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portName }.joined(separator: ",")
+        DiagnosticLogger.shared.log("Audio route changed (\(reason.name)) → [\(route)]", category: "Audio")
     }
 
     private func setupEngine() {
@@ -110,8 +154,13 @@ final class AudioPlayer {
             self.engine = engine
             self.playerNode = node
             logger.info("AudioPlayer engine started")
+            DiagnosticLogger.shared.log(
+                "Audio engine started (\(String(format: "%.0f", playbackSampleRate))Hz \(playbackChannels)ch)",
+                category: "Audio"
+            )
         } catch {
             logger.error("Failed to start audio engine: \(error)")
+            DiagnosticLogger.shared.log("Audio engine start failed: \(error)", category: "Audio")
         }
     }
 
@@ -160,6 +209,10 @@ final class AudioPlayer {
                         node.reset()
                         syncAnchorRemotePTSUs = remotePresentationTimestampUs
                         syncAnchorLocalSeconds = now
+                        DiagnosticLogger.shared.log(
+                            "Hard A/V resync (drift=\(String(format: "%.2f", avErrorSeconds))s)",
+                            category: "Audio"
+                        )
                     }
                 }
                 if avErrorSeconds > maxAudioLeadSeconds {
@@ -289,6 +342,22 @@ final class AudioPlayer {
             channels: playbackChannels,
             interleaved: false
         )
+    }
+}
+
+private extension AVAudioSession.RouteChangeReason {
+    var name: String {
+        switch self {
+        case .newDeviceAvailable:       return "newDevice"
+        case .oldDeviceUnavailable:     return "deviceRemoved"
+        case .categoryChange:           return "categoryChange"
+        case .override:                 return "override"
+        case .wakeFromSleep:            return "wakeFromSleep"
+        case .noSuitableRouteForCategory: return "noSuitableRoute"
+        case .routeConfigurationChange: return "routeConfigChanged"
+        case .unknown:                  return "unknown"
+        @unknown default:               return "unknown(\(rawValue))"
+        }
     }
 }
 

@@ -82,6 +82,11 @@ final class BeamAppState: ObservableObject {
     let bonjourBrowser = BonjourBrowser()
     @Published var connectionManager: ConnectionManager?
 
+    // Auto-reconnect state
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempt: Int = 0
+    private let maxReconnectAttempts = 4
+
     // MARK: - Init
 
     init() {
@@ -132,17 +137,50 @@ final class BeamAppState: ObservableObject {
 
         connectionManager?.disconnect()
         let manager = ConnectionManager(host: host, pairedMac: mac, appState: self)
+        manager.onUnexpectedDisconnect = { [weak self] in
+            self?.scheduleReconnect()
+        }
         self.connectionManager = manager
         await manager.connect()
     }
 
     @MainActor
     func stopStream() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempt = 0
         connectionManager?.disconnect()
         connectionManager = nil
         isStreaming = false
         let keepLock = UserDefaults.standard.object(forKey: "beam.keepViewportLock") as? Bool ?? true
         if !keepLock { lockedViewportRect = nil }
+    }
+
+    /// Schedules a reconnect attempt with exponential backoff (1s, 3s, 9s, 27s).
+    /// Called from ConnectionManager when an unexpected disconnect occurs.
+    private func scheduleReconnect() {
+        guard reconnectAttempt < maxReconnectAttempts else {
+            DiagnosticLogger.shared.log("Max reconnect attempts reached, giving up", category: "Reconnect")
+            reconnectAttempt = 0
+            return
+        }
+        guard discoveredHost != nil, pairedMac != nil else {
+            reconnectAttempt = 0
+            return
+        }
+        let attempt = reconnectAttempt
+        let delay: UInt64 = [1, 3, 9, 27][min(attempt, 3)]
+        reconnectAttempt += 1
+        DiagnosticLogger.shared.log("Scheduling reconnect attempt \(reconnectAttempt)/\(maxReconnectAttempts) in \(delay)s", category: "Reconnect")
+
+        reconnectTask?.cancel()
+        reconnectTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            guard !Task.isCancelled, !self.isStreaming else { return }
+            DiagnosticLogger.shared.log("Reconnect attempt \(self.reconnectAttempt)", category: "Reconnect")
+            await self.startStream()
+        }
     }
 
     func handleScenePhaseChange(_ phase: ScenePhase) {

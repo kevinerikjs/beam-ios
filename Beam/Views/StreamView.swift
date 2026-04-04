@@ -251,6 +251,9 @@ struct StreamView: View {
             }
         }
         .onChange(of: pipController.isPiPActive) { isActive in
+            // Keep ConnectionManager aware of PiP state so it relaxes inactivity timeouts
+            // when running in the background — iOS throttles network delivery for background apps.
+            appState.connectionManager?.isPiPActive = isActive
             guard appState.isStreaming else { return }
             if isActive {
                 // PiP started — user is still watching, resume if we paused during the transition.
