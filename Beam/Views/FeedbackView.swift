@@ -8,6 +8,7 @@ struct FeedbackView: View {
 
     @State private var message = ""
     @State private var email = ""
+    @State private var includeDiagnostics = false
     @State private var status: Status = .idle
 
     enum Status { case idle, sending, success, failed }
@@ -99,11 +100,53 @@ struct FeedbackView: View {
                     .tint(.orange)
             }
 
+            diagnosticsCard
+
             if case .failed = status {
                 Text("Couldn't send — check your connection and try again.")
                     .font(.callout)
                     .foregroundStyle(.red.opacity(0.85))
             }
+        }
+    }
+
+    // MARK: - Diagnostics Card
+
+    private var diagnosticsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Info callout
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "info.circle.fill")
+                    .foregroundStyle(.orange.opacity(0.8))
+                    .font(.system(size: 15))
+                    .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Having a technical issue?")
+                        .font(.callout)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.white)
+                    Text("Attaching a diagnostic log gives us connection events, network changes, and error details that help us fix issues faster. No personal data is collected — only app activity.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(14)
+            .background(Color.orange.opacity(0.07))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.orange.opacity(0.18), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            // Toggle
+            Toggle(isOn: $includeDiagnostics) {
+                Text("Attach diagnostic log")
+                    .font(.callout)
+                    .foregroundStyle(.white)
+            }
+            .tint(.orange)
         }
     }
 
@@ -146,6 +189,7 @@ struct FeedbackView: View {
 
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let diagnosticsSnapshot = includeDiagnostics ? DiagnosticLogger.shared.export() : nil
 
         Task {
             do {
@@ -155,6 +199,9 @@ struct FeedbackView: View {
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 var payload: [String: String] = ["message": trimmedMessage, "source": "ios"]
                 if !trimmedEmail.isEmpty { payload["email"] = trimmedEmail }
+                if let log = diagnosticsSnapshot, !log.isEmpty {
+                    payload["diagnostics"] = log
+                }
                 req.httpBody = try JSONEncoder().encode(payload)
 
                 let (_, response) = try await URLSession.shared.data(for: req)

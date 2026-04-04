@@ -71,7 +71,13 @@ final class StreamReceiver {
             var desc: CMFormatDescription?
             self.buildFormatDescription(from: data, into: &desc)
             self.cachedFormatDesc = desc
-            logger.info("Received SPS/PPS parameter sets (\(data.count) bytes)")
+            if desc != nil {
+                logger.info("Received SPS/PPS parameter sets (\(data.count) bytes)")
+                DiagnosticLogger.shared.log("SPS/PPS received (\(data.count) bytes)", category: "Video")
+            } else {
+                logger.error("Failed to build format description from SPS/PPS")
+                DiagnosticLogger.shared.log("SPS/PPS parse failed — video decode will not work", category: "Video")
+            }
         }
     }
 
@@ -137,6 +143,10 @@ final class StreamReceiver {
         // Build CMSampleBuffer from Annex B data
         guard let sampleBuffer = buildSampleBuffer(from: annexBData, pts: presentationTime, isKeyframe: isKeyframe) else {
             logger.error("Failed to build sample buffer for frame \(frameNumber)")
+            DiagnosticLogger.shared.log(
+                "Sample buffer build failed for frame \(frameNumber) (keyframe=\(isKeyframe), hasFormatDesc=\(cachedFormatDesc != nil))",
+                category: "Video"
+            )
             return
         }
         audioPlayer?.updateVideoClock(remotePresentationTimestampUs: pts)
