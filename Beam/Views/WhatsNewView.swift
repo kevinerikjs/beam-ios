@@ -14,14 +14,19 @@ private struct ChangeEntry: Identifiable {
 
 private let changelog: [ChangeEntry] = [
     ChangeEntry(
-        icon: "iphone",
-        title: "iOS 16 Support",
-        detail: "Beam now runs on iOS 16 and newer, so older devices can join the party."
+        icon: "pip.fill",
+        title: "Smoother PiP & Reconnects",
+        detail: "Streaming in Picture-in-Picture is more stable. If the connection drops unexpectedly, Beam now reconnects automatically instead of stopping the stream."
+    ),
+    ChangeEntry(
+        icon: "antenna.radiowaves.left.and.right",
+        title: "Better Connection Handling",
+        detail: "Improved tolerance for brief network hiccups — fewer interruptions during active streams."
     ),
     ChangeEntry(
         icon: "bubble.left.and.bubble.right",
-        title: "Send Feedback",
-        detail: "Found a bug or have an idea? Send feedback directly from Settings — it goes straight to the developer."
+        title: "Improved Feedback",
+        detail: "You can now attach a diagnostic log when reporting issues, which helps us investigate and fix problems much faster."
     ),
 ]
 
