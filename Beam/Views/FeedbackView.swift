@@ -197,6 +197,7 @@ struct FeedbackView: View {
                 var req = URLRequest(url: url)
                 req.httpMethod = "POST"
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.setValue("9179460b909cb21cb15fe3f9a5260f22ecc111535c2343d3581a1cde49737f67", forHTTPHeaderField: "X-Beam-Secret")
                 var payload: [String: String] = ["message": trimmedMessage, "source": "ios"]
                 if !trimmedEmail.isEmpty { payload["email"] = trimmedEmail }
                 if let log = diagnosticsSnapshot, !log.isEmpty {
