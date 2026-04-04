@@ -87,10 +87,20 @@ final class BeamAppState: ObservableObject {
     private var reconnectAttempt: Int = 0
     private let maxReconnectAttempts = 4
 
+    // Widget quick-start: set when app is opened via beam://start
+    private var pendingAutoStart = false
+
     // MARK: - Init
 
     init() {
         pairedMac = KeyStore.shared.loadPairedMac()
+
+        // Cold-launch widget tap: AppDelegate stashes this flag before we init.
+        // Consume it now so startBrowsing() auto-streams when the Mac is found.
+        if UserDefaults.standard.bool(forKey: "beam.pendingAutoStart") {
+            UserDefaults.standard.removeObject(forKey: "beam.pendingAutoStart")
+            pendingAutoStart = true
+        }
 
         // Start browsing for the paired Mac right away
         if pairedMac != nil {
@@ -106,7 +116,24 @@ final class BeamAppState: ObservableObject {
             Task { @MainActor in
                 self?.discoveredHost = host
                 self?.isSearchingForMac = false
+                if self?.pendingAutoStart == true {
+                    self?.pendingAutoStart = false
+                    await self?.startStream()
+                }
             }
+        }
+    }
+
+    /// Called when the app is opened via beam://start (widget tap).
+    /// If the Mac is already found, starts immediately; otherwise waits for Bonjour.
+    @MainActor
+    func requestAutoStart() {
+        guard pairedMac != nil else { return }
+        if discoveredHost != nil {
+            Task { await startStream() }
+        } else {
+            pendingAutoStart = true
+            startBrowsing()
         }
     }
 

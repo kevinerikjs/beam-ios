@@ -1,0 +1,16 @@
+<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Beam body — solid fill, no gradients (gradients don't render in WidgetKit) -->
+  <path d="M 72 20 A 8 3 0 1 1 88 20 L 60 75 A 25 10 0 1 1 10 75 L 72 20 Z" fill="white" fill-opacity="0.55" />
+  <!-- Right edge: bright stroke to define the beam edge -->
+  <line x1="88" y1="20" x2="60" y2="75" stroke="white" stroke-opacity="0.15" stroke-width="1.5" stroke-linecap="round" />
+  <!-- Source outer halo -->
+  <ellipse cx="80" cy="20" rx="11" ry="4" fill="white" fill-opacity="0.3" />
+  <!-- Source core -->
+  <ellipse cx="80" cy="20" rx="7" ry="2.5" fill="white" fill-opacity="1" />
+  <!-- Landing outer halo -->
+  <ellipse cx="35" cy="75" rx="22" ry="8.5" fill="white" fill-opacity="0.2" />
+  <!-- Landing mid ring -->
+  <ellipse cx="35" cy="75" rx="14" ry="5.5" fill="white" fill-opacity="0.45" />
+  <!-- Landing core -->
+  <ellipse cx="35" cy="75" rx="7" ry="2.8" fill="white" fill-opacity="1" />
+</svg>

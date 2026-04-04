@@ -4,9 +4,30 @@
 import SwiftUI
 import UIKit
 
+// MARK: - App Delegate
+
+/// Catches cold-launch URLs (e.g. widget tap while app is fully terminated).
+/// `application(_:open:)` fires before @StateObject BeamAppState is created,
+/// so we stash the intent in UserDefaults for BeamAppState.init() to pick up.
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        if let url = launchOptions?[.url] as? URL,
+           url.scheme == "beam", url.host == "start" {
+            UserDefaults.standard.set(true, forKey: "beam.pendingAutoStart")
+        }
+        return true
+    }
+}
+
+// MARK: - App
+
 @main
 struct BeamApp: App {
 
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = BeamAppState()
     @State private var showWhatsNew = WhatsNewManager.shouldShow
 
@@ -38,6 +59,10 @@ struct BeamApp: App {
                         showWhatsNew = false
                     }
                     .interactiveDismissDisabled(false)
+                }
+                .onOpenURL { url in
+                    guard url.scheme == "beam", url.host == "start" else { return }
+                    appState.requestAutoStart()
                 }
         }
     }
