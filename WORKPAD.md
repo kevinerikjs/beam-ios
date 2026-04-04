@@ -51,6 +51,7 @@
 - [x] **iOS 16 port shipped as v1.2** — committed and submitted to App Store review
 - [ ] **v1.3 — PiP stability + diagnostics** — see below
 - [ ] **iOS improvements** — post-1.1 features and bug fixes (TBD based on user feedback + analytics)
+- [ ] **Lock screen / home screen widget** — one-tap start via beam://start URL scheme (see v1.3 additions below)
 
 ---
 
@@ -141,6 +142,23 @@
 | Reconnect | Attempt scheduling with backoff delays, outcome |
 | Audio | Session active/failed + route, engine start/fail, interruptions, route changes, hard resyncs |
 | Video | SPS/PPS received/failed, sample buffer build failures |
+
+### Lock Screen / Home Screen Widget (v1.3 addition)
+
+**Files:**
+- `BeamWidget/BeamWidget.swift` — widget extension (new file, add to new Widget Extension target)
+- `Beam/BeamApp.swift` — `.onOpenURL` handles `beam://start` → `appState.requestAutoStart()`
+- `Beam/BeamAppState.swift` — `requestAutoStart()` + `pendingAutoStart` flag; auto-streams once Mac found via Bonjour
+
+**Widget families:** `.accessoryCircular` (lock screen circle), `.accessoryRectangular` (lock screen row), `.systemSmall` (home screen)
+
+**Xcode steps required:**
+1. File > New > Target > Widget Extension → name it "BeamWidget", uncheck "Include Configuration Intent"
+2. Replace generated file with `BeamWidget/BeamWidget.swift`
+3. Main app target > Info > URL Types > add URL scheme: `beam` (identifier: `com.beamapp.ios.widget`)
+4. Ensure BeamWidget target has iOS 16.0+ deployment target
+
+**Flow:** Tap widget → `beam://start` opens app → `requestAutoStart()` called → if Mac already on network, stream starts in ~1-2s; if Mac not yet found, sets `pendingAutoStart` flag → stream starts the moment Bonjour resolves the host
 
 ### Still Needed
 - [ ] Test on real device: confirm PiP stream stays alive during extended background use

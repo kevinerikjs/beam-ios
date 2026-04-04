@@ -28,6 +28,11 @@ private let changelog: [ChangeEntry] = [
         title: "Improved Feedback",
         detail: "You can now attach a diagnostic log when reporting issues, which helps us investigate and fix problems much faster."
     ),
+    ChangeEntry(
+        icon: "lock.iphone",
+        title: "Lock Screen Widget",
+        detail: "Start a stream directly from your lock screen. Add the Beam widget from your lock screen's widget picker and tap once to connect."
+    ),
 ]
 
 // MARK: - View
