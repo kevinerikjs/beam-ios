@@ -138,6 +138,10 @@ enum WhatsNewManager {
 
     static var shouldShow: Bool {
         guard !changelog.isEmpty else { return false }
+        guard UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") else { return false }
+        // Don't interrupt a widget-triggered cold launch — beam.pendingAutoStart is
+        // still present here because BeamAppState.init() hasn't run yet.
+        guard !UserDefaults.standard.bool(forKey: "beam.pendingAutoStart") else { return false }
         let seen = UserDefaults.standard.string(forKey: key) ?? ""
         let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         return seen != current

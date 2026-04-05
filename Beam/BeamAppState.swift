@@ -176,6 +176,9 @@ final class BeamAppState: ObservableObject {
         reconnectTask?.cancel()
         reconnectTask = nil
         reconnectAttempt = 0
+        // Nil the callback BEFORE disconnect() so the receive-loop race can't
+        // fire triggerUnexpectedDisconnect → scheduleReconnect after a manual stop.
+        connectionManager?.onUnexpectedDisconnect = nil
         connectionManager?.disconnect()
         connectionManager = nil
         isStreaming = false

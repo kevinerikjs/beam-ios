@@ -62,6 +62,9 @@ struct BeamApp: App {
                 }
                 .onOpenURL { url in
                     guard url.scheme == "beam", url.host == "start" else { return }
+                    // Dismiss What's New if it's up — don't mark seen so it
+                    // still appears on the next normal (non-widget) app open.
+                    showWhatsNew = false
                     appState.requestAutoStart()
                 }
         }
