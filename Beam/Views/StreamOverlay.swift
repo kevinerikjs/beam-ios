@@ -16,6 +16,7 @@ struct StreamOverlay: View {
     let onConfirmViewportLockSelection: () -> Void
     let onUnlockViewport: () -> Void
     let onOpenQualityPicker: () -> Void
+    let onOpenStreamSettings: () -> Void
     let onUpgrade: () -> Void
     let onDisconnect: () -> Void
 
@@ -61,6 +62,16 @@ struct StreamOverlay: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
+                    .beamGlass()
+            }
+
+            Button {
+                onOpenStreamSettings()
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
                     .beamGlass()
             }
 
@@ -368,6 +379,58 @@ struct QualityPickerSheet: View {
             }
             dismiss()
         }
+    }
+}
+
+// MARK: - Stream Settings Sheet
+
+struct StreamSettingsSheet: View {
+    let appState: BeamAppState
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("beam.keepViewportLock") private var keepViewportLock = true
+    @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
+    @AppStorage("beam.flipVertical") private var flipVertical = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Stream") {
+                    Picker("Quality", selection: Binding(
+                        get: { appState.preferredQualityPreset },
+                        set: { appState.preferredQualityPreset = $0 }
+                    )) {
+                        ForEach(StreamQualityPreset.allCases) { preset in
+                            Text(preset.displayName).tag(preset)
+                        }
+                    }
+                    .tint(.orange)
+
+                    Toggle("Keep Viewport Lock", isOn: $keepViewportLock)
+                        .tint(.orange)
+                }
+
+                Section {
+                    Toggle("Flip Horizontal", isOn: $flipHorizontal)
+                        .tint(.orange)
+                    Toggle("Flip Vertical", isOn: $flipVertical)
+                        .tint(.orange)
+                } header: {
+                    Text("Teleprompter Mode")
+                } footer: {
+                    Text("Mirrors the image for use with reflective teleprompter glass.")
+                }
+            }
+            .tint(.orange)
+            .navigationTitle("Stream Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
