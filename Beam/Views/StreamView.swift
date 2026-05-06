@@ -12,6 +12,10 @@ struct StreamView: View {
     @State private var showPaywall = false
     @State private var paywallTriggeredByExpiry = false
     @State private var showQualityPicker = false
+    @State private var showStreamSettings = false
+
+    @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
+    @AppStorage("beam.flipVertical") private var flipVertical = false
 
     // Renderer and PiP are created once and persist
     @State private var renderer = VideoRenderer(frame: .zero)
@@ -48,6 +52,7 @@ struct StreamView: View {
                 // Video content
                 VideoRendererView(renderer: renderer)
                     .ignoresSafeArea()
+                    .scaleEffect(x: flipHorizontal ? -1 : 1, y: flipVertical ? -1 : 1)
                     .scaleEffect(videoScale)
                     .offset(videoOffset)
                     .onAppear { videoContainerSize = geometry.size }
@@ -191,6 +196,11 @@ struct StreamView: View {
                         showOverlay = true
                         showQualityPicker = true
                     },
+                    onOpenStreamSettings: {
+                        guard !isSelectingViewportLock else { return }
+                        showOverlay = true
+                        showStreamSettings = true
+                    },
                     onUpgrade: { paywallTriggeredByExpiry = false; showPaywall = true },
                     onDisconnect: { appState.stopStream() }
                 )
@@ -222,6 +232,14 @@ struct StreamView: View {
         .sheet(isPresented: $showQualityPicker) {
             QualityPickerSheet(appState: appState)
                 .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .onDisappear {
+                    scheduleOverlayHide()
+                }
+        }
+        .sheet(isPresented: $showStreamSettings) {
+            StreamSettingsSheet(appState: appState)
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .onDisappear {
                     scheduleOverlayHide()
@@ -572,7 +590,7 @@ struct StreamView: View {
     }
 
     private func scheduleOverlayHide() {
-        guard !showQualityPicker, !isSelectingViewportLock, !isAutoDetecting else { return }
+        guard !showQualityPicker, !showStreamSettings, !isSelectingViewportLock, !isAutoDetecting else { return }
         overlayHideTask?.cancel()
         overlayHideTask = Task {
             try? await Task.sleep(for: .seconds(3))

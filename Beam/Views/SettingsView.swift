@@ -9,6 +9,8 @@ struct SettingsView: View {
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var session = SessionManager.shared
     @AppStorage("beam.keepViewportLock") private var keepViewportLock = true
+    @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
+    @AppStorage("beam.flipVertical") private var flipVertical = false
     @State private var showPaywall = false
     @State private var showFeedback = false
 
@@ -19,6 +21,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 32) {
                         streamCard
+                        teleprompterCard
                         subscriptionCard
                         supportCard
                         #if DEBUG
@@ -80,6 +83,45 @@ struct SettingsView: View {
                         Text("Keep Viewport Lock")
                             .foregroundStyle(.white)
                         Text("Restore your screen crop between sessions")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.orange)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
+            .background(Color.white.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    // MARK: - Teleprompter card
+
+    private var teleprompterCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Teleprompter Mode")
+            VStack(spacing: 0) {
+                Toggle(isOn: $flipHorizontal) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Flip Horizontal")
+                            .foregroundStyle(.white)
+                        Text("Mirror left↔right for reflective glass setups")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.orange)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                cardDivider
+
+                Toggle(isOn: $flipVertical) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Flip Vertical")
+                            .foregroundStyle(.white)
+                        Text("Mirror top↔bottom")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }

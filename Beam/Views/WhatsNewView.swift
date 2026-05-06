@@ -14,24 +14,9 @@ private struct ChangeEntry: Identifiable {
 
 private let changelog: [ChangeEntry] = [
     ChangeEntry(
-        icon: "pip.fill",
-        title: "Smoother PiP & Reconnects",
-        detail: "Streaming in Picture-in-Picture is more stable. If the connection drops unexpectedly, Beam now reconnects automatically instead of stopping the stream."
-    ),
-    ChangeEntry(
-        icon: "antenna.radiowaves.left.and.right",
-        title: "Better Connection Handling",
-        detail: "Improved tolerance for brief network hiccups — fewer interruptions during active streams."
-    ),
-    ChangeEntry(
-        icon: "bubble.left.and.bubble.right",
-        title: "Improved Feedback",
-        detail: "You can now attach a diagnostic log when reporting issues, which helps us investigate and fix problems much faster."
-    ),
-    ChangeEntry(
-        icon: "lock.iphone",
-        title: "Lock Screen Widget",
-        detail: "Start a stream directly from your lock screen. Add the Beam widget from your lock screen's widget picker and tap once to connect."
+        icon: "arrow.left.and.right.righttriangle.left.righttriangle.right",
+        title: "Teleprompter Mode",
+        detail: "New flip controls let you mirror the stream horizontally or vertically. Perfect for reflective teleprompter glass setups. Find it in Settings or the in-stream gear menu."
     ),
 ]
 
