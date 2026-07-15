@@ -36,6 +36,10 @@ struct StreamOverlay: View {
         HStack(spacing: 12) {
             connectionQualityIndicator
 
+            if appState.isControllerConnected {
+                controllerIndicator
+            }
+
             Spacer()
 
             if !store.isPurchased, let remaining = session.secondsRemaining {
@@ -172,6 +176,19 @@ struct StreamOverlay: View {
                 .frame(width: 32, height: 32)
                 .beamGlass()
         }
+    }
+
+    // MARK: - Controller Indicator
+
+    @ViewBuilder
+    private var controllerIndicator: some View {
+        Image(systemName: "gamecontroller.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .beamGlass()
+            .accessibilityLabel("Controller connected")
     }
 
     // MARK: - Connection Quality

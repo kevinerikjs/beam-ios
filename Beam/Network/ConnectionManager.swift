@@ -20,6 +20,7 @@ final class ConnectionManager {
     // Stream components
     let streamReceiver = StreamReceiver()
     let audioPlayer = AudioPlayer()
+    let controllerInput = ControllerInputManager()
 
     private var receiveBuffer = Data()
 
@@ -126,6 +127,21 @@ final class ConnectionManager {
         sendTCP(data.lengthPrefixed())
     }
 
+    /// Sends a binary controller state report (packet type .input).
+    /// Unlike JSON control messages, these are framed with a BeamPacketHeader so the
+    /// host can cheaply distinguish them from JSON without attempting a decode.
+    func sendControllerState(_ state: BeamControllerState, connected: Bool) {
+        let payload = state.serialized()
+        let header = BeamPacketHeader(
+            type: .input,
+            flags: connected ? BeamControllerState.connectedFlag : 0,
+            payloadLength: UInt32(payload.count)
+        )
+        var packet = header.serialized()
+        packet.append(payload)
+        sendTCP(packet.lengthPrefixed())
+    }
+
     // MARK: - Disconnect
 
     func disconnect() {
@@ -147,6 +163,7 @@ final class ConnectionManager {
             ReviewManager.recordStreamCompleted()
         }
 
+        controllerInput.stop()
         DiagnosticLogger.shared.log("Disconnected from \(host.name)", category: "Connection")
         SessionManager.shared.stopSession()
         sendStreamStop()
@@ -246,6 +263,9 @@ final class ConnectionManager {
             if let pongData = try? JSONEncoder().encode(pong) {
                 sendTCP(pongData.lengthPrefixed())
             }
+
+        case .input:
+            break  // outbound-only (iOS → macOS); the host never sends input packets
         }
     }
 
@@ -294,6 +314,13 @@ final class ConnectionManager {
                 }
             }
             audioPlayer.start()
+            // Start forwarding game controller input (no-op until a controller connects)
+            controllerInput.onConnectionChange = { [weak self] connected in
+                Task { @MainActor in
+                    self?.appState?.isControllerConnected = connected
+                }
+            }
+            controllerInput.start(connectionManager: self)
             // Send our quality preference to the host immediately after auth
             let preferred = appState?.preferredQualityPreset ?? .auto
             sendQualityRequest(preferred)

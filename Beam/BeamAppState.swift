@@ -32,6 +32,9 @@ final class BeamAppState: ObservableObject {
     /// Connection quality (0.0 - 1.0), updated from packet stats.
     @Published var connectionQuality: Double = 1.0
 
+    /// Whether a physical game controller is paired to the phone and being forwarded to the host.
+    @Published var isControllerConnected: Bool = false
+
     /// The quality preset currently active on the host (set from .qualityChanged messages).
     @Published var currentQualityPreset: StreamQualityPreset = .p1080_30
 

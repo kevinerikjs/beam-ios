@@ -83,6 +83,7 @@ enum BeamPacketType: UInt8 {
     case heartbeat  = 0x04
     case spsPps     = 0x05
     case videoIDR   = 0x06
+    case input      = 0x07  // Controller state report (iOS → macOS)
 }
 
 // MARK: - Packet Header (10 bytes)
@@ -150,6 +151,75 @@ struct BeamAudioPayloadHeader {
         let sn = data[0..<4].withUnsafeBytes  { $0.loadUnaligned(as: UInt32.self).bigEndian }
         let ts = data[4..<12].withUnsafeBytes { $0.loadUnaligned(as: Int64.self).bigEndian }
         return BeamAudioPayloadHeader(sequenceNumber: sn, presentationTimestamp: ts)
+    }
+}
+
+// MARK: - Controller Input (packet type .input)
+
+/// Fixed-size binary controller state report, sent iOS → macOS at up to 60 Hz.
+/// The packet header's flags bit 0 (`connectedFlag`) indicates whether a physical
+/// controller is currently attached on the phone; a packet with the flag cleared
+/// carries a neutral state and tells the host to tear down its virtual gamepad.
+/// Axes are full-range Int16 with GameController orientation (up/right = positive).
+struct BeamControllerState: Equatable {
+    static let size: Int = 14
+    static let connectedFlag: UInt8 = 0x01
+
+    struct Buttons: OptionSet, Equatable {
+        let rawValue: UInt32
+        static let a             = Buttons(rawValue: 1 << 0)
+        static let b             = Buttons(rawValue: 1 << 1)
+        static let x             = Buttons(rawValue: 1 << 2)
+        static let y             = Buttons(rawValue: 1 << 3)
+        static let leftShoulder  = Buttons(rawValue: 1 << 4)
+        static let rightShoulder = Buttons(rawValue: 1 << 5)
+        static let leftThumb     = Buttons(rawValue: 1 << 6)
+        static let rightThumb    = Buttons(rawValue: 1 << 7)
+        static let dpadUp        = Buttons(rawValue: 1 << 8)
+        static let dpadDown      = Buttons(rawValue: 1 << 9)
+        static let dpadLeft      = Buttons(rawValue: 1 << 10)
+        static let dpadRight     = Buttons(rawValue: 1 << 11)
+        static let menu          = Buttons(rawValue: 1 << 12)
+        static let options       = Buttons(rawValue: 1 << 13)
+        static let home          = Buttons(rawValue: 1 << 14)
+    }
+
+    var buttons: Buttons = []
+    var leftX: Int16 = 0
+    var leftY: Int16 = 0
+    var rightX: Int16 = 0
+    var rightY: Int16 = 0
+    var leftTrigger: UInt8 = 0   // 0...255
+    var rightTrigger: UInt8 = 0  // 0...255
+
+    static let neutral = BeamControllerState()
+
+    func serialized() -> Data {
+        var out = Data(capacity: BeamControllerState.size)
+        var btn = buttons.rawValue.bigEndian
+        Swift.withUnsafeBytes(of: &btn) { out.append(contentsOf: $0) }
+        for axis in [leftX, leftY, rightX, rightY] {
+            var v = axis.bigEndian
+            Swift.withUnsafeBytes(of: &v) { out.append(contentsOf: $0) }
+        }
+        out.append(leftTrigger)
+        out.append(rightTrigger)
+        return out
+    }
+
+    static func parse(from data: Data) -> BeamControllerState? {
+        guard data.count >= BeamControllerState.size else { return nil }
+        let d = Data(data)  // rebase indices to 0
+        let btn = d[0..<4].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
+        let lx  = d[4..<6].withUnsafeBytes { $0.loadUnaligned(as: Int16.self).bigEndian }
+        let ly  = d[6..<8].withUnsafeBytes { $0.loadUnaligned(as: Int16.self).bigEndian }
+        let rx  = d[8..<10].withUnsafeBytes { $0.loadUnaligned(as: Int16.self).bigEndian }
+        let ry  = d[10..<12].withUnsafeBytes { $0.loadUnaligned(as: Int16.self).bigEndian }
+        return BeamControllerState(
+            buttons: Buttons(rawValue: btn),
+            leftX: lx, leftY: ly, rightX: rx, rightY: ry,
+            leftTrigger: d[12], rightTrigger: d[13]
+        )
     }
 }
 
