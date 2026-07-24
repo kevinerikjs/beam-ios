@@ -58,6 +58,33 @@ final class ConnectionManager {
     private var pingSentAt: Date?
     private var smoothedRTT: TimeInterval?
 
+    // MARK: - Connection warmup (BEAM-33)
+    //
+    // Tailscale always starts DERP-relayed and upgrades to a direct path using small discovery
+    // packets. Streaming megabits of video immediately starves those packets, so the upgrade
+    // never completes and we are stuck on the 2.2s-RTT path we created ourselves. Measured:
+    // `tailscale ping` established direct in seconds while the data plane, busy with video,
+    // stayed relayed indefinitely.
+    //
+    // Three phases, only on remote connections. LAN needs none of this and must not pay for it.
+    //   0. probe   - control packets only, no media. Cheap, and if RTT already says direct we
+    //                skip straight to full quality at no cost.
+    //   1. audio   - audio only (~96kbps) if still relay-like. The user hears the stream while
+    //                the link stays quiet enough for the upgrade to land. Audio previously
+    //                lagged because it competed with video for a saturated link; alone, neither
+    //                head-of-line blocking nor video's frame-dropping asymmetry applies.
+    //   2. full    - video resumes once RTT says direct, or the cap expires. The cap matters:
+    //                some networks never get a direct path, and a degraded stream beats none.
+    private enum WarmupPhase { case probing, audioOnly, full }
+    private var warmupPhase: WarmupPhase = .full
+    private var warmupStartedAt: Date?
+    private var warmupTimer: DispatchSourceTimer?
+
+    private static let probeSeconds: TimeInterval = 1.5
+    private static let directRTT: TimeInterval = 0.25
+    private static let warmupCapFresh: TimeInterval = 8.0
+    private static let warmupCapFailover: TimeInterval = 4.0
+
     init(host: DiscoveredHost, pairedMac: PairedMac, appState: BeamAppState) {
         self.host = host
         self.pairedMac = pairedMac
@@ -207,6 +234,8 @@ final class ConnectionManager {
 
         qualityTimer?.cancel()
         qualityTimer = nil
+        warmupTimer?.cancel()
+        warmupTimer = nil
 
         pathMonitor?.cancel()
         pathMonitor = nil
@@ -352,6 +381,75 @@ final class ConnectionManager {
         }
     }
 
+    // MARK: - Warmup
+
+    /// Starts the probe phase on remote connections. LAN goes straight to full.
+    private func beginWarmupIfRemote() {
+        guard appState?.usingRemoteHost == true else {
+            warmupPhase = .full
+            return
+        }
+        warmupPhase = .probing
+        warmupStartedAt = Date()
+        // Hold video immediately: the whole point is to leave the relay quiet enough for
+        // Tailscale's upgrade handshake to get through.
+        sendControl(.videoPause)
+        DiagnosticLogger.shared.log(
+            "Warmup: probing link before sending video",
+            category: "Connection"
+        )
+
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+        timer.schedule(deadline: .now() + 0.4, repeating: 0.4)
+        timer.setEventHandler { [weak self] in self?.evaluateWarmup() }
+        timer.resume()
+        warmupTimer = timer
+    }
+
+    private func evaluateWarmup() {
+        guard warmupPhase != .full, let startedAt = warmupStartedAt else { return }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        // A failover is already an interruption the user is watching, so it gets less patience.
+        let cap = (appState?.isReconnecting == true) ? Self.warmupCapFailover : Self.warmupCapFresh
+        let rtt = smoothedRTT
+
+        // Probe frequently while warming up; the normal 2s cadence is too slow to notice an
+        // upgrade that lands in a second.
+        sendLinkPing()
+
+        if let rtt, rtt < Self.directRTT {
+            finishWarmup(reason: "direct path (RTT \(Int(rtt * 1000))ms)")
+            return
+        }
+        if elapsed >= cap {
+            finishWarmup(reason: "cap reached after \(String(format: "%.1f", elapsed))s, streaming anyway")
+            return
+        }
+        // Still relay-like after the probe window: let audio through while we keep waiting.
+        if warmupPhase == .probing, elapsed >= Self.probeSeconds {
+            warmupPhase = .audioOnly
+            DiagnosticLogger.shared.log(
+                "Warmup: link still slow, audio only while the path settles",
+                category: "Connection"
+            )
+        }
+    }
+
+    private func finishWarmup(reason: String) {
+        guard warmupPhase != .full else { return }
+        warmupPhase = .full
+        warmupTimer?.cancel()
+        warmupTimer = nil
+        sendControl(.videoResume)
+        DiagnosticLogger.shared.log("Warmup complete: \(reason)", category: "Connection")
+    }
+
+    private func sendControl(_ type: BeamControlMessageType) {
+        let msg = BeamControlMessage(type: type, payload: nil)
+        guard let data = try? JSONEncoder().encode(msg) else { return }
+        sendTCP(data.lengthPrefixed())
+    }
+
     /// Sends a .ping and starts the RTT clock. Skipped while one is outstanding so a stalled
     /// reply can't be mistaken for a fast one.
     private func sendLinkPing() {
@@ -485,6 +583,7 @@ final class ConnectionManager {
                 preferred = appState?.preferredQualityPreset ?? .auto
             }
             sendQualityRequest(preferred)
+            beginWarmupIfRemote()
             // Sync viewport lock state with host. Host keeps its own lock across sessions,
             // so we must always send the current state — lock if we have a saved rect,
             // explicit unlock if we don't (covers the keepViewportLock=false case).

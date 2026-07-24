@@ -344,6 +344,8 @@ enum BeamControlMessageType: String, Codable {
     case qualityChanged     = "quality_changed"   // macOS → iOS: current preset is now this
     case viewportLockRequest = "viewport_lock_request" // iOS → macOS: lock capture to viewport rect
     case audioFormatChanged = "audio_format_changed" // macOS → iOS: active audio sample rate/channels
+    case videoPause         = "video_pause"    // iOS → macOS: hold video, keep audio flowing
+    case videoResume        = "video_resume"   // iOS → macOS: resume video
 }
 
 struct BeamControlMessage: Codable {
