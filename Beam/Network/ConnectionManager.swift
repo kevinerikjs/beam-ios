@@ -180,10 +180,17 @@ final class ConnectionManager {
     }
 
     /// Triggers the unexpected-disconnect path: tears down and calls back to allow reconnect.
+    ///
+    /// The callback is main-actor isolated (it's assigned inside `BeamAppState.startStream()`,
+    /// which is `@MainActor`), but this method runs on whichever queue noticed the failure —
+    /// usually the network receive queue. Invoking it directly from there runs main-actor code
+    /// off the main thread and mutates @Published state from a background queue, which hangs
+    /// the UI rather than crashing. Hop explicitly.
     private func triggerUnexpectedDisconnect() {
         let callback = onUnexpectedDisconnect
         disconnect()
-        callback?()
+        guard let callback else { return }
+        Task { @MainActor in callback() }
     }
 
     // MARK: - Receive Loop
