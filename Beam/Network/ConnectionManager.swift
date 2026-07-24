@@ -484,7 +484,11 @@ final class ConnectionManager {
 
         if quality >= 0.95 {
             goodTicks += 1
-            guard goodTicks >= Self.ticksPerStepUp, index < Self.ladder.count - 1 else { return }
+            // Respect the remote ceiling on the way UP too. It was previously applied only to
+            // the opening guess, so a link scoring well (which it always does — the score is
+            // derived from packet arrival gaps, not from latency) climbed to 1080p60 in ~24s.
+            let ceiling = Self.ladder.firstIndex(of: StreamQualityPreset.remoteCap) ?? (Self.ladder.count - 1)
+            guard goodTicks >= Self.ticksPerStepUp, index < min(ceiling, Self.ladder.count - 1) else { return }
             goodTicks = 0
             index += 1
         } else if quality <= 0.5 {
