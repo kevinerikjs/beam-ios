@@ -520,7 +520,18 @@ final class BeamAppState: ObservableObject {
         reconnectTask = Task { @MainActor [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
-            guard !Task.isCancelled, !self.isStreaming else { return }
+            // Guard on there being no live connection, NOT on isStreaming.
+            //
+            // isStreaming used to mean "a connection is up", so it was a fine proxy. It no
+            // longer does: holding the stream view open under the reconnect overlay
+            // deliberately keeps isStreaming true across a drop. This guard therefore
+            // returned immediately on every single automatic reconnect, doing nothing at all
+            // until the hold window expired and dumped the user home — the exact behaviour
+            // reported, with a 20s gap in the log containing no connection attempt.
+            guard !Task.isCancelled, self.connectionManager == nil else {
+                DiagnosticLogger.shared.log("Reconnect skipped, connection already live", category: "Reconnect")
+                return
+            }
             DiagnosticLogger.shared.log("Reconnect attempt \(self.reconnectAttempt)", category: "Reconnect")
             await self.startStream()
         }
