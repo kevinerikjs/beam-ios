@@ -42,6 +42,9 @@ final class ConnectionManager {
 
     private var pathMonitor: NWPathMonitor?
     private var keepStreamViewOpen = false
+    private var waitingSince: Date?
+    private var waitingRecheck: Task<Void, Never>?
+    private static let maxWaitingBeforeFailure: TimeInterval = 5
 
     // MARK: - Link RTT (BEAM-23)
     //
@@ -88,12 +91,26 @@ final class ConnectionManager {
     private func handleConnectionState(_ state: NWConnection.State) {
         switch state {
         case .ready:
+            waitingSince = nil
+            waitingRecheck?.cancel()
             logger.info("Connected to \(self.host.name)")
             DiagnosticLogger.shared.log("TCP connected to \(host.name)", category: "Connection")
             sendAuthRequest()
         case .waiting(let error):
+            // .waiting means "no route right now" and NWConnection will sit here indefinitely
+            // rather than failing. Left alone it stalls the reconnect loop: no callback, no
+            // retry, no progress. Give it a short grace for a transient blip, then treat it as
+            // a failure so the retry/backoff machinery actually advances.
             logger.warning("Connection waiting: \(error)")
             DiagnosticLogger.shared.log("Connection waiting: \(error)", category: "Connection")
+            waitingSince = waitingSince ?? Date()
+            let stalledFor = Date().timeIntervalSince(waitingSince ?? Date())
+            if stalledFor > Self.maxWaitingBeforeFailure {
+                DiagnosticLogger.shared.log("No route for \(Int(stalledFor))s, treating as failed", category: "Connection")
+                triggerUnexpectedDisconnect()
+            } else {
+                scheduleWaitingRecheck()
+            }
         case .failed(let error):
             logger.error("Connection failed: \(error)")
             DiagnosticLogger.shared.log("Connection failed: \(error)", category: "Connection")
@@ -102,6 +119,19 @@ final class ConnectionManager {
             Task { @MainActor in appState?.isStreaming = false }
         default:
             break
+        }
+    }
+
+    /// `.waiting` fires once, not repeatedly, so a stalled connection needs its own nudge to
+    /// be re-evaluated after the grace period.
+    private func scheduleWaitingRecheck() {
+        waitingRecheck?.cancel()
+        waitingRecheck = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((Self.maxWaitingBeforeFailure + 0.5) * 1_000_000_000))
+            guard !Task.isCancelled, let self, let since = self.waitingSince else { return }
+            guard Date().timeIntervalSince(since) > Self.maxWaitingBeforeFailure else { return }
+            DiagnosticLogger.shared.log("Still no route, treating as failed", category: "Connection")
+            self.triggerUnexpectedDisconnect()
         }
     }
 

@@ -182,29 +182,31 @@ struct StreamView: View {
                     .transition(.opacity)
             }
 
+            // Reconnect overlay (BEAM-24). MUST sit outside `if showOverlay` — that block is
+            // the auto-hiding playback controls, so nesting this inside meant the reconnect
+            // state was only visible while the user was tapping the screen. It needs to be
+            // present for as long as the connection is down, independent of the controls.
+            if showReconnectOverlay {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .overlay(.ultraThinMaterial)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+
+                VStack(spacing: 14) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(1.4)
+                    Text(appState.usingRemoteHost ? "Reconnecting over Tailscale…" : "Reconnecting…")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                .transition(.opacity)
+            }
+
             // Controls overlay
             if showOverlay {
-                // Reconnect overlay (BEAM-24). Sits above the frozen last frame so a blip reads
-                // as "hang on" rather than "the app gave up and threw you out".
-                if showReconnectOverlay {
-                    Color.black.opacity(0.35)
-                        .ignoresSafeArea()
-                        .overlay(.ultraThinMaterial)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-
-                    VStack(spacing: 14) {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(.white)
-                            .scaleEffect(1.4)
-                        Text(appState.usingRemoteHost ? "Reconnecting over Tailscale…" : "Reconnecting…")
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
-                    .transition(.opacity)
-                }
-
                 StreamOverlay(
                     appState: appState,
                     pipController: pipController,

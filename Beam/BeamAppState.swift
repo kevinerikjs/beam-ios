@@ -132,6 +132,14 @@ final class BeamAppState: ObservableObject {
     /// screen, and stop retrying rather than looping forever.
     private var reconnectDeadline: Date?
 
+    /// Enforces the hold window independently of the connection's own callbacks.
+    ///
+    /// Necessary because NWConnection parks in `.waiting` when there is no route (WiFi off)
+    /// and never transitions to `.failed`. Nothing calls back, so a deadline checked only on
+    /// re-entry into scheduleReconnect is never evaluated: the overlay would stay up forever
+    /// with no retry and no way out. This timer is the one thing guaranteed to fire.
+    private var reconnectWatchdog: Task<Void, Never>?
+
     /// How long the stream is held open across a drop before giving up.
     static let reconnectHoldWindow: TimeInterval = 20
 
@@ -453,7 +461,23 @@ final class BeamAppState: ObservableObject {
         // until it expires. Attempts alone are a poor bound because the backoff makes their
         // duration vary wildly; a wall-clock window is what the user actually experiences.
         if reconnectDeadline == nil {
-            reconnectDeadline = Date().addingTimeInterval(Self.reconnectHoldWindow)
+            let deadline = Date().addingTimeInterval(Self.reconnectHoldWindow)
+            reconnectDeadline = deadline
+            reconnectWatchdog?.cancel()
+            reconnectWatchdog = Task { @MainActor [weak self] in
+                let remaining = deadline.timeIntervalSinceNow
+                if remaining > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                }
+                guard !Task.isCancelled, let self, self.isReconnecting else { return }
+                DiagnosticLogger.shared.log(
+                    "Reconnect window expired with no route, returning to home",
+                    category: "Reconnect"
+                )
+                self.endReconnect(resumed: false)
+                self.discoveredHost = nil
+                self.startBrowsing()
+            }
         }
         isReconnecting = true
 
@@ -506,6 +530,8 @@ final class BeamAppState: ObservableObject {
     /// overlay should simply disappear; `false` tears down and returns to the home screen.
     @MainActor
     func endReconnect(resumed: Bool) {
+        reconnectWatchdog?.cancel()
+        reconnectWatchdog = nil
         reconnectDeadline = nil
         reconnectAttempt = 0
         isReconnecting = false
