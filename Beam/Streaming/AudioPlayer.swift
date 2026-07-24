@@ -75,6 +75,11 @@ final class AudioPlayer {
     private let maxAudioLeadSeconds: Double = 0.45
     private let lateAudioCatchupThresholdSeconds: Double = 0.30
     private let hardAudioResyncThresholdSeconds: Double = 0.85
+    /// Above this the timeline is genuinely broken (reconnect, seek, clock jump) rather than
+    /// merely offset, and the queued audio really is meaningless. Below it, a large but stable
+    /// drift is just the link's audio/video latency difference and must be absorbed, not
+    /// corrected by deleting audio.
+    private let catastrophicResyncThresholdSeconds: Double = 6.0
     /// Minimum gap between hard resyncs. A stall leaves a backlog of buffers that each
     /// recompute the same large drift before the new anchor has any effect, so without this
     /// they all resync in a burst — the logs showed five in 6ms — and each one dumps the
@@ -628,17 +633,34 @@ final class AudioPlayer {
                 nextScheduledAudioSeconds = nil
                 targetPlayTime = now + 0.004
 
+                // Only dump the queue for a genuine DISCONTINUITY, never for a steady offset.
+                //
+                // Over a remote path audio consistently arrives later than the video clock
+                // expects, because the two have different end-to-end latency. That shows up
+                // as a persistent negative drift in a narrow band — Kevin's log sat between
+                // -1.3s and -3.3s for minutes. Treating that as an error to correct meant
+                // calling node.reset() every 2-3 seconds, and reset() DISCARDS all queued
+                // audio: we were deleting the audio ourselves, over and over, which is what
+                // "constantly buggy over Tailscale" actually was.
+                //
+                // Re-anchoring cannot fix it either, because the error is measured against
+                // the video clock, so the same offset reappears immediately. A constant
+                // offset is not correctable at this layer; it is a property of the link. So
+                // absorb it into the anchor and keep playing. Slightly late audio that is
+                // CONTINUOUS beats perfectly-timed audio that is repeatedly deleted.
+                let isDiscontinuity = abs(avErrorSeconds) > catastrophicResyncThresholdSeconds
                 if abs(avErrorSeconds) > hardAudioResyncThresholdSeconds,
                    now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
                     lastHardResyncAt = now
-                    // Severe discontinuity: clear queued audio and reset anchor.
-                    node.reset()
-                    // reset() clears the scheduled queue AND leaves the node stopped.
-                    // Without this play(), every buffer scheduled afterwards is silently
-                    // discarded and audio never returns for the rest of the session —
-                    // which is exactly what happened after a stall-induced resync burst:
-                    // reconnecting was the only way to get sound back.
-                    node.play()
+                    if isDiscontinuity {
+                        // Genuinely broken timeline (reconnect, seek, clock jump): the queued
+                        // audio is meaningless, so clearing it is correct.
+                        node.reset()
+                        // reset() clears the scheduled queue AND leaves the node stopped.
+                        // Without this play(), every buffer scheduled afterwards is silently
+                        // discarded and audio never returns for the rest of the session.
+                        node.play()
+                    }
                     syncAnchorRemotePTSUs = remotePresentationTimestampUs
                     syncAnchorLocalSeconds = now
                     DiagnosticLogger.shared.log(
