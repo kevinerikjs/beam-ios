@@ -367,6 +367,13 @@ final class StreamReceiver {
 
         case .aacLC:
             guard (1...BeamAudioCodec.maxAccessUnitBytes).contains(body.count) else { return }
+            // Wait for the host's real format before building a decoder. The snapshot starts
+            // at a 44100 default and is corrected the moment audioFormatChanged arrives, so
+            // building eagerly produced a decoder at the wrong rate for the first packets and
+            // an immediate rebuild — visible in the logs as "decoder ready (44100Hz)" followed
+            // by "(48000Hz)" milliseconds later. Harmless but wasteful, and it discards the
+            // first audio of every session.
+            guard player.hasRemoteFormat else { return }
             let rate = player.currentSampleRate
             let channels = player.currentChannels
             if let existing = aacDecoder, existing.sampleRate != rate || existing.channels != channels {

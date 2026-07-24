@@ -179,7 +179,8 @@ struct HomeView: View {
                 // Ready to stream
                 VStack(spacing: 8) {
                     HStack(spacing: 8) {
-                        Circle().fill(.green).frame(width: 8, height: 8)
+                        Circle().fill(appState.usingRemoteHost ? .orange : .green)
+                            .frame(width: 8, height: 8)
                         Text("\(mac.name) is ready")
                             .font(.callout)
                             .foregroundStyle(.secondary)
@@ -187,6 +188,29 @@ struct HomeView: View {
                 }
 
                 StartBeamButton(appState: appState)
+
+                // Say which route we're about to take, BEFORE the stream starts. Local and
+                // remote feel completely different — remote begins DERP-relayed and is slow
+                // until Tailscale upgrades it — and without this the user reads that opening
+                // lag as the app being broken rather than as the path still settling.
+                if appState.usingRemoteHost {
+                    HStack(spacing: 6) {
+                        Image(systemName: "globe")
+                            .font(.caption2.weight(.semibold))
+                        Text("Connecting over Tailscale, not your local network")
+                            .font(.caption2)
+                            .multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(.orange.opacity(0.9))
+                    .padding(.top, 2)
+
+                    Text("Quality may be lower away from home, and the first few seconds are slower while the direct connection is set up.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 32)
+                }
 
             } else if let mac = appState.pairedMac {
                 // Mac not found on network

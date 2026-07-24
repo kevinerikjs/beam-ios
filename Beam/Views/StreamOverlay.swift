@@ -36,6 +36,10 @@ struct StreamOverlay: View {
         HStack(spacing: 12) {
             connectionQualityIndicator
 
+            if appState.usingRemoteHost {
+                remoteLinkIndicator
+            }
+
             if appState.isControllerConnected {
                 controllerIndicator
             }
@@ -189,6 +193,44 @@ struct StreamOverlay: View {
             .padding(.vertical, 8)
             .beamGlass()
             .accessibilityLabel("Controller connected")
+    }
+
+    // MARK: - Remote Link Indicator (BEAM-23)
+
+    /// Shown only on remote (Tailscale) sessions, and deliberately unlike the plain LAN
+    /// signal bars: a globe plus a colour-coded state, because "connected but relayed" and
+    /// "connected and direct" are the same word to the user yet completely different
+    /// experiences. Tailscale starts relayed and upgrades, so the amber "Negotiating…" state
+    /// is the honest answer to "why is it bad for the first few seconds".
+    @ViewBuilder
+    private var remoteLinkIndicator: some View {
+        let quality = appState.remoteLinkQuality
+        HStack(spacing: 5) {
+            Image(systemName: quality == .direct ? "globe.badge.chevron.backward" : "globe")
+                .font(.caption2.weight(.semibold))
+            Text(quality.label)
+                .font(.caption2.weight(.semibold))
+            if quality == .connecting || quality == .marginal {
+                ProgressView().scaleEffect(0.5).frame(width: 10, height: 10)
+            }
+        }
+        .foregroundStyle(remoteLinkColor(quality))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(remoteLinkColor(quality).opacity(0.16))
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(remoteLinkColor(quality).opacity(0.35), lineWidth: 1))
+        .animation(.easeInOut(duration: 0.25), value: quality)
+        .accessibilityLabel("Remote connection: \(quality.label)")
+    }
+
+    private func remoteLinkColor(_ q: BeamAppState.RemoteLinkQuality) -> Color {
+        switch q {
+        case .direct:     return .green
+        case .marginal:   return .yellow
+        case .relayed:    return .orange
+        case .connecting: return .white.opacity(0.7)
+        }
     }
 
     // MARK: - Connection Quality

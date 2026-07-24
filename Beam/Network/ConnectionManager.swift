@@ -42,6 +42,17 @@ final class ConnectionManager {
 
     private var pathMonitor: NWPathMonitor?
 
+    // MARK: - Link RTT (BEAM-23)
+    //
+    // Over Tailscale the same "connected" state covers two wildly different links: a direct
+    // WireGuard path (~100ms, carries 1080p60 fine) and a DERP-relayed one (measured at
+    // 2200ms with 10% loss, which cannot carry video at all). Tailscale always STARTS relayed
+    // and upgrades in the background, so the first seconds of a remote session are the bad
+    // case even when the good one is moments away. The app can't query Tailscale, but RTT
+    // separates the two cleanly, and the host already answers .ping with .pong.
+    private var pingSentAt: Date?
+    private var smoothedRTT: TimeInterval?
+
     init(host: DiscoveredHost, pairedMac: PairedMac, appState: BeamAppState) {
         self.host = host
         self.pairedMac = pairedMac
@@ -277,8 +288,31 @@ final class ConnectionManager {
         }
     }
 
+    /// Sends a .ping and starts the RTT clock. Skipped while one is outstanding so a stalled
+    /// reply can't be mistaken for a fast one.
+    private func sendLinkPing() {
+        guard pingSentAt == nil else { return }
+        pingSentAt = Date()
+        let msg = BeamControlMessage(type: .ping, payload: nil)
+        guard let data = try? JSONEncoder().encode(msg) else { return }
+        sendTCP(data.lengthPrefixed())
+    }
+
+    private func handlePong() {
+        guard let sentAt = pingSentAt else { return }
+        pingSentAt = nil
+        let sample = Date().timeIntervalSince(sentAt)
+        // Light smoothing: a single spike shouldn't flip the badge, but a genuine path
+        // upgrade should show up within a few samples.
+        smoothedRTT = smoothedRTT.map { $0 * 0.7 + sample * 0.3 } ?? sample
+        let rtt = smoothedRTT ?? sample
+        Task { @MainActor in self.appState?.linkRTT = rtt }
+    }
+
     private func handleControlMessage(_ msg: BeamControlMessage) {
         switch msg.type {
+        case .pong:
+            handlePong()
         case .qualityChanged:
             if case .qualityChanged(let payload) = msg.payload {
                 Task { @MainActor in
@@ -453,6 +487,7 @@ final class ConnectionManager {
             // Send quality feedback to host for auto-adaptation
             self.sendQualityFeedback(quality)
             self.stepRemoteQualityLadder(quality: quality)
+            self.sendLinkPing()
         }
         timer.resume()
         qualityTimer = timer

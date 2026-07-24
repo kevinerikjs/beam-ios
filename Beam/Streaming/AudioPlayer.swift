@@ -24,10 +24,18 @@ final class AudioPlayer {
     private let formatLock = NSLock()
     private var snapshotSampleRate: Double = 44_100
     private var snapshotChannels: AVAudioChannelCount = 2
+    private var didReceiveRemoteFormat = false
 
     var currentSampleRate: Double {
         formatLock.lock(); defer { formatLock.unlock() }
         return snapshotSampleRate
+    }
+
+    /// True once the host has told us its real audio format. Until then the snapshot holds
+    /// a default that may not match the encoder.
+    var hasRemoteFormat: Bool {
+        formatLock.lock(); defer { formatLock.unlock() }
+        return didReceiveRemoteFormat
     }
 
     var currentChannels: AVAudioChannelCount {
@@ -97,6 +105,10 @@ final class AudioPlayer {
             guard let self else { return }
             let normalizedRate = sampleRate.clamped(to: 8_000...96_000)
             let normalizedChannels = AVAudioChannelCount(max(1, min(channels, 8)))
+            // Set BEFORE the early-out below: when the host's format happens to equal our
+            // default, nothing "changes" and we'd return without ever recording that the
+            // format is now confirmed — leaving the AAC decoder gate closed forever.
+            formatLock.lock(); didReceiveRemoteFormat = true; formatLock.unlock()
             let sampleRateChanged = abs(normalizedRate - playbackSampleRate) > 1
             let channelsChanged = normalizedChannels != playbackChannels
             guard sampleRateChanged || channelsChanged else { return }

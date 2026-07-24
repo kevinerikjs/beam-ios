@@ -115,6 +115,39 @@ final class BeamAppState: ObservableObject {
     /// Used by the UI to explain the connection and to pick conservative quality defaults.
     @Published var usingRemoteHost: Bool = false
 
+    /// Smoothed round-trip time on the control channel, nil until the first pong.
+    @Published var linkRTT: TimeInterval?
+
+    /// How good the remote link actually is. Only meaningful when `usingRemoteHost`.
+    ///
+    /// Tailscale always starts a session DERP-relayed and upgrades to a direct path in the
+    /// background, so a remote stream's first seconds are slow even when it is about to become
+    /// fast. Users read that as "the app is broken" rather than "wait a moment", which is why
+    /// this is surfaced rather than hidden. Thresholds come from measurement on a real
+    /// tailnet: direct IPv6 measured ~110-170ms, DERP-relayed measured ~2200ms under load.
+    enum RemoteLinkQuality {
+        case connecting   // no RTT sample yet
+        case direct       // fast path, full quality is realistic
+        case marginal     // ambiguous; likely mid-upgrade
+        case relayed      // via DERP; video will struggle
+
+        var label: String {
+            switch self {
+            case .connecting: return "Connecting…"
+            case .direct:     return "Direct"
+            case .marginal:   return "Negotiating…"
+            case .relayed:    return "Relayed"
+            }
+        }
+    }
+
+    var remoteLinkQuality: RemoteLinkQuality {
+        guard let rtt = linkRTT else { return .connecting }
+        if rtt < 0.25 { return .direct }
+        if rtt < 0.6 { return .marginal }
+        return .relayed
+    }
+
     private var remoteFallbackTask: Task<Void, Never>?
     @Published var connectionManager: ConnectionManager?
 
