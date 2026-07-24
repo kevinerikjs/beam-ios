@@ -460,6 +460,19 @@ struct BeamPairingMessage: Codable {
     /// Keep in sync with beam-macos Protocol.swift.
     var supportsRemoteAccess: Bool? = nil
 
+    /// iOS → macOS. The client's native hardware sample rate, sent at auth (BEAM-29).
+    ///
+    /// Previously the host chose a rate and the client reacted to audioFormatChanged, which
+    /// left a window at every session start where the client had to GUESS: it built its engine
+    /// at a default, then tore the whole chain down when the real rate arrived. Guessing wrong
+    /// played audio at the wrong speed for those first moments.
+    ///
+    /// The client is the party that actually knows this value, so it states it up front and the
+    /// host encodes to match. Optional like every other field here, so an older host simply
+    /// ignores it and the existing audioFormatChanged path still applies.
+    var preferredAudioSampleRate: Double? = nil
+
+
     /// iOS → macOS. Wire names of the audio codecs this client can decode, most-preferred
     /// first (e.g. ["aac_lc", "pcm_f32le"]). Sent on `hello` and on EVERY `authRequest`.
     ///

@@ -123,6 +123,18 @@ final class AudioPlayer {
     /// Audio counts as "arriving" if a packet landed within this window.
     private let arrivalFreshnessSeconds: Double = 2.0
     private var forcedRebuildCount = 0
+
+    /// Consecutive rebuilds that did not restore audio, and the ceiling before we stop.
+    ///
+    /// A rebuild that does not work is not free: it stops the engine, deactivates and
+    /// re-takes the audio session, and discards queued buffers. Repeating that every ~6s
+    /// forever is strictly worse than leaving the chain alone — Kevin's log showed exactly
+    /// that, hard-rebuild #8 through #11 back to back with audio dead throughout. If several
+    /// rebuilds in a row fail to produce a single rendered buffer, the fault is not something
+    /// a rebuild can fix, so stop and say so loudly rather than thrash.
+    private var consecutiveFailedRebuilds = 0
+    private let maxConsecutiveFailedRebuilds = 3
+    private var rebuildsSuspended = false
     private var lastEngineRestoreAt: Double = -.greatestFiniteMagnitude
     private var didRegisterObservers = false
 
@@ -414,6 +426,26 @@ final class AudioPlayer {
     /// watchdog will simply run it again in another `hardRebuildSilenceSeconds` if it did not
     /// take, so no state anywhere can make audio permanently dead.
     private func forceRebuildAudioChain(reason: String) {
+        // If audio rendered at any point since the last rebuild, the previous one worked and
+        // this is a fresh fault; otherwise they are failing back to back.
+        if lastRenderedAt > 0 {
+            consecutiveFailedRebuilds = 0
+        } else {
+            consecutiveFailedRebuilds += 1
+        }
+
+        guard consecutiveFailedRebuilds <= maxConsecutiveFailedRebuilds else {
+            if !rebuildsSuspended {
+                rebuildsSuspended = true
+                DiagnosticLogger.shared.log(
+                    "RECOVERY[suspended]: \(maxConsecutiveFailedRebuilds) rebuilds in a row produced no audio — stopping, the fault is not one a rebuild can fix. Reconnect to reset.",
+                    category: "Audio"
+                )
+                logger.error("Audio rebuild loop suspended after \(self.maxConsecutiveFailedRebuilds) failures")
+            }
+            return
+        }
+
         forcedRebuildCount += 1
         DiagnosticLogger.shared.log(
             "RECOVERY[hard-rebuild #\(forcedRebuildCount)]: \(reason) — rebuilding decoder + session + engine + player node",

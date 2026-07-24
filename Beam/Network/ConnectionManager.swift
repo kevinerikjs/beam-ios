@@ -4,6 +4,7 @@
 
 import Network
 import OSLog
+import AVFoundation
 import UIKit
 
 private let logger = Logger(subsystem: "com.beam.ios", category: "ConnectionManager")
@@ -151,6 +152,10 @@ final class ConnectionManager {
             code: nil,
             sharedSecret: secretHex,
             error: nil,
+            // State our hardware rate up front so the host encodes to it and the format never
+            // has to change mid-session (BEAM-29). AVAudioSession.sampleRate is the rate the
+            // hardware is actually running at right now, which is the number that matters.
+            preferredAudioSampleRate: AVAudioSession.sharedInstance().sampleRate,
             supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs()
         )
         guard let data = try? JSONEncoder().encode(auth) else { return }
