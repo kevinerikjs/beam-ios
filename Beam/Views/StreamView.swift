@@ -236,6 +236,15 @@ struct StreamView: View {
                 renderer.flush()
             }
         }
+        // Belt-and-braces teardown. RootView swaps StreamView out for HomeView as soon as
+        // isStreaming flips, so the onChange above races against this view being removed and
+        // frequently never runs — leaving the PiP window alive on the home screen, frozen on
+        // the last decoded frame. onDisappear is guaranteed on removal, and is NOT called when
+        // the app merely backgrounds, so PiP still survives the case it's meant for.
+        .onDisappear {
+            pipController.teardown()
+            renderer.flush()
+        }
         .onChange(of: scenePhase) { phase in
             guard appState.isStreaming else { return }
             switch phase {

@@ -72,6 +72,23 @@ enum StreamQualityPreset: String, Codable, CaseIterable, Identifiable {
 
     /// Non-auto presets ordered lowest → highest (for auto-adaptation tiering).
     static let autoTiers: [StreamQualityPreset] = [.p360_30, .p480_30, .p720_30, .p1080_30]
+
+    /// Ceiling applied when the host is reached over a remote path rather than the LAN
+    /// (BEAM-19). Everything above this assumes LAN bandwidth and will buffer on cellular or
+    /// a relayed tailnet before the adaptation loop can react.
+    static let remoteCap: StreamQualityPreset = .p720_30
+
+    /// Whether this preset asks for more than a remote link should be started at.
+    /// `.auto` counts: it opens at 1080p30, which is exactly the too-optimistic first guess
+    /// the cap exists to avoid.
+    var exceedsRemoteCap: Bool {
+        switch self {
+        case .p360_30, .p480_30, .p720_30:
+            return false
+        case .auto, .p720_60, .p1080_30, .p1080_60:
+            return true
+        }
+    }
 }
 
 // MARK: - Packet Types

@@ -169,34 +169,33 @@ final class BeamAppState: ObservableObject {
     /// because a local hit is faster and doesn't depend on the VPN being connected.
     @MainActor
     private func scheduleRemoteFallback() {
-        // Log every rejection reason explicitly: when this silently does nothing the user just
-        // sees a permanently-disabled Start button, which is indistinguishable from a hang.
-        guard discoveredHost == nil else {
-            DiagnosticLogger.shared.log("Remote fallback skipped: host already found", category: "Discovery")
-            return
-        }
-        guard let mac = pairedMac else {
-            DiagnosticLogger.shared.log("Remote fallback skipped: no paired Mac", category: "Discovery")
-            return
-        }
-        guard !mac.allRemoteHosts.isEmpty else {
-            DiagnosticLogger.shared.log("Remote fallback unavailable: no stored remote address", category: "Discovery")
-            return
-        }
-
-        DiagnosticLogger.shared.log(
-            "Remote fallback armed (\(mac.allRemoteHosts.count) address(es), \(Int(Self.remoteFallbackGrace))s grace)",
-            category: "Discovery"
-        )
+        // This deadline is what guarantees the "Looking for your Mac…" state always ends.
+        //
+        // It deliberately keys off `isSearchingForMac` rather than `discoveredHost == nil`.
+        // Keying off the host was a bug: after a stream ends, `discoveredHost` still holds the
+        // endpoint from the previous session, so the deadline bailed out early while Bonjour
+        // (off-LAN) never called back — leaving the spinner running forever with no way out
+        // but an app restart.
         remoteFallbackTask?.cancel()
         remoteFallbackTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.remoteFallbackGrace * 1_000_000_000))
-            guard !Task.isCancelled else {
-                DiagnosticLogger.shared.log("Remote fallback cancelled before firing", category: "Discovery")
-                return
+            guard !Task.isCancelled, let self else { return }
+            // Bonjour got there first and already cleared the searching state.
+            guard self.isSearchingForMac else { return }
+
+            if let mac = self.pairedMac, !mac.allRemoteHosts.isEmpty {
+                self.activateRemoteHost(reason: "Bonjour found nothing in \(Int(Self.remoteFallbackGrace))s")
+            } else {
+                // Nothing to fall back to. Stop spinning and let the UI say so, rather than
+                // implying we're still making progress.
+                DiagnosticLogger.shared.log(
+                    "Discovery gave up: no Bonjour result and no stored remote address",
+                    category: "Discovery"
+                )
+                self.discoveredHost = nil
+                self.usingRemoteHost = false
+                self.isSearchingForMac = false
             }
-            guard let self, self.discoveredHost == nil else { return }
-            self.activateRemoteHost(reason: "Bonjour found nothing in \(Int(Self.remoteFallbackGrace))s")
         }
     }
 
@@ -348,16 +347,32 @@ final class BeamAppState: ObservableObject {
 
     /// Schedules a reconnect attempt with exponential backoff (1s, 3s, 9s, 27s).
     /// Called from ConnectionManager when an unexpected disconnect occurs.
+    @MainActor
     private func scheduleReconnect() {
         guard reconnectAttempt < maxReconnectAttempts else {
             DiagnosticLogger.shared.log("Max reconnect attempts reached, giving up", category: "Reconnect")
             reconnectAttempt = 0
+            // Re-run discovery so the UI resolves to a real state instead of leaving the user
+            // holding a host we've just proven unreachable.
+            discoveredHost = nil
+            startBrowsing()
             return
         }
         guard discoveredHost != nil, pairedMac != nil else {
             reconnectAttempt = 0
             return
         }
+        // Losing WiFi mid-stream is the common case here, and the host we were using is a LAN
+        // endpoint that is now unreachable. Retrying it on a backoff can never succeed, so as
+        // soon as the first attempt fails we switch to the stored remote address instead of
+        // burning all four attempts on a dead route.
+        if reconnectAttempt >= 1,
+           !usingRemoteHost,
+           let mac = pairedMac,
+           !mac.allRemoteHosts.isEmpty {
+            activateRemoteHost(reason: "LAN reconnect failed, switching to remote")
+        }
+
         let attempt = reconnectAttempt
         let delay: UInt64 = [1, 3, 9, 27][min(attempt, 3)]
         reconnectAttempt += 1

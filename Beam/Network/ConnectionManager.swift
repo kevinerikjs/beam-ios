@@ -331,8 +331,25 @@ final class ConnectionManager {
                 }
                 controllerInput.start(connectionManager: self)
             }
-            // Send our quality preference to the host immediately after auth
-            let preferred = appState?.preferredQualityPreset ?? .auto
+            // Send our quality preference to the host immediately after auth.
+            //
+            // Over a remote (Tailscale) path we cap it. The presets and the host's auto tiers
+            // are tuned for LAN bandwidth, so `auto` opens at 1080p30/6 Mbps and only walks
+            // down after the feedback loop has already produced visible buffering. On cellular
+            // or a DERP-relayed tailnet that first guess is far too optimistic, so we start
+            // conservative and let the host adapt upward if the link turns out to be good.
+            var preferred = appState?.preferredQualityPreset ?? .auto
+            if appState?.usingRemoteHost == true, preferred == .auto {
+                // Enter the ladder at 480p30 rather than auto's 1080p30 opening guess, then
+                // climb. Being briefly too soft is recoverable; opening too hot means the user
+                // watches it buffer before adaptation catches up, which is what they notice.
+                ladderIndex = Self.ladder.firstIndex(of: .p480_30) ?? 1
+                preferred = Self.ladder[ladderIndex!]
+                DiagnosticLogger.shared.log(
+                    "Remote path: starting ladder at \(preferred.rawValue)",
+                    category: "Quality"
+                )
+            }
             sendQualityRequest(preferred)
             // Sync viewport lock state with host. Host keeps its own lock across sessions,
             // so we must always send the current state — lock if we have a saved rect,
@@ -409,9 +426,69 @@ final class ConnectionManager {
             }
             // Send quality feedback to host for auto-adaptation
             self.sendQualityFeedback(quality)
+            self.stepRemoteQualityLadder(quality: quality)
         }
         timer.resume()
         qualityTimer = timer
+    }
+
+    // MARK: - Remote Quality Ladder (BEAM-19)
+    //
+    // Over Tailscale the achievable bitrate varies enormously and we cannot tell which case
+    // we're in from inside the app:
+    //   - a DIRECT WireGuard connection is limited only by the two internet links, so it can
+    //     comfortably carry 1080p60 and there is no reason to leave that on the table;
+    //   - a DERP-RELAYED connection goes through Tailscale's shared relay infrastructure,
+    //     which is intended as a fallback rather than a bulk-video pipe, and is both slower
+    //     and rude to hammer.
+    // Tailscale exposes which one you got via its CLI, but neither app can query that (the
+    // iOS client can't, and Beacon can't rely on a `tailscale` binary path that differs across
+    // App Store, brew and standalone installs).
+    //
+    // So we don't guess the transport — we measure the path. Start below the LAN default,
+    // then climb one tier at a time while the link holds up, and drop two tiers immediately
+    // when it doesn't. A direct connection walks up to its ceiling within ~20s; a relayed or
+    // congested cellular one settles low and stays there.
+
+    private static let ladder: [StreamQualityPreset] = [.p360_30, .p480_30, .p720_30, .p1080_30, .p1080_60]
+    private var ladderIndex: Int?
+    private var goodTicks = 0
+
+    /// Number of consecutive healthy 2s samples required before stepping up. Deliberately
+    /// asymmetric with the drop: climbing costs a re-encode and a visible resolution change,
+    /// so it should be earned, while falling should be immediate.
+    private static let ticksPerStepUp = 4
+
+    private func stepRemoteQualityLadder(quality: Double) {
+        // Only drives remote sessions, and only when the user asked for Auto — an explicit
+        // preset is a deliberate choice and we must not override it.
+        guard appState?.usingRemoteHost == true,
+              appState?.preferredQualityPreset == .auto,
+              var index = ladderIndex else { return }
+
+        if quality >= 0.95 {
+            goodTicks += 1
+            guard goodTicks >= Self.ticksPerStepUp, index < Self.ladder.count - 1 else { return }
+            goodTicks = 0
+            index += 1
+        } else if quality <= 0.5 {
+            // Drop two tiers, not one: by the time the score has fallen this far the user is
+            // already seeing buffering, and creeping down one step at a time prolongs it.
+            guard index > 0 else { goodTicks = 0; return }
+            goodTicks = 0
+            index = max(0, index - 2)
+        } else {
+            goodTicks = 0
+            return
+        }
+
+        ladderIndex = index
+        let preset = Self.ladder[index]
+        DiagnosticLogger.shared.log(
+            "Remote ladder → \(preset.rawValue) (quality=\(String(format: "%.2f", quality)))",
+            category: "Quality"
+        )
+        sendQualityRequest(preset)
     }
 
     // MARK: - Network Path Monitor
