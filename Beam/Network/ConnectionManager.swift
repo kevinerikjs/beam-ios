@@ -41,6 +41,7 @@ final class ConnectionManager {
     var onUnexpectedDisconnect: (() -> Void)?
 
     private var pathMonitor: NWPathMonitor?
+    private var keepStreamViewOpen = false
 
     // MARK: - Link RTT (BEAM-23)
     //
@@ -156,9 +157,13 @@ final class ConnectionManager {
 
     // MARK: - Disconnect
 
-    func disconnect() {
+    /// `keepStreamViewOpen` is set on the unexpected path so the UI can hold the last frame
+    /// under a reconnect overlay instead of dumping the user back to the home screen for what
+    /// is usually a one-second blip (or a WiFi/Tailscale handover).
+    func disconnect(keepStreamViewOpen: Bool = false) {
         guard !isDisconnecting else { return }
         isDisconnecting = true
+        self.keepStreamViewOpen = keepStreamViewOpen
 
         qualityTimer?.cancel()
         qualityTimer = nil
@@ -183,8 +188,9 @@ final class ConnectionManager {
         connection = nil
         streamReceiver.reset()
         audioPlayer.stop()
+        let holdOpen = keepStreamViewOpen
         Task { @MainActor in
-            appState?.isStreaming = false
+            if !holdOpen { appState?.isStreaming = false }
             appState?.connectionQuality = 1.0
             appState?.connectionManager = nil
         }
@@ -200,7 +206,7 @@ final class ConnectionManager {
     /// the UI rather than crashing. Hop explicitly.
     private func triggerUnexpectedDisconnect() {
         let callback = onUnexpectedDisconnect
-        disconnect()
+        disconnect(keepStreamViewOpen: callback != nil)
         guard let callback else { return }
         Task { @MainActor in callback() }
     }
@@ -360,7 +366,11 @@ final class ConnectionManager {
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works
             // later without the user configuring anything.
-            Task { @MainActor in appState?.updateRemoteHosts(msg.tailscaleHosts, hostSupportsRemote: msg.supportsRemoteAccess) }
+            Task { @MainActor in
+                appState?.updateRemoteHosts(msg.tailscaleHosts, hostSupportsRemote: msg.supportsRemoteAccess)
+                // Reconnected: close the hold window and let the overlay fade.
+                if appState?.isReconnecting == true { appState?.endReconnect(resumed: true) }
+            }
             // Record first stream to start the 3-day free trial clock (no-op after first time)
             SessionManager.shared.recordFirstStream()
             let isPurchased = appState?.isPurchased ?? false

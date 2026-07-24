@@ -17,6 +17,13 @@ struct StreamView: View {
     @State private var renderer = VideoRenderer(frame: .zero)
     @StateObject private var pipController = PiPController()
 
+    /// Debounced mirror of appState.isReconnecting. A brief stutter that recovers on its own
+    /// should not flash a full-screen overlay, so the blur only appears once the drop has
+    /// lasted long enough to be worth telling the user about.
+    @State private var showReconnectOverlay = false
+    @State private var reconnectOverlayTask: Task<Void, Never>?
+    private static let reconnectOverlayDelay: TimeInterval = 0.7
+
     // Pinch-to-zoom + pan state
     @State private var videoScale: CGFloat = 1.0
     @State private var baseScale: CGFloat = 1.0
@@ -177,6 +184,27 @@ struct StreamView: View {
 
             // Controls overlay
             if showOverlay {
+                // Reconnect overlay (BEAM-24). Sits above the frozen last frame so a blip reads
+                // as "hang on" rather than "the app gave up and threw you out".
+                if showReconnectOverlay {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .overlay(.ultraThinMaterial)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                            .scaleEffect(1.4)
+                        Text(appState.usingRemoteHost ? "Reconnecting over Tailscale…" : "Reconnecting…")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .transition(.opacity)
+                }
+
                 StreamOverlay(
                     appState: appState,
                     pipController: pipController,
@@ -241,7 +269,21 @@ struct StreamView: View {
         // frequently never runs — leaving the PiP window alive on the home screen, frozen on
         // the last decoded frame. onDisappear is guaranteed on removal, and is NOT called when
         // the app merely backgrounds, so PiP still survives the case it's meant for.
+        .onChange(of: appState.isReconnecting) { reconnecting in
+            reconnectOverlayTask?.cancel()
+            if reconnecting {
+                reconnectOverlayTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: UInt64(Self.reconnectOverlayDelay * 1_000_000_000))
+                    guard !Task.isCancelled, appState.isReconnecting else { return }
+                    withAnimation(.easeOut(duration: 0.25)) { showReconnectOverlay = true }
+                }
+            } else {
+                // Frames are flowing again; drop it immediately rather than on a delay.
+                withAnimation(.easeIn(duration: 0.2)) { showReconnectOverlay = false }
+            }
+        }
         .onDisappear {
+            reconnectOverlayTask?.cancel()
             pipController.teardown()
             renderer.flush()
         }

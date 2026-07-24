@@ -118,6 +118,23 @@ final class BeamAppState: ObservableObject {
     /// Smoothed round-trip time on the control channel, nil until the first pong.
     @Published var linkRTT: TimeInterval?
 
+    // MARK: - Reconnect overlay (BEAM-24)
+    //
+    // A dropped stream used to dump the user straight back to the home screen, which is a
+    // jarring way to present something that usually resolves itself in a second or two —
+    // especially on a WiFi/Tailscale handover, where the connection is being renegotiated
+    // rather than lost. The stream view now stays mounted over the last frame while we retry.
+
+    /// True while we are retrying a dropped connection and holding the stream view open.
+    @Published var isReconnecting = false
+
+    /// When the current reconnect window expires. Past this we give up, return to the home
+    /// screen, and stop retrying rather than looping forever.
+    private var reconnectDeadline: Date?
+
+    /// How long the stream is held open across a drop before giving up.
+    static let reconnectHoldWindow: TimeInterval = 20
+
     /// How good the remote link actually is. Only meaningful when `usingRemoteHost`.
     ///
     /// Tailscale always starts a session DERP-relayed and upgrades to a direct path in the
@@ -432,9 +449,22 @@ final class BeamAppState: ObservableObject {
     /// Called from ConnectionManager when an unexpected disconnect occurs.
     @MainActor
     private func scheduleReconnect() {
-        guard reconnectAttempt < maxReconnectAttempts else {
-            DiagnosticLogger.shared.log("Max reconnect attempts reached, giving up", category: "Reconnect")
-            reconnectAttempt = 0
+        // Open the hold window on the first failure of a run, then keep the stream view up
+        // until it expires. Attempts alone are a poor bound because the backoff makes their
+        // duration vary wildly; a wall-clock window is what the user actually experiences.
+        if reconnectDeadline == nil {
+            reconnectDeadline = Date().addingTimeInterval(Self.reconnectHoldWindow)
+        }
+        isReconnecting = true
+
+        let expired = reconnectDeadline.map { Date() >= $0 } ?? false
+        guard reconnectAttempt < maxReconnectAttempts, !expired else {
+            DiagnosticLogger.shared.log(
+                expired ? "Reconnect window expired, returning to home"
+                        : "Max reconnect attempts reached, giving up",
+                category: "Reconnect"
+            )
+            endReconnect(resumed: false)
             // Re-run discovery so the UI resolves to a real state instead of leaving the user
             // holding a host we've just proven unreachable.
             discoveredHost = nil
@@ -469,6 +499,23 @@ final class BeamAppState: ObservableObject {
             guard !Task.isCancelled, !self.isStreaming else { return }
             DiagnosticLogger.shared.log("Reconnect attempt \(self.reconnectAttempt)", category: "Reconnect")
             await self.startStream()
+        }
+    }
+
+    /// Closes the reconnect window. `resumed: true` means a stream is running again and the
+    /// overlay should simply disappear; `false` tears down and returns to the home screen.
+    @MainActor
+    func endReconnect(resumed: Bool) {
+        reconnectDeadline = nil
+        reconnectAttempt = 0
+        isReconnecting = false
+        if !resumed {
+            reconnectTask?.cancel()
+            reconnectTask = nil
+            connectionManager?.onUnexpectedDisconnect = nil
+            connectionManager?.disconnect()
+            connectionManager = nil
+            isStreaming = false
         }
     }
 
