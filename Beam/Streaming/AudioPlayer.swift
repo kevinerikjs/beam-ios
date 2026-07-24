@@ -28,14 +28,21 @@ final class AudioPlayer {
     private var myGeneration: UInt64 = 0
 
     // Remote audio format (updated by host control messages).
-    private var playbackSampleRate: Double = 44_100
+    /// Default 48kHz, matching what the host actually sends and what iPhone hardware runs at
+    /// natively. It used to be 44100, which was wrong in both directions: the engine and the
+    /// audio session were built at 44100 before the host's real format arrived, so the first
+    /// moments of every session played 48kHz audio at 44.1kHz (pitch-shifted down, audibly
+    /// "bass boosted"), and then the whole chain was torn down and rebuilt a few milliseconds
+    /// later once audioFormatChanged landed. Starting at the right rate removes the mismatch
+    /// window rather than correcting it after the fact.
+    private var playbackSampleRate: Double = 48_000
     private var playbackChannels: AVAudioChannelCount = 2
     private var outputFormat: AVAudioFormat?
 
     /// Thread-safe snapshot of the format above, so the AAC decoder can be built with a format
     /// that is byte-identical to the engine's without hopping onto renderQueue.
     private let formatLock = NSLock()
-    private var snapshotSampleRate: Double = 44_100
+    private var snapshotSampleRate: Double = 48_000
     private var snapshotChannels: AVAudioChannelCount = 2
     private var didReceiveRemoteFormat = false
 
