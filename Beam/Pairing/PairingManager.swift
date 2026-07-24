@@ -93,7 +93,11 @@ extension PairingManager: PairingConnectionDelegate {
                 id: KeyStore.shared.stableDeviceID,
                 name: macName,
                 sharedSecret: secretData,
-                lastConnected: Date()
+                lastConnected: Date(),
+                // Captured at pair time so away-from-home streaming works later with no setup
+                // step (BEAM-19). Empty/nil when the Mac has no Tailscale — the user can still
+                // add an address by hand from settings.
+                remoteHosts: message.tailscaleHosts
             )
             let isFirstPairing = !UserDefaults.standard.bool(forKey: "hasEverPaired")
             KeyStore.shared.savePairedMac(mac)

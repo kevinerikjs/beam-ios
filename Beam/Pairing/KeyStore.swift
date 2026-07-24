@@ -47,6 +47,47 @@ final class KeyStore {
         return newID
     }
 
+    // MARK: - Feature Unlock Latch (BEAM-18)
+    // A remotely-gated feature that has been observed enabled once is unlocked forever on
+    // this device. Stored in the Keychain (not UserDefaults) so it survives reinstall, and
+    // so a user who has the feature can never lose it by reinstalling while off-network.
+    //
+    // This is deliberately ONE-WAY: there is no un-latch. Beam has to work on LANs with no
+    // internet at all, so "we couldn't reach the flag server" must never disable a feature
+    // the user already has. Pulling a feature requires shipping a new build.
+
+    private func latchKey(_ feature: String) -> String { "feature_latch_" + feature }
+
+    func isFeatureUnlocked(_ feature: String) -> Bool {
+        guard let data = load(key: latchKey(feature)),
+              let value = String(data: data, encoding: .utf8) else { return false }
+        return value == "1"
+    }
+
+    /// Permanently unlocks `feature` on this device. Idempotent; never reversible.
+    func unlockFeature(_ feature: String) {
+        guard let data = "1".data(using: .utf8) else { return }
+        save(key: latchKey(feature), data: data)
+        logger.info("Feature latched on: \(feature, privacy: .public)")
+    }
+
+    // Whether the one-time "here's what you just got" changelog has been shown for a feature.
+    // Also Keychain-backed, for the same reason as the latch: the notice must show exactly
+    // once ever, so it cannot live in UserDefaults where a reinstall would resurrect it.
+
+    private func noticeKey(_ feature: String) -> String { "feature_notice_" + feature }
+
+    func hasShownUnlockNotice(_ feature: String) -> Bool {
+        guard let data = load(key: noticeKey(feature)),
+              let value = String(data: data, encoding: .utf8) else { return false }
+        return value == "1"
+    }
+
+    func markUnlockNoticeShown(_ feature: String) {
+        guard let data = "1".data(using: .utf8) else { return }
+        save(key: noticeKey(feature), data: data)
+    }
+
     // MARK: - Keychain Primitives
 
     private func save(key: String, data: Data) {

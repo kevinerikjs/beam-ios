@@ -29,7 +29,8 @@ struct BeamApp: App {
 
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = BeamAppState()
-    @State private var showWhatsNew = WhatsNewManager.shouldShow
+    @ObservedObject private var flags = FeatureFlags.shared
+    @State private var whatsNew: WhatsNewPresentation?
 
     init() {
         Analytics.start()
@@ -53,20 +54,74 @@ struct BeamApp: App {
             RootView()
                 .environmentObject(appState)
                 .preferredColorScheme(.dark)
-                .sheet(isPresented: $showWhatsNew) {
-                    WhatsNewView {
-                        WhatsNewManager.markSeen()
-                        showWhatsNew = false
+                .task {
+                    evaluateWhatsNew()
+                    FeatureFlags.shared.refresh()
+                }
+                // A feature can latch on mid-session; surface its notice as soon as it does.
+                .onChange(of: flags.unlocked) { _ in evaluateWhatsNew() }
+                .sheet(item: $whatsNew) { presentation in
+                    switch presentation {
+                    case .version:
+                        WhatsNewView(
+                            entries: WhatsNewManager.versionEntries,
+                            subtitle: "Version \(WhatsNewManager.appVersion)"
+                        ) {
+                            WhatsNewManager.markVersionSeen()
+                            whatsNew = nil
+                            // A gated feature may also be waiting — it was suppressed while
+                            // the version notes were pending, so re-check now.
+                            evaluateWhatsNew()
+                        }
+                        .interactiveDismissDisabled(false)
+                    case .unlock(let feature, let entry):
+                        WhatsNewView(
+                            entries: [entry],
+                            title: "New in Beam",
+                            subtitle: "Just unlocked"
+                        ) {
+                            WhatsNewManager.markUnlockSeen(feature)
+                            whatsNew = nil
+                        }
+                        .interactiveDismissDisabled(false)
                     }
-                    .interactiveDismissDisabled(false)
                 }
                 .onOpenURL { url in
                     guard url.scheme == "beam", url.host == "start" else { return }
                     // Dismiss What's New if it's up — don't mark seen so it
                     // still appears on the next normal (non-widget) app open.
-                    showWhatsNew = false
+                    whatsNew = nil
                     appState.requestAutoStart()
                 }
+        }
+    }
+}
+
+// MARK: - What's New routing
+
+/// The two changelog surfaces share one sheet slot so they can never stack.
+enum WhatsNewPresentation: Identifiable {
+    case version
+    case unlock(FeatureFlags.Feature, ChangeEntry)
+
+    var id: String {
+        switch self {
+        case .version:                return "version"
+        case .unlock(let feature, _): return "unlock-" + feature.rawValue
+        }
+    }
+}
+
+private extension BeamApp {
+    /// Picks the changelog owed to the user, if any. Version notes take precedence;
+    /// `pendingUnlock()` self-suppresses while they're outstanding.
+    @MainActor
+    func evaluateWhatsNew() {
+        guard whatsNew == nil else { return }
+        if WhatsNewManager.shouldShowVersion {
+            whatsNew = .version
+        } else if let pending = WhatsNewManager.pendingUnlock() {
+            whatsNew = .unlock(pending.feature, pending.entry)
         }
     }
 }
@@ -93,6 +148,9 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: appState.hasCompletedOnboarding)
         .onChange(of: scenePhase) { phase in
             appState.handleScenePhaseChange(phase)
+            // Re-check flags on every foreground: a user who was offline at launch (or on a
+            // LAN with no internet) gets the unlock the moment they next have connectivity.
+            if phase == .active { FeatureFlags.shared.refresh() }
             DiagnosticLogger.shared.log(
                 "Scene phase → \(phase.name) (streaming=\(appState.isStreaming))",
                 category: "Lifecycle"

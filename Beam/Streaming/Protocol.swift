@@ -334,6 +334,15 @@ struct BeamPairingMessage: Codable {
     let code: String?
     let sharedSecret: String?
     let error: String?
+
+    /// macOS → iOS. Addresses the host can be reached at from outside the local network —
+    /// in practice its Tailscale IPv4 and MagicDNS name (BEAM-19). Sent on `pairSuccess` and
+    /// on every `authSuccess`, so the phone's copy refreshes itself whenever it connects over
+    /// the LAN and can't go stale if the tailnet address changes.
+    ///
+    /// Optional on purpose: every field here is optional, so an old client decoding a new
+    /// host's message (or vice versa) simply sees nil. No version negotiation required.
+    var tailscaleHosts: [String]? = nil
 }
 
 // MARK: - Helpers

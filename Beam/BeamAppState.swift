@@ -83,6 +83,22 @@ final class BeamAppState: ObservableObject {
     // MARK: - Managers
 
     let bonjourBrowser = BonjourBrowser()
+
+    // MARK: - Remote (Tailscale) fallback — BEAM-19
+
+    /// Beacon's listening port is fixed, so a remote endpoint needs no discovery.
+    /// Keep in sync with beam-macos `StreamServer.listeningPort`.
+    static let remotePort: UInt16 = 7979
+
+    /// How long Bonjour gets before we try a stored remote address. Long enough that a
+    /// normal LAN launch never falls back, short enough not to feel broken when away.
+    static let remoteFallbackGrace: TimeInterval = 3.0
+
+    /// True when the current host came from a stored remote address rather than Bonjour.
+    /// Used by the UI to explain the connection and to pick conservative quality defaults.
+    @Published var usingRemoteHost: Bool = false
+
+    private var remoteFallbackTask: Task<Void, Never>?
     @Published var connectionManager: ConnectionManager?
 
     // Auto-reconnect state
@@ -115,16 +131,82 @@ final class BeamAppState: ObservableObject {
 
     func startBrowsing() {
         isSearchingForMac = true
+        remoteFallbackTask?.cancel()
         bonjourBrowser.startBrowsing { [weak self] host in
             Task { @MainActor in
-                self?.discoveredHost = host
-                self?.isSearchingForMac = false
-                if self?.pendingAutoStart == true {
-                    self?.pendingAutoStart = false
-                    await self?.startStream()
+                guard let self else { return }
+                // Bonjour won — cancel any pending remote fallback. LAN always wins:
+                // it's lower latency and doesn't depend on Tailscale being up.
+                self.remoteFallbackTask?.cancel()
+                self.remoteFallbackTask = nil
+                self.usingRemoteHost = false
+                self.discoveredHost = host
+                self.isSearchingForMac = false
+                if self.pendingAutoStart {
+                    self.pendingAutoStart = false
+                    await self.startStream()
                 }
             }
         }
+        Task { @MainActor in scheduleRemoteFallback() }
+    }
+
+    /// If Bonjour hasn't produced the paired Mac within the grace period, fall back to a
+    /// stored remote address (BEAM-19). mDNS doesn't traverse Tailscale, so off-LAN this is
+    /// the only way to reach the host — but we always give the LAN a fair chance first,
+    /// because a local hit is faster and doesn't depend on the VPN being connected.
+    @MainActor
+    private func scheduleRemoteFallback() {
+        guard discoveredHost == nil,
+              let mac = pairedMac,
+              !mac.allRemoteHosts.isEmpty else { return }
+
+        remoteFallbackTask?.cancel()
+        remoteFallbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.remoteFallbackGrace * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.discoveredHost == nil else { return }
+
+            // Endpoint only — we don't probe here. If the address is unreachable the normal
+            // connection path fails and surfaces the usual "can't find your Mac" state.
+            guard let address = mac.allRemoteHosts.first else { return }
+            let endpoint = NWEndpoint.hostPort(
+                host: NWEndpoint.Host(address),
+                port: NWEndpoint.Port(rawValue: Self.remotePort) ?? 7979
+            )
+            DiagnosticLogger.shared.log(
+                "Bonjour found nothing in \(Int(Self.remoteFallbackGrace))s — trying remote host",
+                category: "Discovery"
+            )
+            self.usingRemoteHost = true
+            self.discoveredHost = DiscoveredHost(name: mac.name, endpoint: endpoint, port: Self.remotePort)
+            self.isSearchingForMac = false
+            if self.pendingAutoStart {
+                self.pendingAutoStart = false
+                await self.startStream()
+            }
+        }
+    }
+
+    /// Stores the host's self-reported remote addresses. Called on every successful auth so
+    /// the stored copy tracks the Mac's current tailnet address.
+    @MainActor
+    func updateRemoteHosts(_ hosts: [String]?) {
+        guard let hosts, !hosts.isEmpty, var mac = pairedMac else { return }
+        guard mac.remoteHosts != hosts else { return }   // no churn on the Keychain
+        mac.remoteHosts = hosts
+        pairedMac = mac
+        KeyStore.shared.savePairedMac(mac)
+        DiagnosticLogger.shared.log("Remote hosts updated (\(hosts.count))", category: "Discovery")
+    }
+
+    /// Sets or clears the hand-entered remote address. Pass nil/empty to clear.
+    @MainActor
+    func setManualRemoteHost(_ address: String?) {
+        guard var mac = pairedMac else { return }
+        let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines)
+        mac.manualRemoteHost = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        pairedMac = mac
+        KeyStore.shared.savePairedMac(mac)
     }
 
     /// Called when the app is opened via beam://start (widget tap).
@@ -154,6 +236,8 @@ final class BeamAppState: ObservableObject {
 
     func stopBrowsing() {
         bonjourBrowser.stopBrowsing()
+        remoteFallbackTask?.cancel()
+        remoteFallbackTask = nil
         isSearchingForMac = false
         discoveredHosts = []
     }
@@ -229,6 +313,26 @@ struct PairedMac: Codable {
     let name: String      // e.g. "Kevin's MacBook Pro"
     let sharedSecret: Data
     var lastConnected: Date
+
+    /// Addresses this Mac can be reached at when Bonjour can't see it — i.e. when the phone
+    /// is off the home LAN (BEAM-19). Normally captured automatically: Beacon reports its own
+    /// Tailscale addresses during pairing and on every successful auth, so this self-heals if
+    /// the Mac's tailnet address changes. May also be set by hand for a Mac that had no
+    /// Tailscale at pairing time.
+    ///
+    /// Optional rather than a defaulted array so pairings stored by older builds still decode.
+    var remoteHosts: [String]?
+
+    /// Whichever remote address the user typed in themselves. Kept separate from the
+    /// auto-reported list so a later auto-refresh can't silently overwrite it.
+    var manualRemoteHost: String?
+
+    /// Auto-reported addresses first, then the manual one, de-duplicated, in try order.
+    var allRemoteHosts: [String] {
+        var seen = Set<String>()
+        return ((remoteHosts ?? []) + [manualRemoteHost].compactMap { $0 })
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
 }
 
 struct DiscoveredHost: Equatable {

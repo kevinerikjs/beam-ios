@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage("beam.keepViewportLock") private var keepViewportLock = true
     @State private var showPaywall = false
     @State private var showFeedback = false
+    @State private var manualRemoteHost = ""
 
     var body: some View {
         NavigationStack {
@@ -19,6 +20,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 32) {
                         streamCard
+                        remoteAccessCard
                         subscriptionCard
                         supportCard
                         #if DEBUG
@@ -166,6 +168,88 @@ struct SettingsView: View {
         }
     }
     #endif
+
+    // MARK: - Remote access card (BEAM-19)
+
+    /// Away-from-home streaming over Tailscale. Only shown once a Mac is paired, since the
+    /// address is per-Mac and meaningless before that.
+    ///
+    /// In the normal case the Mac reports its own tailnet address during pairing and this card
+    /// just confirms it's set up. The text field exists for the case the Mac had no Tailscale
+    /// when pairing happened — including a fully offline setup — so the user can fill it in
+    /// later without having to unpair and start over.
+    @ViewBuilder
+    private var remoteAccessCard: some View {
+        if let mac = appState.pairedMac {
+            let autoHosts = mac.remoteHosts ?? []
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Away From Home")
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: autoHosts.isEmpty && mac.manualRemoteHost == nil
+                                  ? "house.slash" : "globe")
+                                .foregroundStyle(.orange)
+                            Text(remoteStatusTitle(auto: autoHosts, manual: mac.manualRemoteHost))
+                                .foregroundStyle(.white)
+                        }
+                        Text(remoteStatusDetail(auto: autoHosts))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    if autoHosts.isEmpty {
+                        cardDivider
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Mac's Tailscale Address")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("100.x.y.z", text: $manualRemoteHost)
+                                .textFieldStyle(.plain)
+                                .font(.system(.callout, design: .monospaced))
+                                .foregroundStyle(.white)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.numbersAndPunctuation)
+                                .onSubmit { appState.setManualRemoteHost(manualRemoteHost) }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(Color.white.opacity(0.06))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            Text("Find it in Beacon on your Mac under Settings → Paired Devices.")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                    }
+                }
+                .background(Color.white.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .onAppear { manualRemoteHost = mac.manualRemoteHost ?? "" }
+            .onChange(of: manualRemoteHost) { _ in appState.setManualRemoteHost(manualRemoteHost) }
+        }
+    }
+
+    private func remoteStatusTitle(auto: [String], manual: String?) -> String {
+        if !auto.isEmpty { return "Ready" }
+        if manual != nil { return "Set Up Manually" }
+        return "Not Set Up"
+    }
+
+    private func remoteStatusDetail(auto: [String]) -> String {
+        if !auto.isEmpty {
+            return "Your Mac shared its Tailscale address, so Beam can reach it when you're "
+                 + "away. Keep Tailscale running on both devices."
+        }
+        return "Beam can stream from outside your home network when both devices are on the "
+             + "same Tailscale account. Your Mac didn't report an address — add it below."
+    }
 
     // MARK: - Support card
 

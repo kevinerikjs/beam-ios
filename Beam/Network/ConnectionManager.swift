@@ -300,6 +300,11 @@ final class ConnectionManager {
             logger.info("Authenticated with \(self.host.name), stream starting")
             DiagnosticLogger.shared.log("Auth success, stream starting", category: "Connection")
             streamStartedAt = Date()
+            // Refresh the host's remote (Tailscale) addresses on every successful auth, not
+            // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
+            // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works
+            // later without the user configuring anything.
+            Task { @MainActor in appState?.updateRemoteHosts(msg.tailscaleHosts) }
             // Record first stream to start the 3-day free trial clock (no-op after first time)
             SessionManager.shared.recordFirstStream()
             let isPurchased = appState?.isPurchased ?? false
@@ -314,13 +319,18 @@ final class ConnectionManager {
                 }
             }
             audioPlayer.start()
-            // Start forwarding game controller input (no-op until a controller connects)
-            controllerInput.onConnectionChange = { [weak self] connected in
-                Task { @MainActor in
-                    self?.appState?.isControllerConnected = connected
+            // Start forwarding game controller input (no-op until a controller connects).
+            // Gated on the remote feature flag (BEAM-18): while locked we never attach to
+            // GCController and never emit .input packets, so the feature is fully inert in
+            // builds that ship before the Mac half is live.
+            if FeatureFlags.isUnlocked(.controllerPassthrough) {
+                controllerInput.onConnectionChange = { [weak self] connected in
+                    Task { @MainActor in
+                        self?.appState?.isControllerConnected = connected
+                    }
                 }
+                controllerInput.start(connectionManager: self)
             }
-            controllerInput.start(connectionManager: self)
             // Send our quality preference to the host immediately after auth
             let preferred = appState?.preferredQualityPreset ?? .auto
             sendQualityRequest(preferred)
