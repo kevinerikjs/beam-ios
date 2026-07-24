@@ -468,6 +468,7 @@ final class ConnectionManager {
             // can't serve both.
             var preferred: StreamQualityPreset
             if appState?.usingRemoteHost == true {
+                // Route-specific setting; see BeamAppState.activeQualityPreset.
                 preferred = appState?.remoteQualityPreset ?? .p720_30
                 if preferred == .auto {
                     // Only Auto hands control to the ladder. Enter below auto's LAN-tuned

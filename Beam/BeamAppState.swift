@@ -55,6 +55,46 @@ final class BeamAppState: ObservableObject {
         }
     }
 
+    /// The quality preset for the route currently in use (BEAM-31).
+    ///
+    /// LAN and remote have their own settings because they are genuinely different links, and
+    /// the right value for one is usually wrong for the other. Switching between them mid-
+    /// session therefore has to switch the preset too, otherwise a failover carries a 6 Mbps
+    /// LAN choice onto a cellular link, which is exactly the condition that made audio fall
+    /// behind. Each route uses its own default unless the user has overridden that route.
+    var activeQualityPreset: StreamQualityPreset {
+        usingRemoteHost ? remoteQualityPreset : preferredQualityPreset
+    }
+
+    /// True when the selected remote preset asks for more than the measured link looks able
+    /// to carry (BEAM-31). Advisory only: the user's choice is never overridden, but a preset
+    /// the link cannot sustain is the condition that starves audio, so it should not be silent.
+    ///
+    /// Uses the RTT we already measure rather than a bandwidth probe: a relayed path measured
+    /// ~2200ms under load versus ~110ms direct, so RTT separates them cleanly enough to warn on.
+    var remoteQualityLikelyTooHigh: Bool {
+        guard usingRemoteHost else { return false }
+        let preset = remoteQualityPreset
+        guard preset != .auto else { return false }   // auto adapts, nothing to warn about
+        switch remoteLinkQuality {
+        case .relayed:  return preset.bitrateMbps > 2.5
+        case .marginal: return preset.bitrateMbps > 4.0
+        case .direct, .connecting: return false
+        }
+    }
+
+    /// Applies the current route's preset to a live stream. Called when the route changes.
+    @MainActor
+    func applyQualityForCurrentRoute() {
+        guard let manager = connectionManager else { return }
+        let preset = activeQualityPreset
+        DiagnosticLogger.shared.log(
+            "Route is \(usingRemoteHost ? "remote" : "local") — applying \(preset.rawValue)",
+            category: "Quality"
+        )
+        manager.sendQualityRequest(preset)
+    }
+
     /// The user's preferred quality preset on the local network (persisted, sent on connect).
     var preferredQualityPreset: StreamQualityPreset {
         get {
@@ -265,8 +305,10 @@ final class BeamAppState: ObservableObject {
                 // it's lower latency and doesn't depend on Tailscale being up.
                 self.remoteFallbackTask?.cancel()
                 self.remoteFallbackTask = nil
+                let cameBackToLAN = self.usingRemoteHost
                 self.usingRemoteHost = false
                 self.discoveredHost = host
+                if cameBackToLAN { self.applyQualityForCurrentRoute() }
                 self.isSearchingForMac = false
                 if self.pendingAutoStart {
                     self.pendingAutoStart = false
@@ -354,8 +396,10 @@ final class BeamAppState: ObservableObject {
             "Using remote host \(address):\(Self.remotePort) (\(reason))",
             category: "Discovery"
         )
+        let routeChanged = !usingRemoteHost
         usingRemoteHost = true
         discoveredHost = DiscoveredHost(name: mac.name, endpoint: endpoint, port: Self.remotePort)
+        if routeChanged { applyQualityForCurrentRoute() }
         isSearchingForMac = false
         if pendingAutoStart {
             pendingAutoStart = false

@@ -293,8 +293,33 @@ struct QualityPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            List(StreamQualityPreset.allCases) { preset in
-                qualityRow(preset)
+            List {
+                // On a remote stream this picker edits the REMOTE setting, not the LAN one.
+                // They are separate because the links are, and a value chosen for home WiFi is
+                // usually wrong on cellular. Say which one is being changed so it is not a
+                // surprise that the setting reverts when you get home.
+                if appState.usingRemoteHost {
+                    Section {
+                        if appState.remoteQualityLikelyTooHigh {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                Text("Your connection right now probably can't carry \(appState.remoteQualityPreset.displayName). Video may stutter and audio may drop out. Auto adjusts to whatever the link can handle.")
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        } else {
+                            Label("Setting the quality used over Tailscale", systemImage: "globe")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                }
+
+                ForEach(StreamQualityPreset.allCases) { preset in
+                    qualityRow(preset)
+                }
             }
             .tint(.orange)
             .listStyle(.plain)
@@ -327,7 +352,7 @@ struct QualityPickerSheet: View {
                 }
             }
             Spacer()
-            if appState.preferredQualityPreset == preset {
+            if appState.activeQualityPreset == preset {
                 Image(systemName: "checkmark")
                     .foregroundStyle(.orange)
                     .fontWeight(.semibold)
@@ -335,7 +360,12 @@ struct QualityPickerSheet: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            appState.preferredQualityPreset = preset
+            // Write to whichever route we are actually on.
+            if appState.usingRemoteHost {
+                appState.remoteQualityPreset = preset
+            } else {
+                appState.preferredQualityPreset = preset
+            }
             dismiss()
         }
     }

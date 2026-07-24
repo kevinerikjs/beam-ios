@@ -252,6 +252,20 @@ struct SettingsView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
+
+                        if appState.remoteQualityLikelyTooHigh {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.caption2)
+                                Text("Your connection right now probably can't carry \(appState.remoteQualityPreset.displayName). Video may stutter and audio may drop out. Auto adjusts to whatever the link can handle.")
+                                    .font(.caption2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 12)
+                        }
                     }
 
                     if locked {
