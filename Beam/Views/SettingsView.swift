@@ -229,6 +229,32 @@ struct SettingsView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
 
+                    if !locked {
+                        cardDivider
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Quality When Away")
+                                    .foregroundStyle(.white)
+                                Text("Mobile and remote links carry far less than home WiFi")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            Picker("", selection: Binding(
+                                get: { appState.remoteQualityPreset },
+                                set: { appState.remoteQualityPreset = $0 }
+                            )) {
+                                ForEach(StreamQualityPreset.allCases) { preset in
+                                    Text(preset.displayName).tag(preset)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .tint(.orange)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                    }
+
                     if locked {
                         cardDivider
                         Button { showPaywall = true } label: {

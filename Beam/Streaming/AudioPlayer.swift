@@ -31,6 +31,12 @@ final class AudioPlayer {
     private let maxAudioLeadSeconds: Double = 0.45
     private let lateAudioCatchupThresholdSeconds: Double = 0.30
     private let hardAudioResyncThresholdSeconds: Double = 0.85
+    /// Minimum gap between hard resyncs. A stall leaves a backlog of buffers that each
+    /// recompute the same large drift before the new anchor has any effect, so without this
+    /// they all resync in a burst — the logs showed five in 6ms — and each one dumps the
+    /// queue, turning one recoverable glitch into a long audible dropout.
+    private let minSecondsBetweenHardResyncs: Double = 0.5
+    private var lastHardResyncAt: Double = -.greatestFiniteMagnitude
     private let clockResetThresholdSeconds: Double = 1.5
 
     // MARK: - Lifecycle
@@ -204,9 +210,17 @@ final class AudioPlayer {
                     nextScheduledAudioSeconds = nil
                     targetPlayTime = now + 0.004
 
-                    if abs(avErrorSeconds) > hardAudioResyncThresholdSeconds {
+                    if abs(avErrorSeconds) > hardAudioResyncThresholdSeconds,
+                       now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
+                        lastHardResyncAt = now
                         // Severe discontinuity: clear queued audio and reset anchor.
                         node.reset()
+                        // reset() clears the scheduled queue AND leaves the node stopped.
+                        // Without this play(), every buffer scheduled afterwards is silently
+                        // discarded and audio never returns for the rest of the session —
+                        // which is exactly what happened after a stall-induced resync burst:
+                        // reconnecting was the only way to get sound back.
+                        node.play()
                         syncAnchorRemotePTSUs = remotePresentationTimestampUs
                         syncAnchorLocalSeconds = now
                         DiagnosticLogger.shared.log(

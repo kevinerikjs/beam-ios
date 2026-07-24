@@ -338,17 +338,26 @@ final class ConnectionManager {
             // down after the feedback loop has already produced visible buffering. On cellular
             // or a DERP-relayed tailnet that first guess is far too optimistic, so we start
             // conservative and let the host adapt upward if the link turns out to be good.
-            var preferred = appState?.preferredQualityPreset ?? .auto
-            if appState?.usingRemoteHost == true, preferred == .auto {
-                // Enter the ladder at 480p30 rather than auto's 1080p30 opening guess, then
-                // climb. Being briefly too soft is recoverable; opening too hot means the user
-                // watches it buffer before adaptation catches up, which is what they notice.
-                ladderIndex = Self.ladder.firstIndex(of: .p480_30) ?? 1
-                preferred = Self.ladder[ladderIndex!]
+            // Remote sessions use their own preference (default 720p30) rather than the LAN
+            // one. 1080p60 is a fine default at home and a reliable way to stall a cellular
+            // or relayed tailnet, and the two links are different enough that one setting
+            // can't serve both.
+            var preferred: StreamQualityPreset
+            if appState?.usingRemoteHost == true {
+                preferred = appState?.remoteQualityPreset ?? .p720_30
+                if preferred == .auto {
+                    // Only Auto hands control to the ladder. Enter below auto's LAN-tuned
+                    // 1080p30 opening guess and climb: being briefly too soft is recoverable,
+                    // opening too hot means visible buffering before adaptation reacts.
+                    ladderIndex = Self.ladder.firstIndex(of: .p480_30) ?? 1
+                    preferred = Self.ladder[ladderIndex!]
+                }
                 DiagnosticLogger.shared.log(
-                    "Remote path: starting ladder at \(preferred.rawValue)",
+                    "Remote path: quality \(preferred.rawValue)\(ladderIndex != nil ? " (adaptive)" : " (fixed)")",
                     category: "Quality"
                 )
+            } else {
+                preferred = appState?.preferredQualityPreset ?? .auto
             }
             sendQualityRequest(preferred)
             // Sync viewport lock state with host. Host keeps its own lock across sessions,
@@ -463,7 +472,7 @@ final class ConnectionManager {
         // Only drives remote sessions, and only when the user asked for Auto — an explicit
         // preset is a deliberate choice and we must not override it.
         guard appState?.usingRemoteHost == true,
-              appState?.preferredQualityPreset == .auto,
+              appState?.remoteQualityPreset == .auto,
               var index = ladderIndex else { return }
 
         if quality >= 0.95 {

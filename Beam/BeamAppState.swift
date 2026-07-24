@@ -38,7 +38,24 @@ final class BeamAppState: ObservableObject {
     /// The quality preset currently active on the host (set from .qualityChanged messages).
     @Published var currentQualityPreset: StreamQualityPreset = .p1080_30
 
-    /// The user's preferred quality preset (persisted, sent to host on connect).
+    /// Quality used when the Mac is reached over a remote (Tailscale) path, kept separate
+    /// from the LAN preference. Remote links are far more variable than a home network, so a
+    /// setting that is right at home is usually wrong away from it — and having one control
+    /// serve both meant every trip changed the value you came home to.
+    /// Defaults to 720p30, which is a realistic ceiling for cellular and relayed tailnets.
+    var remoteQualityPreset: StreamQualityPreset {
+        get {
+            let raw = UserDefaults.standard.string(forKey: "remoteQualityPreset") ?? ""
+            return StreamQualityPreset(rawValue: raw) ?? .p720_30
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "remoteQualityPreset")
+            objectWillChange.send()
+            if usingRemoteHost { connectionManager?.sendQualityRequest(newValue) }
+        }
+    }
+
+    /// The user's preferred quality preset on the local network (persisted, sent on connect).
     var preferredQualityPreset: StreamQualityPreset {
         get {
             let raw = UserDefaults.standard.string(forKey: "preferredQualityPreset") ?? ""
