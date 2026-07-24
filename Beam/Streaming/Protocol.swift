@@ -171,6 +171,97 @@ struct BeamAudioPayloadHeader {
     }
 }
 
+// MARK: - Audio Codec (BeamPacketHeader.flags for packet type .audio)
+//
+// The audio payload header is a FIXED 12 bytes and must never grow: both peers parse it by
+// absolute byte range and iOS does dropFirst(BeamAudioPayloadHeader.size). The codec is
+// therefore signalled in the already-reserved flags byte of BeamPacketHeader, and the
+// CAPABILITY is negotiated out of band via BeamPairingMessage.supportedAudioCodecs.
+//
+// flags layout for type == .audio:
+//   bits 0-3  codec id (mask 0x0F)   0 = Float32 interleaved PCM (legacy), 1 = AAC-LC
+//   bits 4-7  reserved, must be 0, must be masked off before comparison
+//
+// SAFETY: every Beacon ever shipped writes flags = 0 and every Beam ever shipped ignores the
+// flags byte entirely. A host that sends AAC to such a client makes it play compressed bytes
+// as Float32 samples — full-scale white noise into headphones. Codec id 0 is therefore
+// permanently PCM, and a non-zero id may ONLY be sent to a client that advertised support in
+// the authRequest of the current connection.
+enum BeamAudioCodec: UInt8 {
+    /// Float32 interleaved PCM, native endianness, no sub-header. The legacy wire format.
+    case pcmFloat32 = 0x00
+    /// One raw AAC-LC access unit (1024 frames) per packet. No ADTS, no LATM, no length
+    /// prefix — the packet's payloadLength is the access unit's explicit byte size.
+    case aacLC      = 0x01
+
+    /// Mask applied to BeamPacketHeader.flags before interpreting an audio packet.
+    static let flagsMask: UInt8 = 0x0F
+
+    /// UserDefaults key, identical on both platforms, that forces the legacy PCM path.
+    /// Escape hatch for a bad release; the macOS half self-updates via Sparkle.
+    static let forcePCMDefaultsKey = "BeamForcePCMAudio"
+
+    /// Maximum size of a single AAC-LC access unit we will emit or accept, in bytes.
+    static let maxAccessUnitBytes = 1536
+
+    /// AAC-LC access unit length in frames.
+    static let aacFramesPerPacket = 1024
+
+    /// Total AAC-LC priming delay in frames (encoder priming + decoder lookahead, counted
+    /// once). Used as the fallback when kAudioConverterPrimeInfo reports nothing.
+    static let aacPrimingFrames = 2112
+
+    /// Value written into BeamPacketHeader.flags for an audio packet in this codec.
+    var packetFlags: UInt8 { rawValue }
+
+    /// Decodes an audio packet's flags byte. Returns nil for an unassigned codec id, which
+    /// the receiver MUST treat as "drop this packet" — never as a reason to fall through to
+    /// the PCM path.
+    init?(packetFlags: UInt8) {
+        self.init(rawValue: packetFlags & BeamAudioCodec.flagsMask)
+    }
+
+    /// Stable string used in BeamPairingMessage.supportedAudioCodecs / .selectedAudioCodec.
+    /// Strings, not an enum, so an unknown future codec can never fail decoding of the whole
+    /// pairing message (which would break authentication itself).
+    var wireName: String {
+        switch self {
+        case .pcmFloat32: return "pcm_f32le"
+        case .aacLC:      return "aac_lc"
+        }
+    }
+
+    init?(wireName: String) {
+        switch wireName {
+        case "pcm_f32le": self = .pcmFloat32
+        case "aac_lc":    self = .aacLC
+        default:          return nil
+        }
+    }
+
+    /// What the iOS client advertises. PCM is always included and always last-resort.
+    static func clientAdvertisedCodecs() -> [String] {
+        if UserDefaults.standard.bool(forKey: forcePCMDefaultsKey) {
+            return [BeamAudioCodec.pcmFloat32.wireName]
+        }
+        return [BeamAudioCodec.aacLC.wireName, BeamAudioCodec.pcmFloat32.wireName]
+    }
+
+    /// Host-side AAC bitrate for the active video preset. Bound to the preset because it is
+    /// the only signal the host has for a constrained link, and the auto-tiering already
+    /// drives it down on exactly those links. Halved for mono. Never above 160 kbps, which is
+    /// what keeps one access unit inside a single 1400-byte packet (audio is never fragmented).
+    static func aacBitrate(for preset: StreamQualityPreset, channels: Int) -> Int {
+        let stereoRate: Int
+        switch preset {
+        case .p360_30:                                          stereoRate = 64_000
+        case .p480_30:                                          stereoRate = 96_000
+        case .p720_30, .p720_60, .p1080_30, .p1080_60, .auto:   stereoRate = 128_000
+        }
+        return channels <= 1 ? stereoRate / 2 : min(stereoRate, 160_000)
+    }
+}
+
 // MARK: - Controller Input (packet type .input)
 
 /// Fixed-size binary controller state report, sent iOS → macOS at up to 60 Hz.
@@ -368,6 +459,26 @@ struct BeamPairingMessage: Codable {
     /// `tailscaleHosts`, so without this we'd give the wrong instruction.
     /// Keep in sync with beam-macos Protocol.swift.
     var supportsRemoteAccess: Bool? = nil
+
+    /// iOS → macOS. Wire names of the audio codecs this client can decode, most-preferred
+    /// first (e.g. ["aac_lc", "pcm_f32le"]). Sent on `hello` and on EVERY `authRequest`.
+    ///
+    /// `nil` is the load-bearing case: a client that omits this field predates audio codec
+    /// negotiation and can decode ONLY Float32 interleaved PCM. The host MUST then send every
+    /// audio packet with codec id 0 for the whole session. Feeding such a client AAC bytes
+    /// produces full-scale white noise in someone's ears, so absence is never optimistic.
+    /// An EMPTY array means the same thing as ["pcm_f32le"] — never "anything goes".
+    ///
+    /// Typed as [String] rather than [BeamAudioCodec] on purpose: an unknown enum case would
+    /// fail decoding of the ENTIRE pairing message, which would break authentication itself.
+    /// Unknown strings must be silently ignored.
+    var supportedAudioCodecs: [String]? = nil
+
+    /// macOS → iOS. Wire name of the codec the host has chosen for this session, echoed on
+    /// `authSuccess`. Diagnostic/telemetry only — the authority for how to decode any given
+    /// packet is always that packet's BeamPacketHeader.flags, because the host may fall back
+    /// to PCM mid-session if its encoder fails. `nil` = host predates negotiation = PCM.
+    var selectedAudioCodec: String? = nil
 }
 
 // MARK: - Helpers

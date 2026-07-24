@@ -19,6 +19,22 @@ final class AudioPlayer {
     private var playbackChannels: AVAudioChannelCount = 2
     private var outputFormat: AVAudioFormat?
 
+    /// Thread-safe snapshot of the format above, so the AAC decoder can be built with a format
+    /// that is byte-identical to the engine's without hopping onto renderQueue.
+    private let formatLock = NSLock()
+    private var snapshotSampleRate: Double = 44_100
+    private var snapshotChannels: AVAudioChannelCount = 2
+
+    var currentSampleRate: Double {
+        formatLock.lock(); defer { formatLock.unlock() }
+        return snapshotSampleRate
+    }
+
+    var currentChannels: AVAudioChannelCount {
+        formatLock.lock(); defer { formatLock.unlock() }
+        return snapshotChannels
+    }
+
     // Sync state (renderQueue-only).
     // Video is the master clock; audio is scheduled slightly ahead on that timeline.
     private var syncAnchorRemotePTSUs: Int64?
@@ -87,6 +103,10 @@ final class AudioPlayer {
 
             playbackSampleRate = normalizedRate
             playbackChannels = normalizedChannels
+            formatLock.lock()
+            snapshotSampleRate = normalizedRate
+            snapshotChannels = normalizedChannels
+            formatLock.unlock()
             rebuildAudioEngineForFormatChange()
             logger.info("AudioPlayer format updated: \(normalizedRate, format: .fixed(precision: 0)) Hz, \(normalizedChannels)ch")
         }
@@ -188,105 +208,128 @@ final class AudioPlayer {
         }
     }
 
+    /// Legacy Float32 interleaved PCM entry point. Converts to a non-interleaved buffer and
+    /// hands off to the shared scheduling path below — behaviour is unchanged.
     func enqueue(_ pcmData: Data, remotePresentationTimestampUs: Int64) {
         renderQueue.async { [weak self] in
-            guard let self, let node = self.playerNode else { return }
+            guard let self else { return }
             guard let buffer = self.makePCMBuffer(fromInterleavedFloat32: pcmData) else { return }
-
-            // Starvation recovery. Deliberately ahead of every sync guard below, because the
-            // whole point is to recover no matter WHICH of them has been silently dropping
-            // audio — a stopped node, a stale anchor, a video clock that never came back.
-            // Re-anchors on the current packet so normal synced scheduling resumes after.
-            let startedAt = self.hostNowSeconds()
-            if self.lastScheduledAt > 0, startedAt - self.lastScheduledAt > self.audioStarvationSeconds {
-                DiagnosticLogger.shared.log(
-                    "Audio starvation recovery after \(String(format: "%.1f", startedAt - self.lastScheduledAt))s silence",
-                    category: "Audio"
-                )
-                if !node.isPlaying { node.play() }
-                self.nextScheduledAudioSeconds = nil
-                self.syncAnchorRemotePTSUs = remotePresentationTimestampUs
-                self.syncAnchorLocalSeconds = startedAt
-                node.scheduleBuffer(buffer, completionHandler: nil)
-                self.lastScheduledAt = startedAt
-                return
-            }
-            let session = AVAudioSession.sharedInstance()
-            let shouldApplySync = session.outputVolume > 0.001
-            if !shouldApplySync {
-                nextScheduledAudioSeconds = nil
-                if !node.isPlaying { node.play() }
-                node.scheduleBuffer(buffer, completionHandler: nil)
-                lastScheduledAt = hostNowSeconds()
-                return
-            }
-            guard lastVideoRemotePTSUs != nil else {
-                // Video drives sync; ignore pre-roll audio until first video clock sample arrives.
-                return
-            }
-
-            let now = hostNowSeconds()
-            guard let mappedTime = mappedLocalSeconds(forRemotePTSUs: remotePresentationTimestampUs) else { return }
-            var targetPlayTime = mappedTime + targetAudioLeadSeconds
-
-            var shouldForceImmediateSchedule = false
-            if let videoNowRemotePTSUs = estimatedRemoteVideoPTSUs(atLocalSeconds: now) {
-                let desiredAudioPTSUs = videoNowRemotePTSUs + Int64(targetAudioLeadSeconds * 1_000_000.0)
-                let avErrorSeconds = Double(remotePresentationTimestampUs - desiredAudioPTSUs) / 1_000_000.0
-
-                if avErrorSeconds < -lateAudioCatchupThresholdSeconds {
-                    // Instead of dropping late audio (audible clicks/gaps), force immediate catch-up.
-                    shouldForceImmediateSchedule = true
-                    nextScheduledAudioSeconds = nil
-                    targetPlayTime = now + 0.004
-
-                    if abs(avErrorSeconds) > hardAudioResyncThresholdSeconds,
-                       now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
-                        lastHardResyncAt = now
-                        // Severe discontinuity: clear queued audio and reset anchor.
-                        node.reset()
-                        // reset() clears the scheduled queue AND leaves the node stopped.
-                        // Without this play(), every buffer scheduled afterwards is silently
-                        // discarded and audio never returns for the rest of the session —
-                        // which is exactly what happened after a stall-induced resync burst:
-                        // reconnecting was the only way to get sound back.
-                        node.play()
-                        syncAnchorRemotePTSUs = remotePresentationTimestampUs
-                        syncAnchorLocalSeconds = now
-                        DiagnosticLogger.shared.log(
-                            "Hard A/V resync (drift=\(String(format: "%.2f", avErrorSeconds))s)",
-                            category: "Audio"
-                        )
-                    }
-                }
-                if avErrorSeconds > maxAudioLeadSeconds {
-                    // Keep audio lead bounded; avoid excessive queueing.
-                    targetPlayTime = min(targetPlayTime, now + maxAudioLeadSeconds)
-                }
-            }
-
-            if !shouldForceImmediateSchedule, let queuedAudioTime = nextScheduledAudioSeconds {
-                targetPlayTime = max(targetPlayTime, queuedAudioTime)
-            }
-            targetPlayTime = max(targetPlayTime, now)
-            targetPlayTime = min(targetPlayTime, now + maxAudioLeadSeconds)
-
-            let durationSeconds = Double(buffer.frameLength) / playbackSampleRate
-            nextScheduledAudioSeconds = targetPlayTime + durationSeconds
-
-            if targetPlayTime <= now + 0.003 {
-                if !node.isPlaying { node.play() }
-                node.scheduleBuffer(buffer, completionHandler: nil)
-                lastScheduledAt = now
-                return
-            }
-
-            let hostTime = AVAudioTime.hostTime(forSeconds: targetPlayTime)
-            let when = AVAudioTime(hostTime: hostTime)
-            if !node.isPlaying { node.play() }
-            node.scheduleBuffer(buffer, at: when, options: [], completionHandler: nil)
-            lastScheduledAt = now
+            self.schedule(buffer: buffer, remotePresentationTimestampUs: remotePresentationTimestampUs)
         }
+    }
+
+    /// Entry point for already-decoded PCM (AAC path). The buffer's format MUST match the
+    /// engine's output format; it is dropped otherwise (a format change is in flight and
+    /// `audio_format_changed` will rebuild the engine within a few packets).
+    func enqueue(buffer: AVAudioPCMBuffer, remotePresentationTimestampUs: Int64) {
+        renderQueue.async { [weak self] in
+            guard let self else { return }
+            guard buffer.format.sampleRate == self.playbackSampleRate,
+                  buffer.format.channelCount == self.playbackChannels else {
+                logger.debug("Dropping decoded audio buffer with mismatched format")
+                return
+            }
+            self.schedule(buffer: buffer, remotePresentationTimestampUs: remotePresentationTimestampUs)
+        }
+    }
+
+    /// Shared scheduling / A/V-sync path. renderQueue-only.
+    private func schedule(buffer: AVAudioPCMBuffer, remotePresentationTimestampUs: Int64) {
+        guard let node = self.playerNode else { return }
+
+        // Starvation recovery. Deliberately ahead of every sync guard below, because the
+        // whole point is to recover no matter WHICH of them has been silently dropping
+        // audio — a stopped node, a stale anchor, a video clock that never came back.
+        // Re-anchors on the current packet so normal synced scheduling resumes after.
+        let startedAt = self.hostNowSeconds()
+        if self.lastScheduledAt > 0, startedAt - self.lastScheduledAt > self.audioStarvationSeconds {
+            DiagnosticLogger.shared.log(
+                "Audio starvation recovery after \(String(format: "%.1f", startedAt - self.lastScheduledAt))s silence",
+                category: "Audio"
+            )
+            if !node.isPlaying { node.play() }
+            self.nextScheduledAudioSeconds = nil
+            self.syncAnchorRemotePTSUs = remotePresentationTimestampUs
+            self.syncAnchorLocalSeconds = startedAt
+            node.scheduleBuffer(buffer, completionHandler: nil)
+            self.lastScheduledAt = startedAt
+            return
+        }
+        let session = AVAudioSession.sharedInstance()
+        let shouldApplySync = session.outputVolume > 0.001
+        if !shouldApplySync {
+            nextScheduledAudioSeconds = nil
+            if !node.isPlaying { node.play() }
+            node.scheduleBuffer(buffer, completionHandler: nil)
+            lastScheduledAt = hostNowSeconds()
+            return
+        }
+        guard lastVideoRemotePTSUs != nil else {
+            // Video drives sync; ignore pre-roll audio until first video clock sample arrives.
+            return
+        }
+
+        let now = hostNowSeconds()
+        guard let mappedTime = mappedLocalSeconds(forRemotePTSUs: remotePresentationTimestampUs) else { return }
+        var targetPlayTime = mappedTime + targetAudioLeadSeconds
+
+        var shouldForceImmediateSchedule = false
+        if let videoNowRemotePTSUs = estimatedRemoteVideoPTSUs(atLocalSeconds: now) {
+            let desiredAudioPTSUs = videoNowRemotePTSUs + Int64(targetAudioLeadSeconds * 1_000_000.0)
+            let avErrorSeconds = Double(remotePresentationTimestampUs - desiredAudioPTSUs) / 1_000_000.0
+
+            if avErrorSeconds < -lateAudioCatchupThresholdSeconds {
+                // Instead of dropping late audio (audible clicks/gaps), force immediate catch-up.
+                shouldForceImmediateSchedule = true
+                nextScheduledAudioSeconds = nil
+                targetPlayTime = now + 0.004
+
+                if abs(avErrorSeconds) > hardAudioResyncThresholdSeconds,
+                   now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
+                    lastHardResyncAt = now
+                    // Severe discontinuity: clear queued audio and reset anchor.
+                    node.reset()
+                    // reset() clears the scheduled queue AND leaves the node stopped.
+                    // Without this play(), every buffer scheduled afterwards is silently
+                    // discarded and audio never returns for the rest of the session —
+                    // which is exactly what happened after a stall-induced resync burst:
+                    // reconnecting was the only way to get sound back.
+                    node.play()
+                    syncAnchorRemotePTSUs = remotePresentationTimestampUs
+                    syncAnchorLocalSeconds = now
+                    DiagnosticLogger.shared.log(
+                        "Hard A/V resync (drift=\(String(format: "%.2f", avErrorSeconds))s)",
+                        category: "Audio"
+                    )
+                }
+            }
+            if avErrorSeconds > maxAudioLeadSeconds {
+                // Keep audio lead bounded; avoid excessive queueing.
+                targetPlayTime = min(targetPlayTime, now + maxAudioLeadSeconds)
+            }
+        }
+
+        if !shouldForceImmediateSchedule, let queuedAudioTime = nextScheduledAudioSeconds {
+            targetPlayTime = max(targetPlayTime, queuedAudioTime)
+        }
+        targetPlayTime = max(targetPlayTime, now)
+        targetPlayTime = min(targetPlayTime, now + maxAudioLeadSeconds)
+
+        let durationSeconds = Double(buffer.frameLength) / playbackSampleRate
+        nextScheduledAudioSeconds = targetPlayTime + durationSeconds
+
+        if targetPlayTime <= now + 0.003 {
+            if !node.isPlaying { node.play() }
+            node.scheduleBuffer(buffer, completionHandler: nil)
+            lastScheduledAt = now
+            return
+        }
+
+        let hostTime = AVAudioTime.hostTime(forSeconds: targetPlayTime)
+        let when = AVAudioTime(hostTime: hostTime)
+        if !node.isPlaying { node.play() }
+        node.scheduleBuffer(buffer, at: when, options: [], completionHandler: nil)
+        lastScheduledAt = now
     }
 
     private func makePCMBuffer(fromInterleavedFloat32 data: Data) -> AVAudioPCMBuffer? {

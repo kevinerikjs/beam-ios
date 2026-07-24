@@ -46,6 +46,14 @@ final class StreamReceiver {
 
     // Audio sequence tracking
     private var lastAudioSequenceNumber: UInt32 = UInt32.max
+    /// Codec of the last accepted audio packet. A change means the host switched
+    /// representations mid-session (e.g. its encoder failed and it degraded to PCM); the
+    /// decoder is torn down and A/V sync re-anchored so no bytes are ever reinterpreted
+    /// with the previous codec.
+    private var lastAudioCodec: BeamAudioCodec?
+    private var aacDecoder: AACDecoder?
+    private let decoderResetLock = NSLock()
+    private var decoderResetRequested = false
 
     private let assemblyQueue = DispatchQueue(label: "com.beam.ios.assembly", qos: .userInteractive)
 
@@ -57,6 +65,8 @@ final class StreamReceiver {
             cachedFormatDesc = nil
             lastDeliveredFrameNumber = UInt32.max
             lastAudioSequenceNumber = UInt32.max
+            lastAudioCodec = nil
+            resetAudioDecoder()
             audioPlayer?.resetSync()
         }
     }
@@ -306,7 +316,23 @@ final class StreamReceiver {
 
     // MARK: - Audio
 
-    func receive(audioPayload: Data, player: AudioPlayer) {
+    /// Discards the AAC decoder so the next AAC packet rebuilds it against the current
+    /// negotiated sample rate / channel count. Called when `audio_format_changed` arrives.
+    func resetAudioDecoder() {
+        decoderResetLock.lock()
+        decoderResetRequested = true
+        decoderResetLock.unlock()
+    }
+
+    /// Handles one audio packet. `flags` is the raw `BeamPacketHeader.flags` byte; its low
+    /// nibble is the codec id. Codec id 0 is Float32 PCM forever (that is what every shipped
+    /// Beacon sends), and an unknown codec id is DROPPED rather than fed to the PCM path —
+    /// playing compressed bytes as Float32 samples is full-scale white noise.
+    func receive(audioPayload: Data, flags: UInt8, player: AudioPlayer) {
+        // 1. Unknown codec id ⇒ drop. Never touch the decoder, never fall through to PCM.
+        guard let codec = BeamAudioCodec(packetFlags: flags) else { return }
+
+        // 2. Header parse + reorder guard (unchanged).
         guard let header = BeamAudioPayloadHeader.parse(from: audioPayload) else { return }
         if lastAudioSequenceNumber != UInt32.max,
            !isNewerAudioSequence(header.sequenceNumber, than: lastAudioSequenceNumber) {
@@ -314,8 +340,56 @@ final class StreamReceiver {
         }
         lastAudioSequenceNumber = header.sequenceNumber
 
-        let pcmData = Data(audioPayload.dropFirst(BeamAudioPayloadHeader.size))
-        player.enqueue(pcmData, remotePresentationTimestampUs: header.presentationTimestamp)
+        // 3. Codec transition (host fell back to PCM mid-session, or upgraded): rebuild.
+        if codec != lastAudioCodec {
+            DiagnosticLogger.shared.log(
+                "Audio codec \(lastAudioCodec?.wireName ?? "none") → \(codec.wireName)",
+                category: "Audio"
+            )
+            aacDecoder = nil
+            player.resetSync()
+            lastAudioCodec = codec
+        }
+
+        // Pending decoder invalidation from audio_format_changed / reset().
+        decoderResetLock.lock()
+        let shouldResetDecoder = decoderResetRequested
+        decoderResetRequested = false
+        decoderResetLock.unlock()
+        if shouldResetDecoder { aacDecoder = nil }
+
+        // 4. Payload header is still exactly 12 bytes in both codecs.
+        let body = Data(audioPayload.dropFirst(BeamAudioPayloadHeader.size))
+
+        switch codec {
+        case .pcmFloat32:
+            player.enqueue(body, remotePresentationTimestampUs: header.presentationTimestamp)
+
+        case .aacLC:
+            guard (1...BeamAudioCodec.maxAccessUnitBytes).contains(body.count) else { return }
+            let rate = player.currentSampleRate
+            let channels = player.currentChannels
+            if let existing = aacDecoder, existing.sampleRate != rate || existing.channels != channels {
+                aacDecoder = nil
+            }
+            if aacDecoder == nil {
+                aacDecoder = AACDecoder(sampleRate: rate, channels: channels)
+                if aacDecoder == nil {
+                    DiagnosticLogger.shared.log(
+                        "AAC decoder init failed (\(Int(rate))Hz \(channels)ch) — dropping audio",
+                        category: "Audio"
+                    )
+                    return
+                }
+                DiagnosticLogger.shared.log(
+                    "AAC-LC decoder ready (\(Int(rate))Hz \(channels)ch)",
+                    category: "Audio"
+                )
+            }
+            guard let decoder = aacDecoder,
+                  let buffer = decoder.decode(accessUnit: body) else { return }
+            player.enqueue(buffer: buffer, remotePresentationTimestampUs: header.presentationTimestamp)
+        }
     }
 
     private func isNewerAudioSequence(_ sequence: UInt32, than previous: UInt32) -> Bool {

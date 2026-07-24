@@ -67,7 +67,8 @@ extension PairingManager: PairingConnectionDelegate {
             deviceID: KeyStore.shared.stableDeviceID,
             code: nil,
             sharedSecret: nil,
-            error: nil
+            error: nil,
+            supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs()
         )
         connection.send(hello)
         logger.info("Sent hello to Mac")

@@ -103,7 +103,8 @@ final class ConnectionManager {
             deviceID: KeyStore.shared.stableDeviceID, // must match the ID sent during pairing
             code: nil,
             sharedSecret: secretHex,
-            error: nil
+            error: nil,
+            supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs()
         )
         guard let data = try? JSONEncoder().encode(auth) else { return }
         sendTCP(data.lengthPrefixed())
@@ -255,7 +256,7 @@ final class ConnectionManager {
 
         case .audio:
             lastMediaPacketReceivedAt = Date()
-            streamReceiver.receive(audioPayload: Data(payload), player: audioPlayer)
+            streamReceiver.receive(audioPayload: Data(payload), flags: header.flags, player: audioPlayer)
 
         case .control:
             if let msg = try? JSONDecoder().decode(BeamPairingMessage.self, from: payload) {
@@ -293,6 +294,9 @@ final class ConnectionManager {
         case .audioFormatChanged:
             if case .audioFormat(let payload) = msg.payload {
                 audioPlayer.updateRemoteFormat(sampleRate: payload.sampleRate, channels: payload.channels)
+                // The AAC decoder's format must equal the engine's; discard it so the next
+                // AAC packet rebuilds it against the new rate/channel count.
+                streamReceiver.resetAudioDecoder()
             }
         case .qualityRequest:
             break  // iOS doesn't receive quality requests from host
@@ -306,6 +310,12 @@ final class ConnectionManager {
         case .authSuccess:
             logger.info("Authenticated with \(self.host.name), stream starting")
             DiagnosticLogger.shared.log("Auth success, stream starting", category: "Connection")
+            // Diagnostic only — the authority for how to decode any given audio packet is
+            // always that packet's BeamPacketHeader.flags, never this field.
+            DiagnosticLogger.shared.log(
+                "Host audio codec: \(msg.selectedAudioCodec ?? "pcm (legacy host)")",
+                category: "Audio"
+            )
             streamStartedAt = Date()
             // Refresh the host's remote (Tailscale) addresses on every successful auth, not
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
