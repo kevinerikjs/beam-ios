@@ -31,6 +31,20 @@ enum ConnectionRacer {
     /// How long to wait for any candidate before giving up on the whole race.
     private static let raceTimeout: TimeInterval = 6
 
+    /// Head start given to the preferred (LAN) route before fallbacks are even attempted.
+    ///
+    /// A pure first-past-the-post race picks the wrong winner here. The LAN candidate is a
+    /// Bonjour SERVICE endpoint and needs mDNS resolution before it can connect; the Tailscale
+    /// candidate is a literal IP and connects immediately. So the remote route wins the
+    /// handshake by ~10-15ms every time even while sitting on the same WiFi — measured in
+    /// Kevin's logs, which showed "Route race won by REDACTED_INTERNAL_IP" on every start with en0 up.
+    ///
+    /// Winning the handshake is not the same as being the better route: LAN is lower latency
+    /// once established and does not depend on Tailscale being up at all. This is the same
+    /// preference mechanism Happy Eyeballs uses to favour one address family without giving up
+    /// the fallback: the fallback still runs, just slightly later.
+    private static let preferredHeadStart: TimeInterval = 0.4
+
     /// Returns the first candidate to complete a TCP handshake, or nil if none did in time.
     /// Cancels every probe before returning, winner included.
     static func firstReachable(among candidates: [DiscoveredHost]) async -> DiscoveredHost? {
@@ -40,8 +54,16 @@ enum ConnectionRacer {
         DiagnosticLogger.shared.log("Racing \(candidates.count) routes: \(names)", category: "Connection")
 
         return await withTaskGroup(of: DiscoveredHost?.self) { group in
-            for candidate in candidates {
-                group.addTask { await probe(candidate) }
+            for (index, candidate) in candidates.enumerated() {
+                group.addTask {
+                    // candidates[0] is the preferred route; everything else waits, so a
+                    // fallback only wins when the preferred one is genuinely slow or dead.
+                    if index > 0 {
+                        try? await Task.sleep(nanoseconds: UInt64(preferredHeadStart * 1_000_000_000))
+                        if Task.isCancelled { return nil }
+                    }
+                    return await probe(candidate)
+                }
             }
             group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(raceTimeout * 1_000_000_000))
