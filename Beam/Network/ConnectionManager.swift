@@ -219,10 +219,22 @@ final class ConnectionManager {
         streamReceiver.reset()
         audioPlayer.stop()
         let holdOpen = keepStreamViewOpen
-        Task { @MainActor in
-            if !holdOpen { appState?.isStreaming = false }
-            appState?.connectionQuality = 1.0
-            appState?.connectionManager = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if !holdOpen { self.appState?.isStreaming = false }
+            self.appState?.connectionQuality = 1.0
+            // Only clear the app's pointer if it still refers to THIS manager.
+            //
+            // startStream() calls connectionManager?.disconnect() and then immediately
+            // assigns the replacement. Both run on the main actor, but this cleanup is a Task
+            // hop, so it was enqueued during disconnect() and executed AFTER the new manager
+            // had been installed — nilling it out and deallocating the only strong reference
+            // to the fresh connection. Every automatic reconnect died this way, silently,
+            // while a manual start from the home screen always worked because there was no
+            // outgoing manager to schedule the clobber in the first place.
+            if self.appState?.connectionManager === self {
+                self.appState?.connectionManager = nil
+            }
         }
         logger.info("Disconnected from \(self.host.name)")
     }
