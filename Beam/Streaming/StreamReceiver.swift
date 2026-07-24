@@ -339,9 +339,24 @@ final class StreamReceiver {
         guard let header = BeamAudioPayloadHeader.parse(from: audioPayload) else { return }
         if lastAudioSequenceNumber != UInt32.max,
            !isNewerAudioSequence(header.sequenceNumber, than: lastAudioSequenceNumber) {
-            return
+            // A latch by construction: the drop path did not advance the counter, so once one
+            // packet landed in the backward half-window EVERY subsequent packet did too, for
+            // the life of the session. The transport is TCP and never reorders, so a large
+            // backward jump means the host restarted its sequence, not a stale packet —
+            // re-anchor instead of silencing audio forever.
+            let backwardDelta = lastAudioSequenceNumber &- header.sequenceNumber
+            if backwardDelta > 256 {
+                DiagnosticLogger.shared.log(
+                    "RECOVERY[audio-sequence]: sequence jumped back \(backwardDelta) — re-anchoring",
+                    category: "Audio"
+                )
+                lastAudioSequenceNumber = header.sequenceNumber
+            } else {
+                return
+            }
+        } else {
+            lastAudioSequenceNumber = header.sequenceNumber
         }
-        lastAudioSequenceNumber = header.sequenceNumber
 
         // 3. Codec transition (host fell back to PCM mid-session, or upgraded): rebuild.
         if codec != lastAudioCodec {

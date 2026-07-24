@@ -62,6 +62,11 @@ final class ConnectionManager {
         self.pairedMac = pairedMac
         self.appState = appState
         self.streamReceiver.audioPlayer = self.audioPlayer
+        // When AudioPlayer's watchdog rebuilds the playback chain, the AAC decoder upstream
+        // must go with it — it is one of the ways the chain can be silent while packets arrive.
+        self.audioPlayer.onForceRebuild = { [weak self] in
+            self?.streamReceiver.resetAudioDecoder()
+        }
     }
 
     // MARK: - Connect
@@ -315,6 +320,12 @@ final class ConnectionManager {
 
         case .audio:
             lastMediaPacketReceivedAt = Date()
+            // Stamp arrival BEFORE anything downstream can decline the packet — unknown codec,
+            // reorder guard, missing format, a nil decoder, a mismatched buffer format, a dead
+            // engine. This is the only signal AudioPlayer's last-resort watchdog trusts to mean
+            // "audio is still coming"; every previous safety net sat below one of those guards
+            // and could therefore be starved by the very failure it existed to fix.
+            audioPlayer.noteAudioPacketArrived()
             streamReceiver.receive(audioPayload: Data(payload), flags: header.flags, player: audioPlayer)
 
         case .control:

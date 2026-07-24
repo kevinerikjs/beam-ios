@@ -174,6 +174,16 @@ final class BeamAppState: ObservableObject {
     }
 
     private var remoteFallbackTask: Task<Void, Never>?
+
+    /// Watches for the network moving under us while we are NOT streaming (BEAM-26).
+    ///
+    /// Dropping WiFi on the home screen left `discoveredHost` holding a LAN endpoint that no
+    /// longer exists. The UI still said "ready", Start appeared to do nothing because the
+    /// socket parked in .waiting on a dead route, and it only came right when something else
+    /// happened to re-run discovery ~30s later. An interface change is exactly the moment to
+    /// re-evaluate which routes exist.
+    private var idlePathMonitor: NWPathMonitor?
+    private var lastInterfaceSignature: String?
     @Published var connectionManager: ConnectionManager?
 
     // Auto-reconnect state
@@ -200,6 +210,35 @@ final class BeamAppState: ObservableObject {
         if pairedMac != nil {
             startBrowsing()
         }
+        startIdlePathMonitor()
+    }
+
+    /// Re-runs discovery when the set of available interfaces changes and we are not mid-stream.
+    private func startIdlePathMonitor() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let signature = path.availableInterfaces.map(\.name).sorted().joined(separator: ",")
+                + (path.status == .satisfied ? "+up" : "+down")
+            Task { @MainActor in
+                guard let self else { return }
+                guard self.lastInterfaceSignature != signature else { return }
+                let previous = self.lastInterfaceSignature
+                self.lastInterfaceSignature = signature
+                guard previous != nil else { return }   // ignore the initial reading
+                guard !self.isStreaming, self.pairedMac != nil else { return }
+                DiagnosticLogger.shared.log(
+                    "Network changed while idle (\(signature)), re-running discovery",
+                    category: "Discovery"
+                )
+                // The previously-found host may be on an interface that no longer exists, so
+                // discard it rather than presenting it as ready.
+                self.discoveredHost = nil
+                self.usingRemoteHost = false
+                self.startBrowsing()
+            }
+        }
+        monitor.start(queue: .global(qos: .utility))
+        idlePathMonitor = monitor
     }
 
     // MARK: - Browsing
@@ -426,10 +465,22 @@ final class BeamAppState: ObservableObject {
 
     @MainActor
     func startStream() async {
-        guard let host = discoveredHost, let mac = pairedMac else { return }
+        guard var host = discoveredHost, let mac = pairedMac else { return }
         guard isPurchased || sessionManager.isInTrial || !sessionManager.isInCooldown else { return }
 
         connectionManager?.disconnect()
+
+        // Race the routes instead of guessing (BEAM-26). After a drop we do not know which
+        // way back is alive: on a WiFi-to-cellular switch the LAN endpoint is dead and the
+        // Tailscale one works, walking back in it is the reverse. Trying one at a time means a
+        // wrong first guess burns a full timeout before the right route is even attempted.
+        // Only used when there is genuinely a choice; a single candidate skips the race.
+        let candidates = connectionCandidates(preferred: host, mac: mac)
+        if candidates.count > 1, let winner = await ConnectionRacer.firstReachable(among: candidates) {
+            host = winner
+            usingRemoteHost = isRemoteEndpoint(winner, mac: mac)
+        }
+
         let manager = ConnectionManager(host: host, pairedMac: mac, appState: self)
         manager.onUnexpectedDisconnect = { [weak self] in
             self?.scheduleReconnect()
@@ -535,6 +586,28 @@ final class BeamAppState: ObservableObject {
             DiagnosticLogger.shared.log("Reconnect attempt \(self.reconnectAttempt)", category: "Reconnect")
             await self.startStream()
         }
+    }
+
+    /// The distinct routes worth trying right now, preferred one first.
+    /// Deduplicated by endpoint so we never race an address against itself.
+    @MainActor
+    private func connectionCandidates(preferred: DiscoveredHost, mac: PairedMac) -> [DiscoveredHost] {
+        var out = [preferred]
+        guard canUseRemoteStreaming else { return out }
+        for address in mac.allRemoteHosts {
+            let endpoint = NWEndpoint.hostPort(
+                host: NWEndpoint.Host(address),
+                port: NWEndpoint.Port(rawValue: Self.remotePort) ?? 7979
+            )
+            guard !out.contains(where: { "\($0.endpoint)" == "\(endpoint)" }) else { continue }
+            out.append(DiscoveredHost(name: mac.name, endpoint: endpoint, port: Self.remotePort))
+        }
+        return out
+    }
+
+    private func isRemoteEndpoint(_ host: DiscoveredHost, mac: PairedMac) -> Bool {
+        guard case .hostPort(let h, _) = host.endpoint else { return false }
+        return mac.allRemoteHosts.contains("\(h)")
     }
 
     /// Closes the reconnect window. `resumed: true` means a stream is running again and the

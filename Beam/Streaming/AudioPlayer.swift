@@ -12,7 +12,20 @@ final class AudioPlayer {
 
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
-    private let renderQueue = DispatchQueue(label: "com.beam.ios.audioplayer", qos: .userInteractive)
+    /// PROCESS-WIDE, not per instance. Every auto-reconnect builds a fresh ConnectionManager and
+    /// therefore a fresh AudioPlayer while the outgoing one is still alive. With per-instance
+    /// queues the outgoing player's `stop()` (which deactivates the shared AVAudioSession) and
+    /// the incoming player's `start()` (which activates it and starts an engine) ran on
+    /// independent queues with no ordering — so a late teardown could deactivate the session
+    /// under a freshly started engine. One serial queue makes that strictly impossible, and
+    /// costs nothing because only one player is ever streaming.
+    private static let renderQueue = DispatchQueue(label: "com.beam.ios.audioplayer", qos: .userInteractive)
+    private var renderQueue: DispatchQueue { Self.renderQueue }
+
+    /// Which AudioPlayer currently owns the shared AVAudioSession. Only the owner may
+    /// deactivate it, so a stale instance's teardown can never mute the live one.
+    private static var sessionOwnerGeneration: UInt64 = 0
+    private var myGeneration: UInt64 = 0
 
     // Remote audio format (updated by host control messages).
     private var playbackSampleRate: Double = 44_100
@@ -72,26 +85,86 @@ final class AudioPlayer {
     private let audioStarvationSeconds: Double = 2.0
     private let clockResetThresholdSeconds: Double = 1.5
 
+    // MARK: - Last-resort audio watchdog (BEAM-24)
+    //
+    // This bug has been "fixed" three times and come back, because every previous safety net
+    // lived DOWNSTREAM of the thing that was broken:
+    //   - starvation recovery lives inside schedule(), so a nil player node (one throwing
+    //     engine.start()) returned before ever reaching it;
+    //   - `lastScheduledAt` was stamped when scheduleBuffer was CALLED, so a stopped engine —
+    //     which still accepts buffers happily — kept the watchdog permanently disarmed while
+    //     rendering nothing;
+    //   - the decoder rebuild lives inside StreamReceiver, so it cannot see a dead engine;
+    //   - the connection watchdog keys off "any media packet", so audio-only death is invisible.
+    //
+    // The net below is deliberately anchored at the two ends that CANNOT be bypassed:
+    //   ARRIVAL  — stamped in ConnectionManager the instant an .audio packet is read off the
+    //              socket, before the codec check, the reorder guard, the decoder, everything.
+    //   RENDERED — stamped from the player node's `.dataPlayedBack` completion, which only ever
+    //              fires when a sample has actually left the engine.
+    // If audio is arriving and nothing has rendered for `hardRebuildSilenceSeconds`, the ENTIRE
+    // chain (decoder + session + engine + player node + sync anchors) is torn down and rebuilt,
+    // and it will keep doing so, forever, until audio is audible again.
+    private let arrivalLock = NSLock()
+    private var lastAudioArrivedAt: Double = 0          // arrivalLock
+    private var lastRenderedAt: Double = 0              // renderQueue
+    /// When the current engine/player node was brought up. Used as the liveness floor before
+    /// anything has rendered, so a chain that has NEVER produced sound is still recoverable.
+    private var audioChainActiveSince: Double = 0       // renderQueue
+    private var watchdogTimer: DispatchSourceTimer?     // renderQueue
+    private let hardRebuildSilenceSeconds: Double = 5.0
+    /// Audio counts as "arriving" if a packet landed within this window.
+    private let arrivalFreshnessSeconds: Double = 2.0
+    private var forcedRebuildCount = 0
+    private var lastEngineRestoreAt: Double = -.greatestFiniteMagnitude
+    private var didRegisterObservers = false
+
+    /// Called on the render queue when the whole audio chain is rebuilt, so the AAC decoder
+    /// upstream is discarded too. Wired by ConnectionManager to `streamReceiver.resetAudioDecoder()`.
+    var onForceRebuild: (() -> Void)?
+
     // MARK: - Lifecycle
 
     func start() {
         renderQueue.async { [weak self] in
-            self?.setupAudioSession()
-            self?.setupEngine()
+            guard let self else { return }
+            Self.sessionOwnerGeneration &+= 1
+            self.myGeneration = Self.sessionOwnerGeneration
+            self.setupAudioSession()
+            self.setupEngine()
+            self.startWatchdog()
         }
     }
 
     func stop() {
         renderQueue.async { [weak self] in
             guard let self else { return }
+            self.watchdogTimer?.cancel()
+            self.watchdogTimer = nil
             resetSyncState()
             self.engine?.stop()
             self.playerNode?.stop()
             self.engine = nil
             self.playerNode = nil
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            self.audioChainActiveSince = 0
+            self.lastRenderedAt = 0
+            self.arrivalLock.lock(); self.lastAudioArrivedAt = 0; self.arrivalLock.unlock()
+            // Only the current session owner may deactivate the shared singleton; a stale
+            // player tearing down after a reconnect must not mute the live one.
+            if self.myGeneration == Self.sessionOwnerGeneration {
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
             logger.info("AudioPlayer stopped")
         }
+    }
+
+    /// Stamped the moment an audio packet is read off the socket — upstream of the codec check,
+    /// the reorder guard, the decoder and the player. Cheap enough to call per packet.
+    func noteAudioPacketArrived() {
+        let now = AVAudioTime.seconds(forHostTime: mach_absolute_time())
+        arrivalLock.lock()
+        lastAudioArrivedAt = now
+        arrivalLock.unlock()
     }
 
     func resetSync() {
@@ -142,18 +215,66 @@ final class AudioPlayer {
             DiagnosticLogger.shared.log("Audio session setup failed: \(error)", category: "Audio")
         }
 
-        NotificationCenter.default.addObserver(
+        // Register once per instance. These used to be re-added on every start() and never
+        // removed (no deinit), so stale players from previous reconnects kept receiving
+        // callbacks and touching the shared session.
+        guard !didRegisterObservers else { return }
+        didRegisterObservers = true
+        let center = NotificationCenter.default
+        center.addObserver(
             self,
             selector: #selector(handleAudioInterruption),
             name: AVAudioSession.interruptionNotification,
             object: session
         )
-        NotificationCenter.default.addObserver(
+        center.addObserver(
             self,
             selector: #selector(handleRouteChange),
             name: AVAudioSession.routeChangeNotification,
             object: session
         )
+        // AVAudioEngine tears down its own connections on a configuration change and STOPS.
+        // Nothing observed this, and a stopped engine still accepts scheduled buffers, so the
+        // session went permanently silent with no error anywhere.
+        center.addObserver(
+            self,
+            selector: #selector(handleEngineConfigurationChange),
+            name: .AVAudioEngineConfigurationChange,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(handleMediaServicesReset),
+            name: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleEngineConfigurationChange(_ note: Notification) {
+        renderQueue.async { [weak self] in
+            guard let self else { return }
+            DiagnosticLogger.shared.log(
+                "RECOVERY[engine-config-change]: AVAudioEngine reconfigured — rebuilding audio chain",
+                category: "Audio"
+            )
+            self.forceRebuildAudioChain(reason: "AVAudioEngineConfigurationChange")
+        }
+    }
+
+    @objc private func handleMediaServicesReset(_ note: Notification) {
+        renderQueue.async { [weak self] in
+            guard let self else { return }
+            DiagnosticLogger.shared.log(
+                "RECOVERY[media-services-reset]: audio server restarted — rebuilding audio chain",
+                category: "Audio"
+            )
+            self.setupAudioSession()
+            self.forceRebuildAudioChain(reason: "mediaServicesWereReset")
+        }
     }
 
     @objc private func handleAudioInterruption(_ note: Notification) {
@@ -166,11 +287,17 @@ final class AudioPlayer {
             let optionsRaw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let shouldResume = AVAudioSession.InterruptionOptions(rawValue: optionsRaw).contains(.shouldResume)
             DiagnosticLogger.shared.log("Audio interruption ended (shouldResume=\(shouldResume))", category: "Audio")
-            if shouldResume {
-                renderQueue.async { [weak self] in
-                    try? self?.engine?.start()
-                    self?.playerNode?.play()
-                }
+            // Always attempt to resume, regardless of .shouldResume. iOS does not reliably set
+            // that flag, and a restart we didn't need is harmless while a restart we skipped is
+            // permanent silence.
+            renderQueue.async { [weak self] in
+                guard let self else { return }
+                DiagnosticLogger.shared.log(
+                    "RECOVERY[interruption-ended]: restarting engine",
+                    category: "Audio"
+                )
+                try? AVAudioSession.sharedInstance().setActive(true)
+                self.restoreEngineIfNeeded(at: self.hostNowSeconds(), force: true)
             }
         @unknown default:
             break
@@ -200,6 +327,8 @@ final class AudioPlayer {
             node.play()
             self.engine = engine
             self.playerNode = node
+            self.audioChainActiveSince = hostNowSeconds()
+            self.lastRenderedAt = 0
             logger.info("AudioPlayer engine started")
             DiagnosticLogger.shared.log(
                 "Audio engine started (\(String(format: "%.0f", playbackSampleRate))Hz \(playbackChannels)ch)",
@@ -207,8 +336,147 @@ final class AudioPlayer {
             )
         } catch {
             logger.error("Failed to start audio engine: \(error)")
-            DiagnosticLogger.shared.log("Audio engine start failed: \(error)", category: "Audio")
+            // A throw here used to be terminal: engine and playerNode stayed nil forever and
+            // nothing ever retried, so every subsequent packet returned at the nil-node guard.
+            // The watchdog retries it — record the attempt time so it can see the chain is dead.
+            self.audioChainActiveSince = hostNowSeconds()
+            self.lastRenderedAt = 0
+            DiagnosticLogger.shared.log("Audio engine start failed: \(error) — watchdog will retry", category: "Audio")
         }
+    }
+
+    // MARK: - Recovery
+
+    private func startWatchdog() {
+        watchdogTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: Self.renderQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in self?.watchdogTick() }
+        timer.resume()
+        watchdogTimer = timer
+    }
+
+    /// renderQueue only. The last-resort guarantee: audio cannot stay dead while it is arriving.
+    private func watchdogTick() {
+        let now = hostNowSeconds()
+        arrivalLock.lock()
+        let arrivedAt = lastAudioArrivedAt
+        arrivalLock.unlock()
+
+        // Nothing arriving ⇒ nothing to guarantee. (This is also why a LAN session never enters
+        // any of this: audio arrives AND renders continuously.)
+        guard arrivedAt > 0, now - arrivedAt < arrivalFreshnessSeconds else { return }
+
+        // Liveness floor: the later of "a sample was actually played back" and "the current
+        // chain came up". A chain that has never rendered anything is still covered.
+        let lastGood = max(lastRenderedAt, audioChainActiveSince)
+        guard lastGood > 0, now - lastGood > hardRebuildSilenceSeconds else { return }
+
+        forceRebuildAudioChain(
+            reason: String(format: "no rendered audio for %.1fs while packets were still arriving", now - lastGood)
+        )
+    }
+
+    /// renderQueue only. Tears down and rebuilds EVERYTHING: session, engine, player node,
+    /// sync anchors, and (via `onForceRebuild`) the upstream AAC decoder. Never latches — the
+    /// watchdog will simply run it again in another `hardRebuildSilenceSeconds` if it did not
+    /// take, so no state anywhere can make audio permanently dead.
+    private func forceRebuildAudioChain(reason: String) {
+        forcedRebuildCount += 1
+        DiagnosticLogger.shared.log(
+            "RECOVERY[hard-rebuild #\(forcedRebuildCount)]: \(reason) — rebuilding decoder + session + engine + player node",
+            category: "Audio"
+        )
+        logger.error("Forcing audio chain rebuild: \(reason)")
+
+        engine?.stop()
+        playerNode?.stop()
+        engine = nil
+        playerNode = nil
+        outputFormat = nil
+        resetSyncState()
+        lastScheduledAt = 0
+        lastRenderedAt = 0
+        lastHardResyncAt = -.greatestFiniteMagnitude
+
+        // Re-take ownership of the shared session; it may have been deactivated by an
+        // interruption, a media-services reset or a stale player from a previous reconnect.
+        Self.sessionOwnerGeneration &+= 1
+        myGeneration = Self.sessionOwnerGeneration
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            DiagnosticLogger.shared.log("Audio session re-activation failed: \(error)", category: "Audio")
+        }
+
+        setupEngine()
+        // Mark the new chain as "just started" even if setupEngine failed, so the next
+        // watchdog trip is a full interval away rather than immediate.
+        audioChainActiveSince = hostNowSeconds()
+
+        // Discard the AAC decoder too — a wedged decoder is one of the ways the chain can be
+        // silent, and it lives upstream of everything above.
+        onForceRebuild?()
+
+        if watchdogTimer == nil { startWatchdog() }
+    }
+
+    /// renderQueue only. Cheap per-packet health assertion ahead of scheduling. Rate limited so
+    /// a persistently broken engine cannot spin, but never gives up.
+    private func restoreEngineIfNeeded(at now: Double, force: Bool = false) {
+        if engine != nil, playerNode != nil, engine?.isRunning == true, !force { return }
+        guard force || now - lastEngineRestoreAt > 1.0 else { return }
+        lastEngineRestoreAt = now
+
+        if engine == nil || playerNode == nil {
+            DiagnosticLogger.shared.log(
+                "RECOVERY[engine-missing]: no audio engine while packets are arriving — recreating",
+                category: "Audio"
+            )
+            outputFormat = nil
+            setupEngine()
+            return
+        }
+        if engine?.isRunning != true {
+            DiagnosticLogger.shared.log(
+                "RECOVERY[engine-stopped]: engine not running — restarting",
+                category: "Audio"
+            )
+            do {
+                try engine?.start()
+                playerNode?.play()
+                audioChainActiveSince = now
+            } catch {
+                forceRebuildAudioChain(reason: "engine.start() threw during restart: \(error)")
+            }
+        } else if playerNode?.isPlaying != true {
+            playerNode?.play()
+        }
+    }
+
+    /// Hands a buffer to the node and records liveness from the RENDER side, not the call side.
+    /// `.dataPlayedBack` only fires once the samples have actually left the engine, so a
+    /// stopped/deaf engine can no longer masquerade as healthy and disarm the watchdog.
+    private func scheduleTracked(
+        _ node: AVAudioPlayerNode,
+        _ buffer: AVAudioPCMBuffer,
+        at when: AVAudioTime?,
+        now: Double
+    ) {
+        if !node.isPlaying { node.play() }
+        let completion: AVAudioPlayerNodeCompletionHandler = { [weak self] _ in
+            guard let self else { return }
+            let playedAt = AVAudioTime.seconds(forHostTime: mach_absolute_time())
+            Self.renderQueue.async {
+                self.lastRenderedAt = max(self.lastRenderedAt, playedAt)
+            }
+        }
+        if let when {
+            node.scheduleBuffer(buffer, at: when, options: [], completionCallbackType: .dataPlayedBack, completionHandler: completion)
+        } else {
+            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack, completionHandler: completion)
+        }
+        lastScheduledAt = now
     }
 
     // MARK: - Enqueue
@@ -247,33 +515,33 @@ final class AudioPlayer {
 
     /// Shared scheduling / A/V-sync path. renderQueue-only.
     private func schedule(buffer: AVAudioPCMBuffer, remotePresentationTimestampUs: Int64) {
-        guard let node = self.playerNode else { return }
+        // Engine health FIRST, ahead of the nil-node guard. A missing or stopped engine used to
+        // return here silently and unreachably — the starvation net lived below this guard, so
+        // once the node was nil nothing could ever bring audio back for the rest of the session.
+        let startedAt = self.hostNowSeconds()
+        restoreEngineIfNeeded(at: startedAt)
+        guard let node = self.playerNode, self.engine?.isRunning == true else { return }
 
         // Starvation recovery. Deliberately ahead of every sync guard below, because the
         // whole point is to recover no matter WHICH of them has been silently dropping
         // audio — a stopped node, a stale anchor, a video clock that never came back.
         // Re-anchors on the current packet so normal synced scheduling resumes after.
-        let startedAt = self.hostNowSeconds()
         if self.lastScheduledAt > 0, startedAt - self.lastScheduledAt > self.audioStarvationSeconds {
             DiagnosticLogger.shared.log(
-                "Audio starvation recovery after \(String(format: "%.1f", startedAt - self.lastScheduledAt))s silence",
+                "RECOVERY[starvation]: nothing scheduled for \(String(format: "%.1f", startedAt - self.lastScheduledAt))s — abandoning sync and playing immediately",
                 category: "Audio"
             )
-            if !node.isPlaying { node.play() }
             self.nextScheduledAudioSeconds = nil
             self.syncAnchorRemotePTSUs = remotePresentationTimestampUs
             self.syncAnchorLocalSeconds = startedAt
-            node.scheduleBuffer(buffer, completionHandler: nil)
-            self.lastScheduledAt = startedAt
+            scheduleTracked(node, buffer, at: nil, now: startedAt)
             return
         }
         let session = AVAudioSession.sharedInstance()
         let shouldApplySync = session.outputVolume > 0.001
         if !shouldApplySync {
             nextScheduledAudioSeconds = nil
-            if !node.isPlaying { node.play() }
-            node.scheduleBuffer(buffer, completionHandler: nil)
-            lastScheduledAt = hostNowSeconds()
+            scheduleTracked(node, buffer, at: nil, now: hostNowSeconds())
             return
         }
         guard lastVideoRemotePTSUs != nil else {
@@ -310,10 +578,23 @@ final class AudioPlayer {
                     syncAnchorRemotePTSUs = remotePresentationTimestampUs
                     syncAnchorLocalSeconds = now
                     DiagnosticLogger.shared.log(
-                        "Hard A/V resync (drift=\(String(format: "%.2f", avErrorSeconds))s)",
+                        "RECOVERY[hard-resync]: A/V drift \(String(format: "%.2f", avErrorSeconds))s — queue dumped, anchor reset",
                         category: "Audio"
                     )
                 }
+            } else if avErrorSeconds > hardAudioResyncThresholdSeconds,
+                      now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
+                // Symmetric counterpart. Audio EARLY was previously only clamped, never
+                // re-anchored, so after a post-stall burst the node's real queue could stay
+                // seconds deeper than the scheduler's model with no exit.
+                lastHardResyncAt = now
+                nextScheduledAudioSeconds = nil
+                syncAnchorRemotePTSUs = remotePresentationTimestampUs
+                syncAnchorLocalSeconds = now
+                DiagnosticLogger.shared.log(
+                    "RECOVERY[hard-resync-early]: audio \(String(format: "%.2f", avErrorSeconds))s ahead — anchor reset",
+                    category: "Audio"
+                )
             }
             if avErrorSeconds > maxAudioLeadSeconds {
                 // Keep audio lead bounded; avoid excessive queueing.
@@ -331,17 +612,12 @@ final class AudioPlayer {
         nextScheduledAudioSeconds = targetPlayTime + durationSeconds
 
         if targetPlayTime <= now + 0.003 {
-            if !node.isPlaying { node.play() }
-            node.scheduleBuffer(buffer, completionHandler: nil)
-            lastScheduledAt = now
+            scheduleTracked(node, buffer, at: nil, now: now)
             return
         }
 
         let hostTime = AVAudioTime.hostTime(forSeconds: targetPlayTime)
-        let when = AVAudioTime(hostTime: hostTime)
-        if !node.isPlaying { node.play() }
-        node.scheduleBuffer(buffer, at: when, options: [], completionHandler: nil)
-        lastScheduledAt = now
+        scheduleTracked(node, buffer, at: AVAudioTime(hostTime: hostTime), now: now)
     }
 
     private func makePCMBuffer(fromInterleavedFloat32 data: Data) -> AVAudioPCMBuffer? {
@@ -433,6 +709,9 @@ final class AudioPlayer {
         playerNode = nil
         outputFormat = nil
         resetSyncState()
+        lastScheduledAt = 0
+        lastRenderedAt = 0
+        audioChainActiveSince = hostNowSeconds()
         if shouldRestartImmediately {
             setupEngine()
         }
