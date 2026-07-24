@@ -202,6 +202,17 @@ final class BeamAppState: ObservableObject {
     /// Points discovery at the stored remote address and, if a start was pending, begins the
     /// stream. Endpoint only: we don't probe first, so an unreachable address surfaces through
     /// the normal connection-failure path rather than a second, divergent error route.
+    /// Whether this device may use remote (away-from-home) streaming.
+    /// Remote is a Beam Unlimited feature; the trial grants it like every other paid feature.
+    /// Local streaming is unaffected and stays free forever.
+    var canUseRemoteStreaming: Bool {
+        isPurchased || sessionManager.isInTrial
+    }
+
+    /// Set when discovery had a usable remote address but the user isn't entitled to it,
+    /// so the UI can offer the upgrade instead of just saying "not found".
+    @Published var remoteBlockedByPaywall = false
+
     @MainActor
     private func activateRemoteHost(reason: String) {
         guard let mac = pairedMac, let address = mac.allRemoteHosts.first else {
@@ -209,6 +220,18 @@ final class BeamAppState: ObservableObject {
             isSearchingForMac = false
             return
         }
+        // Single choke point for every remote path — timed fallback, reconnect escalation and
+        // the debug force toggle all land here, so the entitlement check belongs here rather
+        // than duplicated at each call site.
+        guard canUseRemoteStreaming else {
+            DiagnosticLogger.shared.log("Remote host available but requires Unlimited", category: "Discovery")
+            remoteBlockedByPaywall = true
+            discoveredHost = nil
+            usingRemoteHost = false
+            isSearchingForMac = false
+            return
+        }
+        remoteBlockedByPaywall = false
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(address),
             port: NWEndpoint.Port(rawValue: Self.remotePort) ?? 7979

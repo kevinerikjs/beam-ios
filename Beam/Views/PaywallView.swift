@@ -86,6 +86,12 @@ struct PaywallView: View {
                     )
                     featureDivider
                     UnlimitedFeatureRow(
+                        icon: "globe",
+                        title: "Stream from anywhere",
+                        subtitle: "Reach your Mac when you're away from home, over your own Tailscale network"
+                    )
+                    featureDivider
+                    UnlimitedFeatureRow(
                         icon: "lock.open.fill",
                         title: "One-time unlock",
                         subtitle: "Pay once, keep forever."

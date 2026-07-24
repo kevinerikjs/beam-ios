@@ -204,18 +204,23 @@ struct SettingsView: View {
     private var remoteAccessCard: some View {
         if let mac = appState.pairedMac {
             let autoHosts = mac.remoteHosts ?? []
+            // Remote streaming is a Beam Unlimited feature (local streaming stays free).
+            let locked = !appState.canUseRemoteStreaming
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeader("Away From Home")
                 VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Image(systemName: autoHosts.isEmpty && mac.manualRemoteHost == nil
-                                  ? "house.slash" : "globe")
+                            Image(systemName: locked ? "lock.fill"
+                                  : (autoHosts.isEmpty && mac.manualRemoteHost == nil ? "house.slash" : "globe"))
                                 .foregroundStyle(.orange)
-                            Text(remoteStatusTitle(auto: autoHosts, manual: mac.manualRemoteHost))
+                            Text(locked ? "Beam Unlimited"
+                                 : remoteStatusTitle(auto: autoHosts, manual: mac.manualRemoteHost))
                                 .foregroundStyle(.white)
                         }
-                        Text(remoteStatusDetail(auto: autoHosts))
+                        Text(locked
+                             ? "Streaming from outside your home network is part of Beam Unlimited. Local streaming stays free."
+                             : remoteStatusDetail(auto: autoHosts))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -224,7 +229,21 @@ struct SettingsView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
 
-                    if autoHosts.isEmpty {
+                    if locked {
+                        cardDivider
+                        Button { showPaywall = true } label: {
+                            HStack {
+                                Text("Unlock Beam Unlimited").fontWeight(.medium)
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                            }
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                        }
+                    }
+
+                    if autoHosts.isEmpty && !locked {
                         // Preferred path for pairings made before the Mac advertised its
                         // address: one tap while on the same WiFi, no typing.
                         cardDivider
