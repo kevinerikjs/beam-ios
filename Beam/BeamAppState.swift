@@ -132,6 +132,18 @@ final class BeamAppState: ObservableObject {
     func startBrowsing() {
         isSearchingForMac = true
         remoteFallbackTask?.cancel()
+
+        // Debug escape hatch (BEAM-19): skip Bonjour entirely and go straight to the stored
+        // remote address. Lets the Tailscale path be exercised while still on WiFi — the
+        // connection genuinely routes over the tailnet, but the phone stays reachable for
+        // log capture, which it isn't when actually off-network.
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "beam.debug.forceRemoteHost") {
+            Task { @MainActor in activateRemoteHost(reason: "forced by debug setting") }
+            return
+        }
+        #endif
+
         bonjourBrowser.startBrowsing { [weak self] host in
             Task { @MainActor in
                 guard let self else { return }
@@ -157,33 +169,61 @@ final class BeamAppState: ObservableObject {
     /// because a local hit is faster and doesn't depend on the VPN being connected.
     @MainActor
     private func scheduleRemoteFallback() {
-        guard discoveredHost == nil,
-              let mac = pairedMac,
-              !mac.allRemoteHosts.isEmpty else { return }
+        // Log every rejection reason explicitly: when this silently does nothing the user just
+        // sees a permanently-disabled Start button, which is indistinguishable from a hang.
+        guard discoveredHost == nil else {
+            DiagnosticLogger.shared.log("Remote fallback skipped: host already found", category: "Discovery")
+            return
+        }
+        guard let mac = pairedMac else {
+            DiagnosticLogger.shared.log("Remote fallback skipped: no paired Mac", category: "Discovery")
+            return
+        }
+        guard !mac.allRemoteHosts.isEmpty else {
+            DiagnosticLogger.shared.log("Remote fallback unavailable: no stored remote address", category: "Discovery")
+            return
+        }
 
+        DiagnosticLogger.shared.log(
+            "Remote fallback armed (\(mac.allRemoteHosts.count) address(es), \(Int(Self.remoteFallbackGrace))s grace)",
+            category: "Discovery"
+        )
         remoteFallbackTask?.cancel()
         remoteFallbackTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.remoteFallbackGrace * 1_000_000_000))
-            guard !Task.isCancelled, let self, self.discoveredHost == nil else { return }
-
-            // Endpoint only — we don't probe here. If the address is unreachable the normal
-            // connection path fails and surfaces the usual "can't find your Mac" state.
-            guard let address = mac.allRemoteHosts.first else { return }
-            let endpoint = NWEndpoint.hostPort(
-                host: NWEndpoint.Host(address),
-                port: NWEndpoint.Port(rawValue: Self.remotePort) ?? 7979
-            )
-            DiagnosticLogger.shared.log(
-                "Bonjour found nothing in \(Int(Self.remoteFallbackGrace))s — trying remote host",
-                category: "Discovery"
-            )
-            self.usingRemoteHost = true
-            self.discoveredHost = DiscoveredHost(name: mac.name, endpoint: endpoint, port: Self.remotePort)
-            self.isSearchingForMac = false
-            if self.pendingAutoStart {
-                self.pendingAutoStart = false
-                await self.startStream()
+            guard !Task.isCancelled else {
+                DiagnosticLogger.shared.log("Remote fallback cancelled before firing", category: "Discovery")
+                return
             }
+            guard let self, self.discoveredHost == nil else { return }
+            self.activateRemoteHost(reason: "Bonjour found nothing in \(Int(Self.remoteFallbackGrace))s")
+        }
+    }
+
+    /// Points discovery at the stored remote address and, if a start was pending, begins the
+    /// stream. Endpoint only: we don't probe first, so an unreachable address surfaces through
+    /// the normal connection-failure path rather than a second, divergent error route.
+    @MainActor
+    private func activateRemoteHost(reason: String) {
+        guard let mac = pairedMac, let address = mac.allRemoteHosts.first else {
+            DiagnosticLogger.shared.log("Remote host requested but none stored", category: "Discovery")
+            isSearchingForMac = false
+            return
+        }
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(address),
+            port: NWEndpoint.Port(rawValue: Self.remotePort) ?? 7979
+        )
+        DiagnosticLogger.shared.log(
+            "Using remote host \(address):\(Self.remotePort) (\(reason))",
+            category: "Discovery"
+        )
+        usingRemoteHost = true
+        discoveredHost = DiscoveredHost(name: mac.name, endpoint: endpoint, port: Self.remotePort)
+        isSearchingForMac = false
+        if pendingAutoStart {
+            pendingAutoStart = false
+            Task { await startStream() }
         }
     }
 
@@ -197,6 +237,39 @@ final class BeamAppState: ObservableObject {
         pairedMac = mac
         KeyStore.shared.savePairedMac(mac)
         DiagnosticLogger.shared.log("Remote hosts updated (\(hosts.count))", category: "Discovery")
+    }
+
+    // MARK: - One-tap remote setup (BEAM-19)
+
+    /// True while a remote-access setup probe is running.
+    @Published var isSettingUpRemoteAccess = false
+    /// User-facing result of the last setup attempt; nil when never run or cleared.
+    @Published var remoteSetupError: String?
+
+    /// Fetches the Mac's Tailscale address over the LAN and stores it, without starting a
+    /// stream. For pairings made before the Mac started advertising its address.
+    @MainActor
+    func setUpRemoteAccess() async {
+        guard let mac = pairedMac, !isSettingUpRemoteAccess else { return }
+        isSettingUpRemoteAccess = true
+        remoteSetupError = nil
+        defer { isSettingUpRemoteAccess = false }
+
+        // Needs a LAN-discovered host: the whole point is that we don't have a remote address
+        // yet, so there's nothing else to connect to.
+        guard let host = discoveredHost, !usingRemoteHost else {
+            remoteSetupError = RemoteSetupProbe.Failure.macNotOnNetwork.errorDescription
+            return
+        }
+
+        do {
+            let hosts = try await RemoteSetupProbe.fetchRemoteHosts(from: host, pairedMac: mac)
+            updateRemoteHosts(hosts)
+            DiagnosticLogger.shared.log("Remote access set up via probe (\(hosts.count))", category: "Discovery")
+        } catch {
+            remoteSetupError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            DiagnosticLogger.shared.log("Remote setup probe failed: \(error)", category: "Discovery")
+        }
     }
 
     /// Sets or clears the hand-entered remote address. Pass nil/empty to clear.

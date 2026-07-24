@@ -12,6 +12,9 @@ struct SettingsView: View {
     @State private var showPaywall = false
     @State private var showFeedback = false
     @State private var manualRemoteHost = ""
+    #if DEBUG
+    @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -161,6 +164,25 @@ struct SettingsView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                 }
+
+                cardDivider
+
+                // BEAM-19 debug aid: forces the Tailscale path while still on WiFi. The
+                // connection genuinely routes over the tailnet, but the phone stays reachable
+                // for log capture — which it isn't when actually off-network.
+                Toggle(isOn: $forceRemoteHost) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Force Remote Host")
+                            .foregroundStyle(.white)
+                        Text("Skip Bonjour, always connect via the stored Tailscale address")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.yellow)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
             }
             .background(Color.yellow.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -203,9 +225,49 @@ struct SettingsView: View {
                     .padding(.vertical, 14)
 
                     if autoHosts.isEmpty {
+                        // Preferred path for pairings made before the Mac advertised its
+                        // address: one tap while on the same WiFi, no typing.
+                        cardDivider
+                        Button {
+                            Task { await appState.setUpRemoteAccess() }
+                        } label: {
+                            HStack {
+                                if appState.isSettingUpRemoteAccess {
+                                    ProgressView().tint(.orange)
+                                    Text("Setting Up…")
+                                } else {
+                                    Image(systemName: "wand.and.stars")
+                                    Text("Set Up Automatically")
+                                }
+                                Spacer()
+                            }
+                            .fontWeight(.medium)
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                        }
+                        .disabled(appState.isSettingUpRemoteAccess)
+
+                        if let error = appState.remoteSetupError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red.opacity(0.9))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 12)
+                        } else {
+                            Text("Do this while you're on the same WiFi as your Mac.")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 12)
+                        }
+
                         cardDivider
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Mac's Tailscale Address")
+                            Text("Or Enter It Manually")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             TextField("100.x.y.z", text: $manualRemoteHost)
@@ -248,7 +310,7 @@ struct SettingsView: View {
                  + "away. Keep Tailscale running on both devices."
         }
         return "Beam can stream from outside your home network when both devices are on the "
-             + "same Tailscale account. Your Mac didn't report an address — add it below."
+             + "same Tailscale account. Your Mac didn't report an address, so add it below."
     }
 
     // MARK: - Support card

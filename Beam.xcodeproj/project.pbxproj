@@ -34,6 +34,7 @@
 		989ADF5A9A63C04AD682D821 /* StreamReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9322E337B5373CB064616592 /* StreamReceiver.swift */; };
 		BEA0C0DECAFE00000000I002 /* ControllerInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000I001 /* ControllerInputManager.swift */; };
 		BEA0C0DECAFE00000000F002 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */; };
+		BEA0C0DECAFE00000000R002 /* RemoteSetupProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */; };
 		A3ADA28A0E5CC7F58B88246D /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EAC2D093160731796098980 /* SessionManager.swift */; };
 		A8E3CD090D183D235A8210D1 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702363BF75F70CE0CB89FCC2 /* ConnectionManager.swift */; };
 		B81E00A43A2907FB1F6F7DE5 /* StreamOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB2738F326A8777AAE99E234 /* StreamOverlay.swift */; };
@@ -101,6 +102,7 @@
 		9322E337B5373CB064616592 /* StreamReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamReceiver.swift; path = Beam/Streaming/StreamReceiver.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000I001 /* ControllerInputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ControllerInputManager.swift; path = Beam/Streaming/ControllerInputManager.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FeatureFlags.swift; path = Beam/Config/FeatureFlags.swift; sourceTree = SOURCE_ROOT; };
+		BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteSetupProbe.swift; path = Beam/Network/RemoteSetupProbe.swift; sourceTree = SOURCE_ROOT; };
 		9ACF70A03BF4F22D5208B421 /* ControlChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ControlChannel.swift; path = Beam/Network/ControlChannel.swift; sourceTree = SOURCE_ROOT; };
 		A65CD0AFE8E225958BF62B85 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
 		A778184A36ACEF7D405BB769 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
@@ -227,6 +229,7 @@
 				37540EAF383436D43BB9228E /* BeamApp.swift */,
 				C2594BA6C3113019C21FE5EE /* BeamAppState.swift */,
 				BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */,
+				BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */,
 				PH0000000000000000000009 /* Analytics.swift */,
 				928BF22CC7D2A1A02E05FDF7 /* Info.plist */,
 				C9135D65FDFD011183B89FF0 /* Beam.entitlements */,
@@ -424,6 +427,7 @@
 				DL00000000000000BLDFILE1 /* DiagnosticLogger.swift in Sources */,
 				5E496367CF5B6DD66C3FCFF7 /* BeamAppState.swift in Sources */,
 				BEA0C0DECAFE00000000F002 /* FeatureFlags.swift in Sources */,
+				BEA0C0DECAFE00000000R002 /* RemoteSetupProbe.swift in Sources */,
 				D9AADD4C2136A9B3E9FBE69B /* Protocol.swift in Sources */,
 				989ADF5A9A63C04AD682D821 /* StreamReceiver.swift in Sources */,
 				BEA0C0DECAFE00000000I002 /* ControllerInputManager.swift in Sources */,
