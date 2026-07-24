@@ -196,6 +196,43 @@ final class StoreManager: ObservableObject {
             }
         }
 
+        // Reconcile the offline latch against what StoreKit can actually prove.
+        //
+        // An empty currentEntitlements is ambiguous: it means EITHER "never purchased" OR
+        // "cache not populated yet / no network". Treating that as unentitled would lock out
+        // paying customers offline, so it is not sufficient evidence to revoke.
+        //
+        // Transaction.all is the disambiguator. A refunded or revoked purchase still appears
+        // there, carrying a revocationDate, so it is positive evidence in a way that absence
+        // never is. Only that clears the latch.
+        var revoked = false
+        for await result in Transaction.all {
+            if case .verified(let transaction) = result,
+               configuredProductIDs.contains(transaction.productID) {
+                if transaction.revocationDate != nil {
+                    revoked = true
+                } else {
+                    // A live transaction outranks any older revoked one (e.g. refunded once,
+                    // repurchased later), so stop looking.
+                    revoked = false
+                    break
+                }
+            }
+        }
+
+        if purchased {
+            KeyStore.shared.setPurchaseUnlocked()
+        } else if revoked {
+            KeyStore.shared.clearPurchaseUnlocked()
+        }
+
+        // Fall back to the cached entitlement only when StoreKit could not confirm one and
+        // has not proven a revocation.
+        if !purchased && !revoked && KeyStore.shared.isPurchaseUnlocked {
+            purchased = true
+            logger.info("Using cached offline entitlement (StoreKit unavailable)")
+        }
+
         let purchasedSnapshot = purchased
         let matchedProductIDSnapshot = matchedProductID
 

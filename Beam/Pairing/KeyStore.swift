@@ -88,6 +88,39 @@ final class KeyStore {
         save(key: noticeKey(feature), data: data)
     }
 
+    // MARK: - Purchase Latch (BEAM-25)
+    //
+    // StoreKit 2 serves Transaction.currentEntitlements from an on-device cache, so it
+    // normally works offline. But it is empty on a fresh install until StoreKit can reach
+    // Apple, and it populates asynchronously at launch. In both windows a paying customer
+    // looks unentitled, which would lock them out of a feature they bought.
+    //
+    // So a verified entitlement is mirrored here, in the Keychain, and trusted while offline.
+    // This is written ONLY from a StoreKit-verified transaction, never from user input.
+    //
+    // It is not permanent: see clearPurchaseUnlocked, called when StoreKit gives positive
+    // evidence of a revocation. Refunds are honoured the next time the device is online.
+
+    private let purchaseLatchKey = "purchase_unlocked"
+
+    var isPurchaseUnlocked: Bool {
+        guard let data = load(key: purchaseLatchKey),
+              let value = String(data: data, encoding: .utf8) else { return false }
+        return value == "1"
+    }
+
+    func setPurchaseUnlocked() {
+        guard !isPurchaseUnlocked, let data = "1".data(using: .utf8) else { return }
+        save(key: purchaseLatchKey, data: data)
+        logger.info("Purchase entitlement cached for offline use")
+    }
+
+    func clearPurchaseUnlocked() {
+        guard isPurchaseUnlocked else { return }
+        delete(key: purchaseLatchKey)
+        logger.info("Purchase entitlement revoked, offline cache cleared")
+    }
+
     // MARK: - Keychain Primitives
 
     private func save(key: String, data: Data) {
