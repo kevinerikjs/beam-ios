@@ -360,6 +360,14 @@ struct BeamPairingMessage: Codable {
     /// Optional on purpose: every field here is optional, so an old client decoding a new
     /// host's message (or vice versa) simply sees nil. No version negotiation required.
     var tailscaleHosts: [String]? = nil
+
+    /// macOS → iOS. Always true from the Beacon version that added remote access. Its
+    /// ABSENCE is what carries information: a host that omits it predates the feature
+    /// entirely, which needs a Beacon update — a different fix from a host that supports it
+    /// but has no Tailscale installed. Both otherwise present identically as an empty
+    /// `tailscaleHosts`, so without this we'd give the wrong instruction.
+    /// Keep in sync with beam-macos Protocol.swift.
+    var supportsRemoteAccess: Bool? = nil
 }
 
 // MARK: - Helpers

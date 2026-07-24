@@ -206,21 +206,20 @@ struct SettingsView: View {
             let autoHosts = mac.remoteHosts ?? []
             // Remote streaming is a Beam Unlimited feature (local streaming stays free).
             let locked = !appState.canUseRemoteStreaming
+            let state = remoteState(for: mac)
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeader("Away From Home")
                 VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Image(systemName: locked ? "lock.fill"
-                                  : (autoHosts.isEmpty && mac.manualRemoteHost == nil ? "house.slash" : "globe"))
+                            Image(systemName: locked ? "lock.fill" : remoteStatusIcon(state))
                                 .foregroundStyle(.orange)
-                            Text(locked ? "Beam Unlimited"
-                                 : remoteStatusTitle(auto: autoHosts, manual: mac.manualRemoteHost))
+                            Text(locked ? "Beam Unlimited" : remoteStatusTitle(state))
                                 .foregroundStyle(.white)
                         }
                         Text(locked
                              ? "Streaming from outside your home network is part of Beam Unlimited. Local streaming stays free."
-                             : remoteStatusDetail(auto: autoHosts))
+                             : remoteStatusDetail(state, macName: mac.name))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -269,7 +268,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    if autoHosts.isEmpty && !locked {
+                    if autoHosts.isEmpty && !locked && state != .hostNeedsUpdate {
                         // Preferred path for pairings made before the Mac advertised its
                         // address: one tap while on the same WiFi, no typing.
                         cardDivider
@@ -343,19 +342,55 @@ struct SettingsView: View {
         }
     }
 
-    private func remoteStatusTitle(auto: [String], manual: String?) -> String {
-        if !auto.isEmpty { return "Ready" }
-        if manual != nil { return "Set Up Manually" }
-        return "Not Set Up"
+    /// Three genuinely different situations, each needing a different action from the user.
+    /// They are indistinguishable from the address list alone, which is why the host reports
+    /// `supportsRemoteAccess` (BEAM-19).
+    private enum RemoteState {
+        case ready              // We have an address; nothing to do.
+        case manualOnly         // User typed one in; auto-discovery never supplied one.
+        case hostNeedsTailscale // Mac understands remote access but isn't on a tailnet.
+        case hostNeedsUpdate    // Mac predates the feature entirely.
     }
 
-    private func remoteStatusDetail(auto: [String]) -> String {
-        if !auto.isEmpty {
+    private func remoteState(for mac: PairedMac) -> RemoteState {
+        if !(mac.remoteHosts ?? []).isEmpty { return .ready }
+        // nil means the Mac never claimed support, i.e. an older Beacon. false shouldn't
+        // occur, but treating it as "needs update" is the safe reading.
+        if mac.hostSupportsRemoteAccess != true { return .hostNeedsUpdate }
+        if mac.manualRemoteHost != nil { return .manualOnly }
+        return .hostNeedsTailscale
+    }
+
+    private func remoteStatusTitle(_ state: RemoteState) -> String {
+        switch state {
+        case .ready:              return "Ready"
+        case .manualOnly:         return "Set Up Manually"
+        case .hostNeedsTailscale: return "Not Set Up"
+        case .hostNeedsUpdate:    return "Update Your Mac"
+        }
+    }
+
+    private func remoteStatusIcon(_ state: RemoteState) -> String {
+        switch state {
+        case .ready, .manualOnly: return "globe"
+        case .hostNeedsTailscale: return "house.slash"
+        case .hostNeedsUpdate:    return "arrow.down.circle"
+        }
+    }
+
+    private func remoteStatusDetail(_ state: RemoteState, macName: String) -> String {
+        switch state {
+        case .ready, .manualOnly:
             return "Your Mac shared its Tailscale address, so Beam can reach it when you're "
                  + "away. Keep Tailscale running on both devices."
+        case .hostNeedsTailscale:
+            return "Install Tailscale on \(macName) and sign in with the same account as this "
+                 + "iPhone, then tap Set Up Automatically."
+        case .hostNeedsUpdate:
+            return "\(macName) is running a version of Beacon that doesn't support streaming "
+                 + "from outside your network yet. Update Beacon on your Mac (Beacon → Check "
+                 + "for Updates), then start a stream once at home to finish setup."
         }
-        return "Beam can stream from outside your home network when both devices are on the "
-             + "same Tailscale account. Your Mac didn't report an address, so add it below."
     }
 
     // MARK: - Support card

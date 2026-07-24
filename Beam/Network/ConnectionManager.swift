@@ -304,7 +304,7 @@ final class ConnectionManager {
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works
             // later without the user configuring anything.
-            Task { @MainActor in appState?.updateRemoteHosts(msg.tailscaleHosts) }
+            Task { @MainActor in appState?.updateRemoteHosts(msg.tailscaleHosts, hostSupportsRemote: msg.supportsRemoteAccess) }
             // Record first stream to start the 3-day free trial clock (no-op after first time)
             SessionManager.shared.recordFirstStream()
             let isPurchased = appState?.isPurchased ?? false

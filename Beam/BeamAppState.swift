@@ -269,13 +269,23 @@ final class BeamAppState: ObservableObject {
     /// Stores the host's self-reported remote addresses. Called on every successful auth so
     /// the stored copy tracks the Mac's current tailnet address.
     @MainActor
-    func updateRemoteHosts(_ hosts: [String]?) {
-        guard let hosts, !hosts.isEmpty, var mac = pairedMac else { return }
-        guard mac.remoteHosts != hosts else { return }   // no churn on the Keychain
-        mac.remoteHosts = hosts
+    func updateRemoteHosts(_ hosts: [String]?, hostSupportsRemote: Bool? = nil) {
+        guard var mac = pairedMac else { return }
+        var changed = false
+        if let hosts, !hosts.isEmpty, mac.remoteHosts != hosts {
+            mac.remoteHosts = hosts
+            changed = true
+            DiagnosticLogger.shared.log("Remote hosts updated (\(hosts.count))", category: "Discovery")
+        }
+        // Recorded even when no addresses came back — that combination is exactly how we tell
+        // "Mac needs Tailscale" apart from "Mac needs a Beacon update".
+        if mac.hostSupportsRemoteAccess != hostSupportsRemote {
+            mac.hostSupportsRemoteAccess = hostSupportsRemote
+            changed = true
+        }
+        guard changed else { return }   // no churn on the Keychain
         pairedMac = mac
         KeyStore.shared.savePairedMac(mac)
-        DiagnosticLogger.shared.log("Remote hosts updated (\(hosts.count))", category: "Discovery")
     }
 
     // MARK: - One-tap remote setup (BEAM-19)
@@ -455,6 +465,11 @@ struct PairedMac: Codable {
     /// Whichever remote address the user typed in themselves. Kept separate from the
     /// auto-reported list so a later auto-refresh can't silently overwrite it.
     var manualRemoteHost: String?
+
+    /// Whether the Mac reported that it understands remote access at all. nil means it never
+    /// said — i.e. a Beacon older than the feature — which the UI must distinguish from a
+    /// modern Beacon that simply has no Tailscale set up.
+    var hostSupportsRemoteAccess: Bool?
 
     /// Auto-reported addresses first, then the manual one, de-duplicated, in try order.
     var allRemoteHosts: [String] {
