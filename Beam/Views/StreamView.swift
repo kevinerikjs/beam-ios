@@ -198,7 +198,7 @@ struct StreamView: View {
                         .progressViewStyle(.circular)
                         .tint(.white)
                         .scaleEffect(1.4)
-                    Text(appState.usingRemoteHost ? "Reconnecting over Tailscale…" : "Reconnecting…")
+                    Text("Reconnecting…")
                         .font(.callout.weight(.medium))
                         .foregroundStyle(.white.opacity(0.9))
                 }

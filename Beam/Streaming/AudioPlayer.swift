@@ -207,9 +207,34 @@ final class AudioPlayer {
             // becomes true as soon as the stream starts. .mixWithOthers lets other audio
             // (music, podcasts) continue alongside the stream.
             try session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+            // Ask the hardware to run at the SAME rate as the stream.
+            //
+            // Without this the session runs at whatever rate the hardware happened to
+            // negotiate — which depends on the route and on whatever other app touched audio
+            // last, so it differs between launches. When it disagrees with the stream rate,
+            // every buffer is resampled underneath a scheduler that computes buffer durations
+            // from the stream rate, and the error accumulates into evenly spaced dropouts:
+            // audio that gaps on a fixed cadence rather than randomly. That matches the
+            // "periodic cutouts, different every session, even on LAN" report exactly.
+            //
+            // Both ends are 48kHz now (ScreenCaptureKit delivers it, iPhone hardware is native
+            // at it), so this should normally be a no-op that simply prevents the mismatch.
+            // Preferred rates are advisory: verify against the actual rate below rather than
+            // assuming it took.
+            try? session.setPreferredSampleRate(playbackSampleRate)
             try session.setActive(true)
             let route = session.currentRoute.outputs.map { $0.portName }.joined(separator: ",")
-            DiagnosticLogger.shared.log("Audio session active — route: [\(route)]", category: "Audio")
+            let actualRate = session.sampleRate
+            if abs(actualRate - playbackSampleRate) > 1 {
+                DiagnosticLogger.shared.log(
+                    "Audio rate MISMATCH: hardware \(Int(actualRate))Hz vs stream \(Int(playbackSampleRate))Hz — resampling, expect periodic gaps",
+                    category: "Audio"
+                )
+            }
+            DiagnosticLogger.shared.log(
+                "Audio session active — route: [\(route)], hardware \(Int(actualRate))Hz",
+                category: "Audio"
+            )
         } catch {
             logger.error("Failed to configure audio session: \(error)")
             DiagnosticLogger.shared.log("Audio session setup failed: \(error)", category: "Audio")
