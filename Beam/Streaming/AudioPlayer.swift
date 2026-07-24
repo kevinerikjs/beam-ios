@@ -72,7 +72,18 @@ final class AudioPlayer {
     private var nextScheduledAudioSeconds: Double?
 
     private let targetAudioLeadSeconds: Double = 0.10
-    private let maxAudioLeadSeconds: Double = 0.45
+    /// How far ahead of the video clock audio may be queued before playing.
+    ///
+    /// Raised from 0.45s once the host started prioritising audio (BEAM-31). Audio no longer
+    /// waits behind keyframes, so it legitimately arrives up to ~1s EARLY — the exact queuing
+    /// delay that prioritisation removed. At 0.45s that early audio could not be held, so it
+    /// played too soon, stayed ahead, and the resync path fired every half second forever:
+    /// "audio 0.90s ahead — anchor reset", twenty times in twenty seconds.
+    ///
+    /// Early audio is benign and needs no correction at all; it just needs somewhere to wait.
+    /// Holding it is a buffer, not a fix, so the ceiling simply has to exceed the lead the
+    /// transport now produces.
+    private let maxAudioLeadSeconds: Double = 1.40
     private let lateAudioCatchupThresholdSeconds: Double = 0.30
     private let hardAudioResyncThresholdSeconds: Double = 0.85
     /// Above this the timeline is genuinely broken (reconnect, seek, clock jump) rather than
@@ -80,6 +91,13 @@ final class AudioPlayer {
     /// drift is just the link's audio/video latency difference and must be absorbed, not
     /// corrected by deleting audio.
     private let catastrophicResyncThresholdSeconds: Double = 6.0
+
+    /// Audio EARLY gets a much higher bar than audio late, because the two are not equally
+    /// harmful. Late audio has already missed its moment and nothing can retrieve it. Early
+    /// audio simply waits in the queue, which is what a buffer is for, and with the host now
+    /// prioritising audio a lead approaching a second is normal rather than exceptional.
+    /// Re-anchoring on it fought the transport and produced a resync every half second.
+    private let earlyAudioResyncThresholdSeconds: Double = 1.60
     /// Minimum gap between hard resyncs. A stall leaves a backlog of buffers that each
     /// recompute the same large drift before the new anchor has any effect, so without this
     /// they all resync in a burst — the logs showed five in 6ms — and each one dumps the
@@ -695,7 +713,7 @@ final class AudioPlayer {
                         category: "Audio"
                     )
                 }
-            } else if avErrorSeconds > hardAudioResyncThresholdSeconds,
+            } else if avErrorSeconds > earlyAudioResyncThresholdSeconds,
                       now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
                 // Symmetric counterpart. Audio EARLY was previously only clamped, never
                 // re-anchored, so after a post-stall burst the node's real queue could stay
