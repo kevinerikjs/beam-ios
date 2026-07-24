@@ -140,6 +140,9 @@ final class AudioPlayer {
     private var consecutiveFailedRebuilds = 0
     private let maxConsecutiveFailedRebuilds = 3
     private var rebuildsSuspended = false
+
+    /// Set by a rebuild so the next buffer is scheduled immediately, bypassing sync.
+    private var forceImmediateAfterRebuild = false
     private var lastEngineRestoreAt: Double = -.greatestFiniteMagnitude
     private var didRegisterObservers = false
 
@@ -452,6 +455,7 @@ final class AudioPlayer {
         }
 
         forcedRebuildCount += 1
+        forceImmediateAfterRebuild = true
         DiagnosticLogger.shared.log(
             "RECOVERY[hard-rebuild #\(forcedRebuildCount)]: \(reason) — rebuilding decoder + session + engine + player node",
             category: "Audio"
@@ -590,6 +594,29 @@ final class AudioPlayer {
         let startedAt = self.hostNowSeconds()
         restoreEngineIfNeeded(at: startedAt)
         guard let node = self.playerNode, self.engine?.isRunning == true else { return }
+
+        // First buffer after a rebuild: get sound out unconditionally, then let sync resume
+        // from the fresh anchor. A rebuild that produces a healthy engine but never renders is
+        // the remaining handover failure — packets arrive, the decoder is ready, yet nothing
+        // reaches the node. Whatever the sync path decides in that state it is wrong, so for
+        // exactly one buffer, do not ask it.
+        if forceImmediateAfterRebuild {
+            forceImmediateAfterRebuild = false
+            if !node.isPlaying { node.play() }
+            nextScheduledAudioSeconds = nil
+            syncAnchorRemotePTSUs = remotePresentationTimestampUs
+            syncAnchorLocalSeconds = startedAt
+            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                guard let self else { return }
+                self.renderQueue.async { self.lastRenderedAt = self.hostNowSeconds() }
+            }
+            lastScheduledAt = startedAt
+            DiagnosticLogger.shared.log(
+                "RECOVERY[post-rebuild]: forced first buffer out, bypassing sync",
+                category: "Audio"
+            )
+            return
+        }
 
         // Starvation recovery. Deliberately ahead of every sync guard below, because the
         // whole point is to recover no matter WHICH of them has been silently dropping
