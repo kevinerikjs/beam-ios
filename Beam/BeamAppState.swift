@@ -402,19 +402,20 @@ final class BeamAppState: ObservableObject {
             reconnectAttempt = 0
             return
         }
-        // Losing WiFi mid-stream is the common case here, and the host we were using is a LAN
-        // endpoint that is now unreachable. Retrying it on a backoff can never succeed, so as
-        // soon as the first attempt fails we switch to the stored remote address instead of
-        // burning all four attempts on a dead route.
-        if reconnectAttempt >= 1,
-           !usingRemoteHost,
-           let mac = pairedMac,
-           !mac.allRemoteHosts.isEmpty {
-            activateRemoteHost(reason: "LAN reconnect failed, switching to remote")
+        // Losing WiFi mid-stream is the common case here, and the LAN endpoint we were using
+        // is now unreachable — retrying it on a backoff can never succeed. Switch to the
+        // stored remote address on the FIRST failure rather than after one wasted attempt,
+        // and skip the backoff for that first remote try: the user is staring at a frozen
+        // frame, and we already know where the host lives.
+        var immediate = false
+        if !usingRemoteHost, canUseRemoteStreaming,
+           let mac = pairedMac, !mac.allRemoteHosts.isEmpty {
+            activateRemoteHost(reason: "LAN dropped mid-stream, failing over to remote")
+            immediate = true
         }
 
         let attempt = reconnectAttempt
-        let delay: UInt64 = [1, 3, 9, 27][min(attempt, 3)]
+        let delay: UInt64 = immediate ? 0 : [1, 3, 9, 27][min(attempt, 3)]
         reconnectAttempt += 1
         DiagnosticLogger.shared.log("Scheduling reconnect attempt \(reconnectAttempt)/\(maxReconnectAttempts) in \(delay)s", category: "Reconnect")
 

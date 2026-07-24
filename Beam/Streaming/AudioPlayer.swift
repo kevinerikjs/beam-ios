@@ -37,6 +37,15 @@ final class AudioPlayer {
     /// queue, turning one recoverable glitch into a long audible dropout.
     private let minSecondsBetweenHardResyncs: Double = 0.5
     private var lastHardResyncAt: Double = -.greatestFiniteMagnitude
+    /// Wall-clock time of the last buffer actually handed to the player node.
+    /// Several paths in enqueue() can decline to schedule (no video clock yet, no usable
+    /// sync anchor, unplayable mapping). Any of them persisting means permanent silence
+    /// while audio packets keep arriving, which is invisible without this.
+    private var lastScheduledAt: Double = 0
+    /// If audio is still arriving but nothing has been scheduled for this long, give up on
+    /// synchronising it and just play it. Continuity beats lip-sync: a small A/V offset is
+    /// far less bad than silence for the rest of the session.
+    private let audioStarvationSeconds: Double = 2.0
     private let clockResetThresholdSeconds: Double = 1.5
 
     // MARK: - Lifecycle
@@ -183,11 +192,32 @@ final class AudioPlayer {
         renderQueue.async { [weak self] in
             guard let self, let node = self.playerNode else { return }
             guard let buffer = self.makePCMBuffer(fromInterleavedFloat32: pcmData) else { return }
+
+            // Starvation recovery. Deliberately ahead of every sync guard below, because the
+            // whole point is to recover no matter WHICH of them has been silently dropping
+            // audio — a stopped node, a stale anchor, a video clock that never came back.
+            // Re-anchors on the current packet so normal synced scheduling resumes after.
+            let startedAt = self.hostNowSeconds()
+            if self.lastScheduledAt > 0, startedAt - self.lastScheduledAt > self.audioStarvationSeconds {
+                DiagnosticLogger.shared.log(
+                    "Audio starvation recovery after \(String(format: "%.1f", startedAt - self.lastScheduledAt))s silence",
+                    category: "Audio"
+                )
+                if !node.isPlaying { node.play() }
+                self.nextScheduledAudioSeconds = nil
+                self.syncAnchorRemotePTSUs = remotePresentationTimestampUs
+                self.syncAnchorLocalSeconds = startedAt
+                node.scheduleBuffer(buffer, completionHandler: nil)
+                self.lastScheduledAt = startedAt
+                return
+            }
             let session = AVAudioSession.sharedInstance()
             let shouldApplySync = session.outputVolume > 0.001
             if !shouldApplySync {
                 nextScheduledAudioSeconds = nil
+                if !node.isPlaying { node.play() }
                 node.scheduleBuffer(buffer, completionHandler: nil)
+                lastScheduledAt = hostNowSeconds()
                 return
             }
             guard lastVideoRemotePTSUs != nil else {
@@ -245,13 +275,17 @@ final class AudioPlayer {
             nextScheduledAudioSeconds = targetPlayTime + durationSeconds
 
             if targetPlayTime <= now + 0.003 {
+                if !node.isPlaying { node.play() }
                 node.scheduleBuffer(buffer, completionHandler: nil)
+                lastScheduledAt = now
                 return
             }
 
             let hostTime = AVAudioTime.hostTime(forSeconds: targetPlayTime)
             let when = AVAudioTime(hostTime: hostTime)
+            if !node.isPlaying { node.play() }
             node.scheduleBuffer(buffer, at: when, options: [], completionHandler: nil)
+            lastScheduledAt = now
         }
     }
 
