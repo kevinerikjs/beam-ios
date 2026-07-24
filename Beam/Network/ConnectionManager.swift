@@ -291,7 +291,12 @@ final class ConnectionManager {
     /// Sends a .ping and starts the RTT clock. Skipped while one is outstanding so a stalled
     /// reply can't be mistaken for a fast one.
     private func sendLinkPing() {
-        guard pingSentAt == nil else { return }
+        // A lost or unanswered pong must never permanently stop probing. Without this, one
+        // dropped reply leaves pingSentAt set forever and RTT is never measured again.
+        if let sentAt = pingSentAt {
+            guard Date().timeIntervalSince(sentAt) > 10 else { return }
+            pingSentAt = nil   // abandon the stale probe and start a fresh one
+        }
         pingSentAt = Date()
         let msg = BeamControlMessage(type: .ping, payload: nil)
         guard let data = try? JSONEncoder().encode(msg) else { return }

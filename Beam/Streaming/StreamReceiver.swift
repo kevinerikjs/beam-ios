@@ -52,6 +52,9 @@ final class StreamReceiver {
     /// with the previous codec.
     private var lastAudioCodec: BeamAudioCodec?
     private var aacDecoder: AACDecoder?
+    /// Consecutive AAC decode failures, used to self-heal a wedged decoder.
+    private var consecutiveDecodeFailures = 0
+    private static let maxDecodeFailuresBeforeReset = 5
     private let decoderResetLock = NSLock()
     private var decoderResetRequested = false
 
@@ -393,8 +396,30 @@ final class StreamReceiver {
                     category: "Audio"
                 )
             }
-            guard let decoder = aacDecoder,
-                  let buffer = decoder.decode(accessUnit: body) else { return }
+            guard let decoder = aacDecoder else { return }
+            guard let buffer = decoder.decode(accessUnit: body) else {
+                // A wedged decoder is otherwise unrecoverable for the whole session. The
+                // starvation-recovery safety net lives in AudioPlayer, DOWNSTREAM of here, so
+                // it never fires when decoding is what's failing: audio simply stops forever
+                // while video keeps going. That is exactly the reported symptom — a stutter
+                // damages the stream, video resumes with artefacts, audio never returns.
+                //
+                // Isolated failures are expected after packet loss, so tolerate a few, then
+                // rebuild. AAC-LC access units are independently decodable, so a fresh decoder
+                // resyncs on the very next packet.
+                consecutiveDecodeFailures += 1
+                if consecutiveDecodeFailures >= Self.maxDecodeFailuresBeforeReset {
+                    DiagnosticLogger.shared.log(
+                        "AAC decode failed \(consecutiveDecodeFailures)x — rebuilding decoder",
+                        category: "Audio"
+                    )
+                    aacDecoder = nil
+                    consecutiveDecodeFailures = 0
+                    player.resetSync()
+                }
+                return
+            }
+            consecutiveDecodeFailures = 0
             player.enqueue(buffer: buffer, remotePresentationTimestampUs: header.presentationTimestamp)
         }
     }
