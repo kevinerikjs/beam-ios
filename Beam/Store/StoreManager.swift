@@ -28,6 +28,14 @@ final class StoreManager: ObservableObject {
     // MARK: - Init
 
     private init() {
+        #if DEBUG
+        // Screenshot/dev only: set before anything reads entitlement, so discovery at launch
+        // already sees the device as entitled. See loadPurchaseState.
+        if UserDefaults.standard.bool(forKey: "beam.debug.forceUnlimited") {
+            isPurchased = true
+        }
+        #endif
+
         // Listen for transaction updates (e.g., from another device)
         transactionListener = Task.detached(priority: .utility) {
             for await result in Transaction.updates {
@@ -185,6 +193,20 @@ final class StoreManager: ObservableObject {
     private func loadPurchaseState() async {
         var purchased = false
         var matchedProductID: String? = nil
+
+        #if DEBUG
+        // Screenshot/dev only: `-beam.debug.forceUnlimited YES` as a launch argument presents
+        // the app as entitled without a StoreKit purchase, so paid-only UI (away-from-home
+        // streaming) can be captured in the Simulator. Compiled out of Release entirely.
+        if UserDefaults.standard.bool(forKey: "beam.debug.forceUnlimited") {
+            await MainActor.run {
+                isPurchased = true
+                purchaseError = nil
+            }
+            SessionManager.shared.stopSession()
+            return
+        }
+        #endif
 
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = result,

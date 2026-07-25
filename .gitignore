@@ -12,3 +12,6 @@ xcuserdata/
 
 # Local Claude Code customization (personal overrides, not shared)
 CLAUDE.local.md
+
+# App Store screenshot working directory (large generated images)
+screenshots/

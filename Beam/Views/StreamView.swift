@@ -625,6 +625,11 @@ struct StreamView: View {
     }
 
     private func scheduleOverlayHide() {
+        #if DEBUG
+        // Screenshot only: `-beam.debug.pinOverlay YES` keeps the controls visible so the
+        // in-stream UI can be captured without racing the 3s auto-hide. Not in Release.
+        if UserDefaults.standard.bool(forKey: "beam.debug.pinOverlay") { return }
+        #endif
         guard !showQualityPicker, !isSelectingViewportLock, !isAutoDetecting else { return }
         overlayHideTask?.cancel()
         overlayHideTask = Task {

@@ -77,6 +77,11 @@ final class ConnectionManager {
     //                some networks never get a direct path, and a degraded stream beats none.
     private enum WarmupPhase { case probing, audioOnly, full }
     private var warmupPhase: WarmupPhase = .full
+
+    /// Whether this host restarts video correctly after a warmup hold (BEAM-21). Set from the
+    /// authSuccess message; false for hosts that predate the fix, which never recover the
+    /// picture once video has been held.
+    private var hostSupportsVideoHold = false
     private var warmupStartedAt: Date?
     private var warmupTimer: DispatchSourceTimer?
 
@@ -385,8 +390,27 @@ final class ConnectionManager {
 
     /// Starts the probe phase on remote connections. LAN goes straight to full.
     private func beginWarmupIfRemote() {
+        #if DEBUG
+        // Diagnostic/screenshot only: `-beam.debug.skipWarmup YES` never pauses video, to
+        // isolate whether a black remote stream is the pause/resume handshake or the pipeline.
+        if UserDefaults.standard.bool(forKey: "beam.debug.skipWarmup") {
+            warmupPhase = .full
+            DiagnosticLogger.shared.log("Warmup skipped (debug setting)", category: "Connection")
+            return
+        }
+        #endif
         guard appState?.usingRemoteHost == true else {
             warmupPhase = .full
+            return
+        }
+        // An older Beacon accepts the hold and then never brings the picture back (BEAM-21).
+        // Streaming immediately on a relayed link is worse than warmup, but it is not black.
+        guard hostSupportsVideoHold else {
+            warmupPhase = .full
+            DiagnosticLogger.shared.log(
+                "Warmup skipped — this Mac needs a Beacon update to hold video safely",
+                category: "Connection"
+            )
             return
         }
         warmupPhase = .probing
@@ -518,6 +542,9 @@ final class ConnectionManager {
                 category: "Audio"
             )
             streamStartedAt = Date()
+            // Read synchronously: beginWarmupIfRemote() below decides whether to hold video
+            // based on this, so it cannot wait on a hop to the main actor.
+            hostSupportsVideoHold = msg.supportsVideoHold ?? false
             // Refresh the host's remote (Tailscale) addresses on every successful auth, not
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works

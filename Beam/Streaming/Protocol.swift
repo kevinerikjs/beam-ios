@@ -462,6 +462,18 @@ struct BeamPairingMessage: Codable {
     /// Keep in sync with beam-macos Protocol.swift.
     var supportsRemoteAccess: Bool? = nil
 
+    /// macOS → iOS. True only on hosts that correctly restart video when we release a warmup
+    /// hold (BEAM-21). Absence means "do not hold video on this host" rather than "this host
+    /// doesn't understand video_pause".
+    ///
+    /// A host that accepts the pause but predates the fix strands our decoder for the entire
+    /// session: it drops every frame encoded while held, the opening IDR included, and its
+    /// encoder never restates its parameter sets — so the picture never arrives and nothing
+    /// reports an error. Warmup buys smoother relayed starts; it is not worth a black stream,
+    /// so on an older Beacon we simply don't hold video.
+    /// Keep in sync with beam-macos Protocol.swift.
+    var supportsVideoHold: Bool? = nil
+
     /// iOS → macOS. The client's native hardware sample rate, sent at auth (BEAM-29).
     ///
     /// Previously the host chose a rate and the client reacted to audioFormatChanged, which
