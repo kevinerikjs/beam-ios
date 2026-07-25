@@ -198,9 +198,9 @@ final class BeamAppState: ObservableObject {
 
         var label: String {
             switch self {
-            case .connecting: return "Connecting…"
+            case .connecting: return "Connecting"
             case .direct:     return "Direct"
-            case .marginal:   return "Negotiating…"
+            case .marginal:   return "Negotiating"
             case .relayed:    return "Relayed"
             }
         }
@@ -440,6 +440,12 @@ final class BeamAppState: ObservableObject {
     /// stream. For pairings made before the Mac started advertising its address.
     @MainActor
     func setUpRemoteAccess() async {
+        // Defence in depth. Streaming is already gated in activateRemoteHost, which is the
+        // only place usingRemoteHost is ever set, so this cannot enable anything on its own.
+        // But there is no reason to let an unentitled device fetch and store a remote address
+        // at all, and a gate here means the audit does not depend on reasoning about a
+        // downstream one.
+        guard canUseRemoteStreaming else { return }
         guard let mac = pairedMac, !isSettingUpRemoteAccess else { return }
         isSettingUpRemoteAccess = true
         remoteSetupError = nil
@@ -465,6 +471,7 @@ final class BeamAppState: ObservableObject {
     /// Sets or clears the hand-entered remote address. Pass nil/empty to clear.
     @MainActor
     func setManualRemoteHost(_ address: String?) {
+        guard canUseRemoteStreaming else { return }
         guard var mac = pairedMac else { return }
         let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines)
         mac.manualRemoteHost = (trimmed?.isEmpty ?? true) ? nil : trimmed

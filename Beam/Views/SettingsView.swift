@@ -23,8 +23,11 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 32) {
                         streamCard
-                        remoteAccessCard
+                        // Away From Home lives under Subscription because it IS a
+                        // subscription feature; grouping it with Stream implied it was
+                        // available to everyone.
                         subscriptionCard
+                        remoteAccessCard
                         supportCard
                         #if DEBUG
                         debugCard
