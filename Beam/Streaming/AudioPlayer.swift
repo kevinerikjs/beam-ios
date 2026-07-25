@@ -659,7 +659,28 @@ final class AudioPlayer {
             return
         }
         guard lastVideoRemotePTSUs != nil else {
-            // Video drives sync; ignore pre-roll audio until first video clock sample arrives.
+            // No video clock. That used to mean "pre-roll, discard" — which was fine when video
+            // always accompanied audio, and became wrong the moment connection warmup started
+            // deliberately pausing video (BEAM-33). With video paused there is NO video clock,
+            // so every buffer bailed out here and audio reached the node only via the 2s
+            // starvation net: one buffer every two seconds, metronomically, which is exactly
+            // what Kevin's log showed.
+            //
+            // Audio without video simply needs its own clock. Anchor on the first packet and
+            // chain by real duration, which is ordinary sequential playback. When video
+            // resumes, the normal video-anchored path takes over again and re-anchors.
+            if !node.isPlaying { node.play() }
+            let audioNow = hostNowSeconds()
+            let startAt = max(nextScheduledAudioSeconds ?? audioNow, audioNow)
+            let duration = Double(buffer.frameLength) / playbackSampleRate
+            nextScheduledAudioSeconds = startAt + duration
+            if startAt <= audioNow + 0.003 {
+                scheduleTracked(node, buffer, at: nil, now: audioNow)
+            } else {
+                scheduleTracked(node, buffer,
+                                at: AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: startAt)),
+                                now: audioNow)
+            }
             return
         }
 
