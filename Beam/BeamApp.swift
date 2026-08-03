@@ -55,6 +55,7 @@ struct BeamApp: App {
                 .environmentObject(appState)
                 .preferredColorScheme(.dark)
                 .task {
+                    if ShotMode.isActive { ShotMode.seed(appState); return }
                     evaluateWhatsNew()
                     FeatureFlags.shared.refresh()
                 }
@@ -134,7 +135,11 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if appState.hasCompletedOnboarding {
+            if ShotMode.isActive {
+                // Screenshot harness drives the screen directly (see ShotMode.swift).
+                // Inert in every normal launch.
+                ShotMode.rootView()
+            } else if appState.hasCompletedOnboarding {
                 if appState.isStreaming {
                     StreamView()
                 } else {

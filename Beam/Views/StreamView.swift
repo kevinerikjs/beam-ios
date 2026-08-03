@@ -52,8 +52,19 @@ struct StreamView: View {
             Color.black.ignoresSafeArea()
 
             GeometryReader { geometry in
-                // Video content
-                VideoRendererView(renderer: renderer)
+                // Video content. Under the screenshot harness there is no host and so no
+                // decoded video; a still Mac capture stands in for the frame the renderer
+                // would be showing. Everything layered on top is the real overlay.
+                Group {
+                    if ShotMode.isActive, let poster = ShotMode.poster {
+                        Image(uiImage: poster)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        VideoRendererView(renderer: renderer)
+                    }
+                }
                     .ignoresSafeArea()
                     .scaleEffect(videoScale)
                     .offset(videoOffset)
@@ -236,6 +247,12 @@ struct StreamView: View {
         .statusBarHidden(true)
         .preferredColorScheme(.dark)
         .onAppear {
+            // Under the harness: no host to connect to, and the controls must stay up
+            // because they are the point of the capture.
+            guard !ShotMode.isActive else {
+                showOverlay = true
+                return
+            }
             setupStreaming()
             scheduleOverlayHide()
             // Restore lock UI state from the previous session — the host re-applies

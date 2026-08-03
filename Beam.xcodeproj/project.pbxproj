@@ -25,6 +25,7 @@
 		4EDCC4BBDD9F076C791E259E /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5B7936F96DB3C1F4A526D6B7 /* AVFoundation.framework */; };
 		5DC354AC8CE2DF5005B56ECC /* BonjourBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD7F4F94D72E42EB89E055C0 /* BonjourBrowser.swift */; };
 		5E496367CF5B6DD66C3FCFF7 /* BeamAppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2594BA6C3113019C21FE5EE /* BeamAppState.swift */; };
+		SHOT00000000000000000002 /* ShotMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHOT00000000000000000001 /* ShotMode.swift */; };
 		6278C33D41F85F23AF8D869B /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB8220BA909DEF51345ADED /* PairingView.swift */; };
 		67BDC1824E371459D5C9D21F /* QRScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99D553D14F9F3813CCB658A /* QRScanner.swift */; };
 		6AF1C01A96FB50D8F01E6BE5 /* PairingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6E4A914619A6B1C2E0BE06 /* PairingManager.swift */; };
@@ -120,6 +121,7 @@
 		BCECC1EDA79E5FC2093937B8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Beam/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 		C1557FB665B475A9C150718B /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AudioPlayer.swift; path = Beam/Streaming/AudioPlayer.swift; sourceTree = SOURCE_ROOT; };
 		C2594BA6C3113019C21FE5EE /* BeamAppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BeamAppState.swift; path = Beam/BeamAppState.swift; sourceTree = SOURCE_ROOT; };
+		SHOT00000000000000000001 /* ShotMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShotMode.swift; path = Beam/ShotMode.swift; sourceTree = SOURCE_ROOT; };
 		C9135D65FDFD011183B89FF0 /* Beam.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = Beam.entitlements; path = Beam/Beam.entitlements; sourceTree = SOURCE_ROOT; };
 		D7E6B91AC4508F3700E1B045 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Beam/Views/SettingsView.swift; sourceTree = SOURCE_ROOT; };
 		D99D553D14F9F3813CCB658A /* QRScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QRScanner.swift; path = Beam/Pairing/QRScanner.swift; sourceTree = SOURCE_ROOT; };
@@ -233,6 +235,7 @@
 				9D2756146BBF8DAB1A0A053A /* Resources */,
 				37540EAF383436D43BB9228E /* BeamApp.swift */,
 				C2594BA6C3113019C21FE5EE /* BeamAppState.swift */,
+				SHOT00000000000000000001 /* ShotMode.swift */,
 				BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */,
 				BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */,
 				BEA0C0DECAFE00000000C001 /* ConnectionRacer.swift */,
@@ -432,6 +435,7 @@
 				0C5790B90BD40678F9EBDDB5 /* BeamApp.swift in Sources */,
 				DL00000000000000BLDFILE1 /* DiagnosticLogger.swift in Sources */,
 				5E496367CF5B6DD66C3FCFF7 /* BeamAppState.swift in Sources */,
+				SHOT00000000000000000002 /* ShotMode.swift in Sources */,
 				BEA0C0DECAFE00000000F002 /* FeatureFlags.swift in Sources */,
 				BEA0C0DECAFE00000000R002 /* RemoteSetupProbe.swift in Sources */,
 				BEA0C0DECAFE00000000C002 /* ConnectionRacer.swift in Sources */,

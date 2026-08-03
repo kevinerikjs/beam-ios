@@ -284,6 +284,9 @@ final class BeamAppState: ObservableObject {
     // MARK: - Browsing
 
     func startBrowsing() {
+        // The screenshot harness supplies its own discovered host; a real Bonjour sweep
+        // would immediately clear it and leave the screen in its "searching" state.
+        guard !ShotMode.isActive else { return }
         isSearchingForMac = true
         remoteFallbackTask?.cancel()
 
@@ -494,6 +497,10 @@ final class BeamAppState: ObservableObject {
 
     /// Used by PairingView — collects all visible Beacons into discoveredHosts.
     func startBrowsingForPairing() {
+        // Same reason as startBrowsing(), plus one of its own: a simulator really can see the
+        // LAN, so a live sweep puts whatever Mac is actually on the network into a public
+        // screenshot, under its owner's name for it.
+        guard !ShotMode.isActive else { return }
         isSearchingForMac = true
         discoveredHosts = []
         bonjourBrowser.startBrowsing { [weak self] hosts in
