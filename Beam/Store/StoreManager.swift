@@ -5,10 +5,23 @@ import StoreKit
 import OSLog
 
 private let logger = Logger(subsystem: "com.beam.ios", category: "StoreManager")
+
+/// Every product id that grants the unlimited entitlement, historic ones included. Purely an
+/// ownership question: if a receipt names any of these, the user is unlocked forever.
 private let kInfoPlistProductIDsKey = "BeamIAPProductIDs"
+
+/// The discounted launch-price tier, and the regular-price tier it becomes (BEAM-28). Separate
+/// products because Apple offers no promotional pricing for non-consumables, so the only honest
+/// way to show "X now, Y later" is to have both actually exist in App Store Connect.
+private let kInfoPlistPromoProductIDsKey = "BeamIAPPromoProductIDs"
+private let kInfoPlistStandardProductIDsKey = "BeamIAPStandardProductIDs"
+
 private let kFallbackProductIDs = [
     "com.beamapp.ios.unlimited",
     "com.beam.ios.unlimited"
+]
+private let kFallbackStandardProductIDs = [
+    "com.beam.ios.unlimited.standard"
 ]
 
 final class StoreManager: ObservableObject {
@@ -18,7 +31,20 @@ final class StoreManager: ObservableObject {
     // MARK: - State
 
     @Published private(set) var isPurchased: Bool = false
+
+    /// The product a tap on the buy button actually purchases. Always one of the two below.
     @Published private(set) var product: Product? = nil
+
+    /// The discounted launch-price product.
+    @Published private(set) var promoProduct: Product? = nil
+
+    /// The regular-price product the promo counts down to.
+    ///
+    /// Expect this to be `nil` until it is created and approved in App Store Connect, and on
+    /// any device that cannot reach the store. Every promo surface treats `nil` as "we cannot
+    /// prove the price goes up, so do not claim it does" and falls back to the plain paywall.
+    @Published private(set) var standardProduct: Product? = nil
+
     @Published private(set) var activeProductID: String? = nil
     @Published private(set) var isPurchasing: Bool = false
     @Published private(set) var purchaseError: String? = nil
@@ -61,9 +87,14 @@ final class StoreManager: ObservableObject {
     }
 
     func loadProduct() async {
-        let productIDs = configuredProductIDs
-        guard !productIDs.isEmpty else {
+        let promoIDs = configuredPromoProductIDs
+        let standardIDs = configuredStandardProductIDs
+        let requested = dedupe(promoIDs + standardIDs)
+
+        guard !requested.isEmpty else {
             await MainActor.run {
+                promoProduct = nil
+                standardProduct = nil
                 product = nil
                 activeProductID = nil
                 purchaseError = "No in-app product IDs are configured."
@@ -72,30 +103,55 @@ final class StoreManager: ObservableObject {
         }
 
         do {
-            let products = try await Product.products(for: productIDs)
-            let selected = productIDs.compactMap { id in
-                products.first(where: { $0.id == id })
-            }.first
+            // `Product.products(for:)` silently omits ids the store does not know, rather than
+            // failing the whole request. That is what makes shipping the regular-price tier
+            // ahead of its App Store Connect record safe: it simply comes back missing.
+            let products = try await Product.products(for: requested)
+            let promo = firstAvailable(in: promoIDs, from: products)
+            let standard = firstAvailable(in: standardIDs, from: products)
 
             await MainActor.run {
-                product = selected
-                activeProductID = selected?.id
-                if selected != nil {
-                    purchaseError = nil
-                } else {
-                    purchaseError = "Beam Unlimited is not available yet."
-                }
+                promoProduct = promo
+                standardProduct = standard
+                recomputeOfferedProduct()
+                purchaseError = product == nil ? "Beam Unlimited is not available yet." : nil
             }
 
-            logger.info("Loaded \(products.count) product(s)")
+            logger.info("Loaded \(products.count) product(s), standard tier available: \(standard != nil)")
         } catch {
             await MainActor.run {
+                promoProduct = nil
+                standardProduct = nil
                 product = nil
                 activeProductID = nil
                 purchaseError = "Couldn't load pricing. Please try again."
             }
             logger.error("Failed to load products: \(error.localizedDescription)")
         }
+    }
+
+    /// Picks which tier is on sale right now.
+    ///
+    /// Call this after loading products, when the remote promo config changes, and when a
+    /// visible countdown reaches zero, so the button never keeps offering a price the paywall
+    /// has just finished saying has expired.
+    ///
+    /// Both fallbacks point at whichever tier did load. If the regular-price product is missing
+    /// the app keeps selling the launch price, which under-charges at worst.
+    @MainActor
+    func recomputeOfferedProduct() {
+        let offerPromo = PromoConfig.offersPromoPrice
+        let selected = offerPromo
+            ? (promoProduct ?? standardProduct)
+            : (standardProduct ?? promoProduct)
+
+        guard selected?.id != product?.id else { return }
+        product = selected
+        activeProductID = isPurchased ? activeProductID : selected?.id
+    }
+
+    private func firstAvailable(in ids: [String], from products: [Product]) -> Product? {
+        ids.compactMap { id in products.first(where: { $0.id == id }) }.first
     }
 
     // MARK: - Purchase
@@ -272,16 +328,35 @@ final class StoreManager: ObservableObject {
         }
     }
 
+    /// Every id that counts as owning Beam Unlimited. Union of the explicit entitlement list and
+    /// both sale tiers, so a tier can never be sellable without also being honoured.
     private var configuredProductIDs: [String] {
-        let fromInfoPlist = (Bundle.main.object(forInfoDictionaryKey: kInfoPlistProductIDsKey) as? [String])?
+        dedupe(infoPlistIDs(kInfoPlistProductIDsKey, fallback: kFallbackProductIDs)
+               + configuredPromoProductIDs
+               + configuredStandardProductIDs)
+    }
+
+    /// Ordered by preference: the first one the store actually knows is the one offered. That
+    /// ordering is what carries the historic bundle-id migration.
+    private var configuredPromoProductIDs: [String] {
+        dedupe(infoPlistIDs(kInfoPlistPromoProductIDsKey, fallback: kFallbackProductIDs))
+    }
+
+    private var configuredStandardProductIDs: [String] {
+        dedupe(infoPlistIDs(kInfoPlistStandardProductIDsKey, fallback: kFallbackStandardProductIDs))
+    }
+
+    private func infoPlistIDs(_ key: String, fallback: [String]) -> [String] {
+        let fromInfoPlist = (Bundle.main.object(forInfoDictionaryKey: key) as? [String])?
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty } ?? []
+        return fromInfoPlist.isEmpty ? fallback : fromInfoPlist
+    }
 
-        let source = fromInfoPlist.isEmpty ? kFallbackProductIDs : fromInfoPlist
-
+    private func dedupe(_ ids: [String]) -> [String] {
         var seen = Set<String>()
         var deduped: [String] = []
-        for id in source where seen.insert(id).inserted {
+        for id in ids where seen.insert(id).inserted {
             deduped.append(id)
         }
         return deduped

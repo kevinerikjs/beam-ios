@@ -36,6 +36,7 @@
 		AACD0000000000000000AAC2 /* AACDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACD0000000000000000AAC1 /* AACDecoder.swift */; };
 		BEA0C0DECAFE00000000I002 /* ControllerInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000I001 /* ControllerInputManager.swift */; };
 		BEA0C0DECAFE00000000F002 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */; };
+		BEA0C0DECAFE00000000P002 /* PromoConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000P001 /* PromoConfig.swift */; };
 		BEA0C0DECAFE00000000R002 /* RemoteSetupProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */; };
 		BEA0C0DECAFE00000000C002 /* ConnectionRacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000C001 /* ConnectionRacer.swift */; };
 		A3ADA28A0E5CC7F58B88246D /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EAC2D093160731796098980 /* SessionManager.swift */; };
@@ -106,6 +107,7 @@
 		AACD0000000000000000AAC1 /* AACDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AACDecoder.swift; path = Beam/Streaming/AACDecoder.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000I001 /* ControllerInputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ControllerInputManager.swift; path = Beam/Streaming/ControllerInputManager.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FeatureFlags.swift; path = Beam/Config/FeatureFlags.swift; sourceTree = SOURCE_ROOT; };
+		BEA0C0DECAFE00000000P001 /* PromoConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PromoConfig.swift; path = Beam/Config/PromoConfig.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteSetupProbe.swift; path = Beam/Network/RemoteSetupProbe.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000C001 /* ConnectionRacer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectionRacer.swift; path = Beam/Network/ConnectionRacer.swift; sourceTree = SOURCE_ROOT; };
 		9ACF70A03BF4F22D5208B421 /* ControlChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ControlChannel.swift; path = Beam/Network/ControlChannel.swift; sourceTree = SOURCE_ROOT; };
@@ -237,6 +239,7 @@
 				C2594BA6C3113019C21FE5EE /* BeamAppState.swift */,
 				SHOT00000000000000000001 /* ShotMode.swift */,
 				BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */,
+				BEA0C0DECAFE00000000P001 /* PromoConfig.swift */,
 				BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */,
 				BEA0C0DECAFE00000000C001 /* ConnectionRacer.swift */,
 				PH0000000000000000000009 /* Analytics.swift */,
@@ -437,6 +440,7 @@
 				5E496367CF5B6DD66C3FCFF7 /* BeamAppState.swift in Sources */,
 				SHOT00000000000000000002 /* ShotMode.swift in Sources */,
 				BEA0C0DECAFE00000000F002 /* FeatureFlags.swift in Sources */,
+				BEA0C0DECAFE00000000P002 /* PromoConfig.swift in Sources */,
 				BEA0C0DECAFE00000000R002 /* RemoteSetupProbe.swift in Sources */,
 				BEA0C0DECAFE00000000C002 /* ConnectionRacer.swift in Sources */,
 				D9AADD4C2136A9B3E9FBE69B /* Protocol.swift in Sources */,

@@ -58,6 +58,7 @@ struct BeamApp: App {
                     if ShotMode.isActive { ShotMode.seed(appState); return }
                     evaluateWhatsNew()
                     FeatureFlags.shared.refresh()
+                    PromoConfig.shared.refresh()
                 }
                 // A feature can latch on mid-session; surface its notice as soon as it does.
                 .onChange(of: flags.unlocked) { _ in evaluateWhatsNew() }
@@ -155,7 +156,12 @@ struct RootView: View {
             appState.handleScenePhaseChange(phase)
             // Re-check flags on every foreground: a user who was offline at launch (or on a
             // LAN with no internet) gets the unlock the moment they next have connectivity.
-            if phase == .active { FeatureFlags.shared.refresh() }
+            if phase == .active {
+                FeatureFlags.shared.refresh()
+                // Also on foreground, so a promo Kevin ended server-side goes quiet without
+                // waiting for a cold launch.
+                PromoConfig.shared.refresh()
+            }
             DiagnosticLogger.shared.log(
                 "Scene phase → \(phase.name) (streaming=\(appState.isStreaming))",
                 category: "Lifecycle"

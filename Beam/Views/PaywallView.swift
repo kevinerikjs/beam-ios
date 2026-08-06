@@ -10,7 +10,12 @@ struct PaywallView: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = StoreManager.shared
+    @ObservedObject private var promoConfig = PromoConfig.shared
     @State private var showSuccess = false
+    @State private var now = Date()
+    @State private var showingCountdown = false
+
+    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var paywallReason: String { triggeredByExpiry ? "session_expired" : "manual" }
 
@@ -19,6 +24,43 @@ struct PaywallView: View {
             return "Purchase Beam Unlimited for \(product.displayPrice)"
         }
         return "Load Beam Unlimited Pricing"
+    }
+
+    // MARK: - Promo
+
+    /// Everything needed to state a limited-time price truthfully, or nothing at all (BEAM-28).
+    ///
+    /// Each condition below is load-bearing, and any one of them failing takes the whole promo
+    /// off screen rather than degrading it:
+    ///
+    ///   - a fresh server config with a future absolute deadline (see `PromoConfig`),
+    ///   - both products live in StoreKit, so both prices are real and in the user's currency,
+    ///   - the discounted one is genuinely the one on sale right now,
+    ///   - and the "regular" price is genuinely higher than it.
+    ///
+    /// The last check is the one that makes a broken promo impossible rather than merely
+    /// unlikely: if App Store Connect ever holds two products the same price, the app stops
+    /// claiming a rise instead of counting down to nothing.
+    private struct PromoOffer {
+        let countdown: PromoConfig.Countdown
+        let currentPrice: String
+        let futurePrice: String
+    }
+
+    private var promoOffer: PromoOffer? {
+        guard !store.isPurchased,
+              let countdown = promoConfig.activeCountdown, !countdown.hasExpired,
+              let promoProduct = store.promoProduct,
+              let standardProduct = store.standardProduct,
+              store.product?.id == promoProduct.id,
+              standardProduct.price > promoProduct.price
+        else { return nil }
+
+        return PromoOffer(
+            countdown: countdown,
+            currentPrice: promoProduct.displayPrice,
+            futurePrice: standardProduct.displayPrice
+        )
     }
 
     var body: some View {
@@ -101,6 +143,12 @@ struct PaywallView: View {
 
                 Spacer()
 
+                if let offer = promoOffer {
+                    promoBanner(offer)
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 14)
+                }
+
                 // CTA + actions
                 VStack(spacing: 12) {
                     Button {
@@ -141,6 +189,22 @@ struct PaywallView: View {
                         Text("Fetching live App Store pricing…")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
+                    }
+
+                    if let offer = promoOffer {
+                        VStack(spacing: 3) {
+                            // Generated from StoreKit, never from remote copy, so it is right
+                            // in every storefront and cannot drift from what is charged.
+                            Text("Then \(offer.futurePrice)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if let note = offer.countdown.note {
+                                Text(note)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .multilineTextAlignment(.center)
+                            }
+                        }
                     }
 
                     HStack(spacing: 20) {
@@ -200,10 +264,28 @@ struct PaywallView: View {
         .preferredColorScheme(.dark)
         .onAppear { Analytics.paywallShown(reason: paywallReason) }
         .task {
+            // Kick the config fetch and the store load together. The paywall renders from the
+            // cached config immediately either way, so nothing here blocks the first frame.
+            promoConfig.refresh()
             await store.refreshStoreState()
             if store.isPurchased {
                 dismiss()
             }
+        }
+        .onReceive(ticker) { tick in
+            let visible = promoOffer != nil
+            // Only churn the view while a countdown is actually on screen.
+            if visible { now = tick }
+            if showingCountdown != visible {
+                showingCountdown = visible
+                // The deadline can pass with the paywall open. `activeCountdown` goes nil of its
+                // own accord at that instant; this makes the button follow in the same tick, so
+                // the price rise the countdown promised is one the user can watch happen.
+                store.recomputeOfferedProduct()
+            }
+        }
+        .onChange(of: promoConfig.revision) { _ in
+            store.recomputeOfferedProduct()
         }
         .onChange(of: store.isPurchased) { purchased in
             if purchased {
@@ -211,6 +293,53 @@ struct PaywallView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { dismiss() }
             }
         }
+    }
+
+    // MARK: - Promo banner
+
+    @ViewBuilder
+    private func promoBanner(_ offer: PromoOffer) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "clock.fill")
+                .font(.callout)
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(offer.countdown.headline)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                if let remaining = offer.countdown.formattedRemaining {
+                    Text("Ends in \(remaining)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.orange.opacity(0.85))
+                        // Redrawn by the ticker below, off one fixed absolute deadline. There
+                        // is no per-install clock here to reset.
+                        .id(now)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(offer.futurePrice)
+                    .font(.caption)
+                    .strikethrough()
+                    .foregroundStyle(.tertiary)
+                Text(offer.currentPrice)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.orange.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.orange.opacity(0.22), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
     }
 
     private var featureDivider: some View {

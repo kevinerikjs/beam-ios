@@ -29,6 +29,7 @@ struct SettingsView: View {
                         subscriptionCard
                         remoteAccessCard
                         supportCard
+                        aboutCard
                         #if DEBUG
                         debugCard
                         #endif
@@ -431,6 +432,83 @@ struct SettingsView: View {
                     .padding(.vertical, 14)
                 }
 
+            }
+            .background(Color.white.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    // MARK: - About card (BEAM-27)
+
+    /// AGPL-3.0 section 5 requires an interactive program to carry Appropriate Legal Notices:
+    /// the licence it is under, and where the corresponding source can be had. That is the
+    /// compliance floor. It sits in Settings rather than buried in a web page because for a
+    /// screen-streaming app the honest answer to "what is this thing doing with my screen"
+    /// is "read it yourself", and that is worth saying out loud.
+    private var aboutCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("About")
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Version")
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text(WhatsNewManager.appVersion)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                cardDivider
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Text("Open Source")
+                            .foregroundStyle(.white)
+                            .fontWeight(.medium)
+                    }
+                    Text("Beam is free software under the GNU Affero General Public License, version 3. You can read the source, build it yourself, and pass it on under the same licence.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                cardDivider
+
+                Link(destination: URL(string: "https://github.com/kevinerikjs/beam-ios")!) {
+                    HStack {
+                        Text("View Source on GitHub")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+
+                cardDivider
+
+                Link(destination: URL(string: "https://www.gnu.org/licenses/agpl-3.0.html")!) {
+                    HStack {
+                        Text("Read the AGPL-3.0 Licence")
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
             }
             .background(Color.white.opacity(0.07))
             .clipShape(RoundedRectangle(cornerRadius: 14))
