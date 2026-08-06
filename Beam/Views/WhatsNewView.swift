@@ -25,11 +25,6 @@ struct ChangeEntry: Identifiable {
 /// Ships with the release. Must NOT mention any feature that is still behind a flag.
 private let versionChangelog: [ChangeEntry] = [
     ChangeEntry(
-        icon: "arrow.left.and.right.righttriangle.left.righttriangle.right",
-        title: "Teleprompter Mode Is Back",
-        detail: "Flip the picture horizontally or vertically so it reads the right way round through teleprompter glass. This went missing in version 2.0 by mistake. It is back where it was, in Settings and in the gear menu while you stream."
-    ),
-    ChangeEntry(
         icon: "chevron.left.forwardslash.chevron.right",
         title: "Beam Is Open Source",
         detail: "Beam and Beacon are both public now, under the AGPL. Beam carries your Mac's screen and audio, so rather than asking you to trust that nothing else happens to them, you can read the code and check. The links are in Settings, under About."

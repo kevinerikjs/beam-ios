@@ -1,0 +1,48 @@
+{
+  "identifier" : "B3A1D6F0-4C21-4E88-9E77-2C5A9F1D0B44",
+  "nonRenewingSubscriptions" : [
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.79",
+      "familyShareable" : false,
+      "internalID" : "6760155321",
+      "localizations" : [
+        {
+          "description" : "Unlimited streaming, no session limit.",
+          "displayName" : "Beam Unlimited",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.beamapp.ios.unlimited",
+      "referenceName" : "Beam Unlimited (launch price)",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "7.99",
+      "familyShareable" : false,
+      "internalID" : "6798754905",
+      "localizations" : [
+        {
+          "description" : "Unlimited streaming, no session limit.",
+          "displayName" : "Beam Unlimited",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.beamapp.ios.unlimited.expanded",
+      "referenceName" : "Beam Unlimited (standard price)",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6760154962",
+    "_developerTeamID" : "R4KDRC8S4D",
+    "_lastSynchronizedDate" : 0
+  },
+  "subscriptionGroups" : [
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

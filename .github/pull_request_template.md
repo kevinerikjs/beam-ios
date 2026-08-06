@@ -4,8 +4,9 @@
 
 ## How you tested it
 
-<!-- The simulator cannot do Bonjour discovery, streaming, or audio. Which iPhone,
-     which iOS, which Mac running Beacon? A PR that only compiles has not been tested. -->
+<!-- Which device or simulator, which iOS, and which Mac running Beacon? The simulator
+     handles discovery, streaming and audio fine, but PiP, background audio and real network
+     conditions need a physical device. A PR that only compiles has not been tested. -->
 
 ## Checklist
 

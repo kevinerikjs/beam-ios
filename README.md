@@ -80,9 +80,10 @@ open Beam.xcodeproj
 
 Select the `Beam` scheme and a **real device** as the destination, then Run.
 
-> The simulator cannot do Bonjour discovery, real network streaming, or audio playback, so it
-> cannot run Beam in any meaningful way. Development requires a physical iPhone and a Mac running
-> Beacon.
+> The simulator works for most development: it shares the host's network stack, so Bonjour
+> discovery, streaming from a Beacon host, and audio playback all function. Test on a physical
+> device before shipping anyway, since PiP behaviour, background audio, thermals, and real network
+> conditions are where simulator and device diverge.
 
 Note that running your own build on your own phone needs a paid Apple Developer account. With a
 free provisioning profile the app expires and has to be re-signed every seven days.
