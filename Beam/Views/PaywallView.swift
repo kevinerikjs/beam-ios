@@ -384,24 +384,24 @@ private struct EmberPurchaseButton: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    // One hue, lit from above. The previous fill ran amber to orange horizontally, which
-    // swung the hue 22.5 degrees (the visible-drift threshold is 10) and, more importantly,
-    // crossed the L 0.73 boundary where the correct text colour flips. Black was right on the
-    // left half of the button and wrong on the right, which is why the contrast felt unsettled
-    // without anything looking obviously broken.
+    // Bright amber with black text, which is what the app's accent actually is and what every
+    // other orange element on this screen agrees with.
     //
-    // Both stops now sit below that boundary at a constant hue, so white is correct across the
-    // whole surface, and the ramp is vertical because surfaces are lit from the top.
-    //   top    oklch(0.720 0.185 52)
-    //   bottom oklch(0.662 0.170 52)   both gamut-clamped to sRGB
-    private let fillTop = Color(red: 251/255, green: 124/255, blue: 1/255)
-    private let fillBottom = Color(red: 225/255, green: 110/255, blue: 0/255)
+    // The original fill ran amber to orange horizontally and crossed the L 0.73 boundary where
+    // the correct text colour flips, so black was right on the left half of the button and wrong
+    // on the right. The fix is not to darken it and go white: that loses the accent. It is to
+    // keep the whole surface above the boundary at one hue, so black is correct edge to edge.
+    //   top    oklch(0.812 0.156 72)
+    //   bottom oklch(0.762 0.162 72)   both gamut-clamped to sRGB
+    // Vertical, because surfaces are lit from above.
+    private let fillTop = Color(red: 255/255, green: 175/255, blue: 56/255)
+    private let fillBottom = Color(red: 240/255, green: 158/255, blue: 7/255)
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 3) {
                 if isBusy {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(.black)
                         .frame(height: 26)
                 } else {
                     Text(headline)
@@ -414,7 +414,7 @@ private struct EmberPurchaseButton: View {
                             // Proportional digits make a live countdown shift the line every
                             // second it redraws.
                             .monospacedDigit()
-                            .opacity(0.86)
+                            .opacity(0.72)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -423,11 +423,10 @@ private struct EmberPurchaseButton: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, detail == nil ? 19 : 15)
             .background(background)
-            .foregroundStyle(.white)
+            .foregroundStyle(.black)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            // Elevation, not a glow. A coloured halo is the single most web-looking thing a
-            // button can do; iOS lifts a surface with a tight, near-neutral shadow.
-            .shadow(color: .black.opacity(0.28), radius: 12, y: 6)
+            // No shadow. A black shadow does nothing under a bright fill on a near-black sheet,
+            // and a coloured halo would restate the glow the icon already carries.
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityElement(children: .combine)
@@ -444,7 +443,7 @@ private struct EmberPurchaseButton: View {
             // moving fill under the one control that takes money reads as a promotion rather
             // than a control.
             LinearGradient(
-                colors: [Color.white.opacity(0.16), .clear],
+                colors: [Color.white.opacity(0.10), .clear],
                 startPoint: .top,
                 endPoint: .center
             )
