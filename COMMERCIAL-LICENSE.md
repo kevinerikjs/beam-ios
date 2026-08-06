@@ -29,10 +29,8 @@ If you want to build on Beam **without** the AGPL's source disclosure obligation
 inside a closed source product, a proprietary appliance, or an app you ship under terms that
 conflict with copyleft, you need a commercial license.
 
-These are negotiable, and we would like to hear from you. There is no fixed price list, because
-the sensible terms for a solo developer shipping a side project and for a company embedding
-Beam in a hardware product are not the same. Depending on what you are building, an arrangement
-might be a one time fee, per seat, a revenue share, or something else entirely.
+These are negotiable, and we would like to hear from you. Depending on what you are building, an
+arrangement might be a one time fee, per seat, a revenue share, or something else entirely.
 
 Get in touch and describe what you have in mind:
 
