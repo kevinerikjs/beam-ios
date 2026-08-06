@@ -25,29 +25,14 @@ struct ChangeEntry: Identifiable {
 /// Ships with the release. Must NOT mention any feature that is still behind a flag.
 private let versionChangelog: [ChangeEntry] = [
     ChangeEntry(
-        icon: "globe",
-        title: "Stream From Anywhere",
-        detail: "With Beam Unlimited you can now watch your Mac when you're away from home, over your own Tailscale network. Your Mac shares its address automatically the first time you stream, so there's nothing to set up."
+        icon: "arrow.left.and.right.righttriangle.left.righttriangle.right",
+        title: "Teleprompter Mode Is Back",
+        detail: "Flip the picture horizontally or vertically so it reads the right way round through teleprompter glass. This went missing in version 2.0 by mistake. It is back where it was, in Settings and in the gear menu while you stream."
     ),
     ChangeEntry(
-        icon: "waveform",
-        title: "Much Better Audio",
-        detail: "Audio now uses far less of your connection than before, which keeps it clear on mobile data and stops it competing with the picture."
-    ),
-    ChangeEntry(
-        icon: "antenna.radiowaves.left.and.right",
-        title: "Connection Quality At A Glance",
-        detail: "When you stream from away, a badge shows whether you have a fast direct connection or a slower relayed one, so you can tell your connection apart from the app."
-    ),
-    ChangeEntry(
-        icon: "arrow.triangle.2.circlepath",
-        title: "Smoother Reconnects",
-        detail: "If your connection drops or you move between WiFi and mobile data, Beam holds the stream and reconnects instead of sending you back to the start."
-    ),
-    ChangeEntry(
-        icon: "slider.horizontal.3",
-        title: "Separate Quality Away From Home",
-        detail: "Your away-from-home quality is now remembered separately from your home setting, so a choice made on mobile data doesn't follow you back to your own network."
+        icon: "chevron.left.forwardslash.chevron.right",
+        title: "Beam Is Open Source",
+        detail: "Beam and Beacon are both public now, under the AGPL. Beam carries your Mac's screen and audio, so rather than asking you to trust that nothing else happens to them, you can read the code and check. The links are in Settings, under About."
     ),
 ]
 
