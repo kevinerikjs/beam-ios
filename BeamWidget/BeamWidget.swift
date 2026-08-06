@@ -1,4 +1,4 @@
-// BeamWidget.swift
+tuff // BeamWidget.swift
 // Lock screen and home screen widgets for one-tap stream start.
 //
 // Supports:

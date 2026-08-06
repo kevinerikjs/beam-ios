@@ -64,6 +64,18 @@ struct PaywallView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
+            // A paywall that scrolls hides its own call to action, so everything has to fit.
+            // Below roughly an iPhone SE the full-size layout cannot, and the parts that give
+            // way first are decoration: the icon shrinks, the tagline goes, the feature rows
+            // tighten to one line each. Nothing that carries meaning is dropped.
+            let compact = geo.size.height < 720
+            content(compact: compact)
+        }
+    }
+
+    @ViewBuilder
+    private func content(compact: Bool) -> some View {
         ZStack {
             Color(red: 0.039, green: 0.039, blue: 0.043).ignoresSafeArea()
 
@@ -84,11 +96,11 @@ struct PaywallView: View {
                 Spacer()
 
                 // Icon + headline
-                VStack(spacing: 14) {
+                VStack(spacing: compact ? 8 : 14) {
                     Image("BrandFullIcon")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 56, height: 56)
+                        .frame(width: compact ? 40 : 56, height: compact ? 40 : 56)
                         .shadow(color: Color(red: 245/255, green: 158/255, blue: 11/255).opacity(0.35), radius: 16)
 
                     VStack(spacing: 6) {
@@ -96,11 +108,13 @@ struct PaywallView: View {
                             .font(.title2.weight(.bold))
                             .foregroundStyle(.white)
 
-                        Text("Stream freely, without limits.\nOne purchase. Yours forever.")
+                        if !compact {
+                            Text("Stream freely, without limits.\nOne purchase. Yours forever.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .lineSpacing(3)
+                        }
                     }
                 }
                 .padding(.horizontal, 32)
@@ -110,30 +124,35 @@ struct PaywallView: View {
                 // Features
                 VStack(spacing: 0) {
                     UnlimitedFeatureRow(
+                        compact: compact,
                         icon: "infinity",
                         title: "No session limits",
                         subtitle: "Stream as long as you need, with no timers and no cutoffs"
                     )
                     featureDivider
                     UnlimitedFeatureRow(
+                        compact: compact,
                         icon: "pip.fill",
                         title: "Picture-in-Picture",
                         subtitle: "Keep your stream visible while using other apps"
                     )
                     featureDivider
                     UnlimitedFeatureRow(
+                        compact: compact,
                         icon: "playpause.fill",
                         title: "Full media controls",
                         subtitle: "Play, pause, and skip directly from your iPhone"
                     )
                     featureDivider
                     UnlimitedFeatureRow(
+                        compact: compact,
                         icon: "globe",
                         title: "Stream from anywhere",
                         subtitle: "Reach your Mac when you're away from home, over your own Tailscale network"
                     )
                     featureDivider
                     UnlimitedFeatureRow(
+                        compact: compact,
                         icon: "lock.open.fill",
                         title: "One-time unlock",
                         subtitle: "Pay once, keep forever."
@@ -143,15 +162,15 @@ struct PaywallView: View {
 
                 Spacer()
 
-                if let offer = promoOffer {
-                    promoBanner(offer)
-                        .padding(.horizontal, 28)
-                        .padding(.bottom, 14)
-                }
-
                 // CTA + actions
                 VStack(spacing: 12) {
-                    Button {
+                    EmberPurchaseButton(
+                        headline: ctaHeadline,
+                        strikePrice: promoOffer?.futurePrice,
+                        detail: ctaDetail,
+                        isBusy: store.isPurchasing,
+                        isEmber: promoOffer != nil
+                    ) {
                         Task {
                             if store.product == nil {
                                 await store.loadProduct()
@@ -159,53 +178,11 @@ struct PaywallView: View {
                                 await store.purchase()
                             }
                         }
-                    } label: {
-                        Group {
-                            if store.isPurchasing {
-                                ProgressView().tint(.black)
-                            } else {
-                                Text(priceLabel)
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 245/255, green: 158/255, blue: 11/255),
-                                    Color(red: 249/255, green: 115/255, blue: 22/255)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .foregroundStyle(.black)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
                     .disabled(store.isPurchasing)
-
-                    if store.product == nil {
-                        Text("Fetching live App Store pricing…")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    if let offer = promoOffer {
-                        VStack(spacing: 3) {
-                            // Generated from StoreKit, never from remote copy, so it is right
-                            // in every storefront and cannot drift from what is charged.
-                            Text("Then \(offer.futurePrice)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            if let note = offer.countdown.note {
-                                Text(note)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                    .multilineTextAlignment(.center)
-                            }
-                        }
-                    }
+                    // Redrawn by the ticker, off one fixed absolute deadline. There is no
+                    // per-install clock here to reset.
+                    .id(now)
 
                     HStack(spacing: 20) {
                         Button(triggeredByExpiry ? "Try again tomorrow" : "Maybe later") {
@@ -250,8 +227,8 @@ struct PaywallView: View {
                     .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 32)
-                .padding(.top, 20)
-                .padding(.bottom, 28)
+                .padding(.top, compact ? 10 : 20)
+                .padding(.bottom, compact ? 14 : 28)
             }
             .opacity(showSuccess ? 0 : 1)
 
@@ -295,51 +272,28 @@ struct PaywallView: View {
         }
     }
 
-    // MARK: - Promo banner
+    // MARK: - CTA copy
 
-    @ViewBuilder
-    private func promoBanner(_ offer: PromoOffer) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "clock.fill")
-                .font(.callout)
-                .foregroundStyle(.orange)
+    /// Everything the offer needs to say lives on the button, so there is one thing to read
+    /// and one thing to tap. Both strings come from StoreKit and the countdown, never from
+    /// remote copy, so they cannot drift from what is actually charged.
+    private var ctaHeadline: String {
+        guard let offer = promoOffer else { return priceLabel }
+        return "Unlock now for \(offer.currentPrice)"
+    }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(offer.countdown.headline)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-
-                if let remaining = offer.countdown.formattedRemaining {
-                    Text("Ends in \(remaining)")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.orange.opacity(0.85))
-                        // Redrawn by the ticker below, off one fixed absolute deadline. There
-                        // is no per-install clock here to reset.
-                        .id(now)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            VStack(alignment: .trailing, spacing: 1) {
-                Text(offer.futurePrice)
-                    .font(.caption)
-                    .strikethrough()
-                    .foregroundStyle(.tertiary)
-                Text(offer.currentPrice)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
+    /// Answers, in one line: what this is, when it ends, how long is left, and what it costs
+    /// afterwards. The date is absolute so it survives the app being closed; the remaining
+    /// time is relative so it reads as urgent.
+    private var ctaDetail: String? {
+        guard let offer = promoOffer else { return nil }
+        let ends = offer.countdown.deadline.formatted(.dateTime.day().month(.abbreviated))
+        var parts = ["\(offer.countdown.headline) ends \(ends)"]
+        if let remaining = offer.countdown.formattedRemaining {
+            parts.append("\(remaining) left")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.orange.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.orange.opacity(0.22), lineWidth: 1)
-        )
-        .accessibilityElement(children: .combine)
+        parts.append("then \(offer.futurePrice) for good")
+        return parts.joined(separator: "  ·  ")
     }
 
     private var featureDivider: some View {
@@ -378,6 +332,7 @@ struct PaywallView: View {
 // MARK: - Feature Row
 
 private struct UnlimitedFeatureRow: View {
+    let compact: Bool
     let icon: String
     let title: String
     let subtitle: String
@@ -397,12 +352,110 @@ private struct UnlimitedFeatureRow: View {
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.white)
                 Text(subtitle)
-                    .font(.subheadline)
+                    .font(compact ? .caption : .subheadline)
                     .foregroundStyle(.secondary)
                     .lineSpacing(1)
+                    .lineLimit(compact ? 1 : nil)
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, compact ? 8 : 14)
+    }
+}
+
+// MARK: - Ember purchase button
+
+/// The single call to action. It carries the whole offer, so the paywall does not need a
+/// separate banner above it and a line of small print below it competing for the same glance.
+///
+/// The ember treatment is on a timer rather than a Metal shader because the deployment target
+/// is iOS 16 and `.colorEffect` is iOS 17+. A drifting radial highlight over the brand gradient
+/// gets the same "still warm" read at a fraction of the complexity, and it degrades to a flat
+/// gradient under Reduce Motion, where a permanently animating buy button would be hostile.
+private struct EmberPurchaseButton: View {
+    let headline: String
+    let strikePrice: String?
+    let detail: String?
+    let isBusy: Bool
+    let isEmber: Bool
+    let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let amber = Color(red: 245/255, green: 158/255, blue: 11/255)
+    private let orange = Color(red: 249/255, green: 115/255, blue: 22/255)
+    private let deep = Color(red: 234/255, green: 88/255, blue: 12/255)
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: detail == nil ? 0 : 3) {
+                if isBusy {
+                    ProgressView().tint(.black)
+                } else {
+                    HStack(spacing: 8) {
+                        Text(headline)
+                            .font(.headline.weight(.semibold))
+                        if let strikePrice {
+                            Text(strikePrice)
+                                .font(.subheadline)
+                                .strikethrough()
+                                .opacity(0.55)
+                        }
+                    }
+                    if let detail {
+                        Text(detail)
+                            .font(.caption.weight(.medium))
+                            .opacity(0.72)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, detail == nil ? 17 : 13)
+            .background(background)
+            .foregroundStyle(.black)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: orange.opacity(isEmber ? 0.35 : 0), radius: 18, y: 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(detail.map { "\(headline). \($0)" } ?? headline)
+    }
+
+    private var base: LinearGradient {
+        LinearGradient(colors: [amber, orange], startPoint: .leading, endPoint: .trailing)
+    }
+
+    @ViewBuilder
+    private var background: some View {
+        if isEmber && !reduceMotion {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                // Two coprime periods so the highlight never lands in the same place twice
+                // in a row, which is what stops it reading as a mechanical sweep.
+                let x = 0.5 + 0.42 * sin(t / 3.1)
+                let y = 0.5 + 0.18 * sin(t / 2.3)
+                ZStack {
+                    base
+                    RadialGradient(
+                        colors: [Color.white.opacity(0.32), .clear],
+                        center: UnitPoint(x: x, y: y),
+                        startRadius: 2,
+                        endRadius: 150
+                    )
+                    RadialGradient(
+                        colors: [deep.opacity(0.55), .clear],
+                        center: UnitPoint(x: 1 - x, y: 1 - y),
+                        startRadius: 2,
+                        endRadius: 190
+                    )
+                    .blendMode(.multiply)
+                }
+                .drawingGroup()
+            }
+        } else {
+            base
+        }
     }
 }
