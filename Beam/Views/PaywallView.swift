@@ -384,20 +384,26 @@ private struct EmberPurchaseButton: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let amber = Color(red: 245/255, green: 158/255, blue: 11/255)
-    private let orange = Color(red: 249/255, green: 115/255, blue: 22/255)
-    private let deep = Color(red: 234/255, green: 88/255, blue: 12/255)
+    // One hue, lit from above. The previous fill ran amber to orange horizontally, which
+    // swung the hue 22.5 degrees (the visible-drift threshold is 10) and, more importantly,
+    // crossed the L 0.73 boundary where the correct text colour flips. Black was right on the
+    // left half of the button and wrong on the right, which is why the contrast felt unsettled
+    // without anything looking obviously broken.
+    //
+    // Both stops now sit below that boundary at a constant hue, so white is correct across the
+    // whole surface, and the ramp is vertical because surfaces are lit from the top.
+    //   top    oklch(0.720 0.185 52)
+    //   bottom oklch(0.662 0.170 52)   both gamut-clamped to sRGB
+    private let fillTop = Color(red: 251/255, green: 124/255, blue: 1/255)
+    private let fillBottom = Color(red: 225/255, green: 110/255, blue: 0/255)
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 3) {
                 if isBusy {
-                    ProgressView().tint(.black)
+                    ProgressView().tint(.white)
                         .frame(height: 26)
                 } else {
-                    // One dominant element. The price was competing with a strikethrough at a
-                    // near-identical size, so the strike moved down to the terms line where it
-                    // belongs and this is now the only thing at this weight.
                     Text(headline)
                         .font(.title3.weight(.semibold))
                         .tracking(-0.2)
@@ -405,10 +411,10 @@ private struct EmberPurchaseButton: View {
                     if let detail {
                         Text(detail)
                             .font(.footnote.weight(.medium))
-                            // Proportional digits make a live countdown shift the whole line
-                            // every second it redraws.
+                            // Proportional digits make a live countdown shift the line every
+                            // second it redraws.
                             .monospacedDigit()
-                            .opacity(0.78)
+                            .opacity(0.86)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -417,51 +423,31 @@ private struct EmberPurchaseButton: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, detail == nil ? 19 : 15)
             .background(background)
-            .foregroundStyle(.black)
+            .foregroundStyle(.white)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: orange.opacity(isEmber ? 0.34 : 0.18), radius: 20, y: 8)
+            // Elevation, not a glow. A coloured halo is the single most web-looking thing a
+            // button can do; iOS lifts a surface with a tight, near-neutral shadow.
+            .shadow(color: .black.opacity(0.28), radius: 12, y: 6)
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(detail.map { "\(headline). \($0)" } ?? headline)
     }
 
-    private var base: LinearGradient {
-        LinearGradient(colors: [amber, orange], startPoint: .leading, endPoint: .trailing)
-    }
-
     @ViewBuilder
     private var background: some View {
-        if isEmber && !reduceMotion {
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                // Two coprime periods so the highlight never lands in the same place twice in
-                // a row, which is what stops it reading as a mechanical sweep.
-                let x = 0.5 + 0.42 * sin(t / 3.1)
-                let y = 0.5 + 0.18 * sin(t / 2.3)
-                ZStack {
-                    base
-                    // Kept well under half opacity: this sits behind black text, and a bright
-                    // wash moving under the terms line is the difference between warm and
-                    // unreadable.
-                    RadialGradient(
-                        colors: [Color.white.opacity(0.20), .clear],
-                        center: UnitPoint(x: x, y: y),
-                        startRadius: 4,
-                        endRadius: 170
-                    )
-                    RadialGradient(
-                        colors: [deep.opacity(0.42), .clear],
-                        center: UnitPoint(x: 1 - x, y: 1 - y),
-                        startRadius: 4,
-                        endRadius: 200
-                    )
-                    .blendMode(.multiply)
-                }
-                .drawingGroup()
-            }
-        } else {
-            base
+        ZStack {
+            LinearGradient(colors: [fillTop, fillBottom], startPoint: .top, endPoint: .bottom)
+
+            // A specular sheen along the top edge, the way a physical control catches light.
+            // Static: iOS does not run ambient animation on its buttons, and a permanently
+            // moving fill under the one control that takes money reads as a promotion rather
+            // than a control.
+            LinearGradient(
+                colors: [Color.white.opacity(0.16), .clear],
+                startPoint: .top,
+                endPoint: .center
+            )
         }
     }
 }
