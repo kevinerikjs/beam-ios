@@ -88,6 +88,24 @@ Select the `Beam` scheme and a **real device** as the destination, then Run.
 Note that running your own build on your own phone needs a paid Apple Developer account. With a
 free provisioning profile the app expires and has to be re-signed every seven days.
 
+### The feedback secret
+
+`Info.plist` declares `BeamFeedbackSecret` as `$(BEAM_FEEDBACK_SECRET)`, which is empty unless you
+supply it. That is expected, and your build works fine without it: the feedback endpoint accepts
+unsigned reports and only uses this value to mark one as coming from an official build.
+
+Official builds supply it two ways:
+
+```bash
+# local archive
+xcodebuild archive -scheme Beam ... BEAM_FEEDBACK_SECRET=<value>
+```
+
+On Xcode Cloud it comes from a secret workflow environment variable of the same name, which
+`ci_scripts/ci_post_clone.sh` writes into `Info.plist` before the build. Xcode Cloud exposes
+workflow variables to that script but not to `xcodebuild`'s build settings, which is why the
+script exists rather than the substitution just working.
+
 ## Project layout
 
 ```
