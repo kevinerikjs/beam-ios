@@ -179,8 +179,10 @@ Copyright © Kevin Erik Iin.
 
 | Branch | Purpose |
 | --- | --- |
-| `main` | Production, protected. Updated only via PR from `develop`. Merging triggers an Xcode Cloud build to App Store Connect. |
+| `main` | Production. Any push triggers an Xcode Cloud build. |
 | `develop` | Active development. Feature work and fixes go here. |
 
-Do not push directly to `main`, so Xcode Cloud always picks up a clean merge commit. Archiving and
-signing are handled by Xcode Cloud; there is no manual upload step.
+The Xcode Cloud workflow has a single `ARCHIVE` action and no post-actions, so a build produces an
+archive in App Store Connect and stops there. It does **not** submit anything for review, which
+still takes a deliberate step in App Store Connect. Worth knowing before you push to `main`, since
+the trigger is any ref change on that branch rather than a merge specifically.
