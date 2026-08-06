@@ -44,11 +44,10 @@ in mind that shipping a fix means App Store review, so the window is realistical
 a web service. If it is taking too long, say so and we will agree a date rather than let it drift.
 Release notes will credit you unless you would rather stay anonymous.
 
-There is no bug bounty. This is a one-person project and there is no budget for one, which is worth
-saying plainly rather than leaving you to find out after the work.
+There is no bug bounty. This is a one-person project with no budget for one.
 
 ## Scope of this policy
 
 This policy covers Beam for iOS (this repository) and
-[Beacon for macOS](https://github.com/kevinerikjs/beam-macos). Report issues in either to the same
+[Beacon for macOS](https://github.com/kevinerikjs/beacon-macos). Report issues in either to the same
 address.

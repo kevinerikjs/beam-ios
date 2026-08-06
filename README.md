@@ -2,13 +2,13 @@
 
 **Watch your Mac's screen on your iPhone.**
 
-Beam connects to a Mac running [Beacon](https://github.com/kevinerikjs/beam-macos) and plays its
+Beam connects to a Mac running [Beacon](https://github.com/kevinerikjs/beacon-macos) and plays its
 screen and audio, over your local network. It supports Picture-in-Picture, media controls, viewport
 locking, and quality selection. No cables, no cloud, no account, and nothing leaves your network.
 
 ### [Get Beam on the App Store](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962)
 
-You will also need **[Beacon](https://github.com/kevinerikjs/beacon-releases/releases/latest/download/Beacon.dmg)**,
+You will also need **[Beacon](https://github.com/kevinerikjs/beacon-macos/releases/latest/download/Beacon.dmg)**,
 the free macOS companion app, on the Mac you want to stream from.
 
 > **Why the source is here.** Beam is on the other end of a link that carries your Mac's screen and
@@ -43,9 +43,8 @@ Beam has two dependencies, both MIT licensed and both compatible with the AGPL:
 Everything in the streaming path is Apple frameworks. There are no third-party networking, video,
 or audio libraries.
 
-On analytics, since this is the sort of thing worth being specific about rather than reassuring
-about: the entire surface is one small file, [`Beam/Analytics.swift`](./Beam/Analytics.swift), and
-you can read all of it in a minute.
+The entire analytics surface is one small file, [`Beam/Analytics.swift`](./Beam/Analytics.swift),
+readable in a minute. What it does:
 
 - It is **anonymous**. No accounts, no email, no device identifiers, no PII.
 - **Screen view capture is off** (`captureScreenViews = false`).
@@ -58,7 +57,7 @@ you can read all of it in a minute.
 ## Requirements
 
 - iOS 16.0 or later (the optional home screen widget needs a newer iOS)
-- A Mac on the same network running [Beacon](https://github.com/kevinerikjs/beam-macos)
+- A Mac on the same network running [Beacon](https://github.com/kevinerikjs/beacon-macos)
 - Xcode 15 or later, if you are building rather than installing
 
 ## Free tier and unlocking
@@ -119,7 +118,7 @@ Beam/
 ```
 
 `Streaming/Protocol.swift` must stay in sync with its counterpart in
-[beam-macos](https://github.com/kevinerikjs/beam-macos). Changing one side alone breaks streaming,
+[beam-macos](https://github.com/kevinerikjs/beacon-macos). Changing one side alone breaks streaming,
 so protocol changes need to land in both repos together.
 
 ## Contributing
