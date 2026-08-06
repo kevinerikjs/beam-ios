@@ -468,12 +468,44 @@ struct SettingsView: View {
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Color.white.opacity(0.35))
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                 }
 
+                cardDivider
+
+                // Setting up a second Mac means installing Beacon on it, and until now the app
+                // never said where to get it. Pairing is the one flow that starts on the other
+                // device, so the download link has to be reachable from this one.
+                Link(destination: URL(string: "https://beamscreen.app")!) {
+                    HStack {
+                        Label("Get Beacon for a Mac", systemImage: "laptopcomputer.and.arrow.down")
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.white.opacity(0.35))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+
+                cardDivider
+
+                Link(destination: URL(string: "https://beamscreen.app/guide/mirror-mac-to-iphone")!) {
+                    HStack {
+                        Label("Setup Guide", systemImage: "book")
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.white.opacity(0.35))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
             }
             .background(Color.white.opacity(0.07))
             .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -546,7 +578,7 @@ struct SettingsView: View {
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Color.white.opacity(0.35))
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
