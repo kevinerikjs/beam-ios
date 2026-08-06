@@ -75,7 +75,29 @@ enum ShotMode {
         appState.discoveredHosts = [appState.discoveredHost!]
         appState.isSearchingForMac = false
         appState.connectionQuality = 1.0
-        appState.isStreaming = (screen == "stream")
+        appState.isStreaming = screen.hasPrefix("stream")
+
+        // Teleprompter mode is a real setting, so it persists across launches in the same
+        // simulator. Clear it first or every screen captured after the teleprompter one comes
+        // out mirrored.
+        UserDefaults.standard.set(false, forKey: "beam.flipHorizontal")
+        UserDefaults.standard.set(false, forKey: "beam.flipVertical")
+
+        switch screen {
+        case "stream-teleprompter":
+            // Seeded rather than mocked, so the capture shows the actual feature.
+            UserDefaults.standard.set(true, forKey: "beam.flipHorizontal")
+
+        case "stream-remote":
+            // The remote link badge only appears on a Tailscale session. `linkRTT` under 0.25s
+            // is what the app itself calls a direct connection, so this captures the green
+            // "Direct" state a healthy remote stream actually shows.
+            appState.usingRemoteHost = true
+            appState.linkRTT = 0.05
+
+        default:
+            break
+        }
     }
 
     /// Name shown as the paired Mac. Deliberately generic: a store screenshot should not
@@ -97,7 +119,7 @@ enum ShotMode {
                 entries: WhatsNewManager.versionEntries,
                 subtitle: "Version \(WhatsNewManager.appVersion)"
             ) {}
-        case "stream":     StreamView()
+        case "stream", "stream-teleprompter", "stream-remote": StreamView()
         default:           HomeView()
         }
     }
