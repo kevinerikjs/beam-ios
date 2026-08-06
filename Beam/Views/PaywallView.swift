@@ -288,12 +288,14 @@ struct PaywallView: View {
     private var ctaDetail: String? {
         guard let offer = promoOffer else { return nil }
         let ends = offer.countdown.deadline.formatted(.dateTime.day().month(.abbreviated))
-        var parts = ["\(offer.countdown.headline) ends \(ends)"]
+        // Two facts, not three. The earlier version listed the offer name, the deadline, the
+        // time remaining and the future price in one 12pt line, which is a wall of small text
+        // on the one control that has to be legible at a glance. Urgency and consequence are
+        // what matter; the offer's name is decoration.
         if let remaining = offer.countdown.formattedRemaining {
-            parts.append("\(remaining) left")
+            return "\(remaining) left  ·  \(offer.futurePrice) from \(ends)"
         }
-        parts.append("then \(offer.futurePrice) for good")
-        return parts.joined(separator: "  ·  ")
+        return "\(offer.futurePrice) from \(ends)"
     }
 
     private var featureDivider: some View {
@@ -388,37 +390,38 @@ private struct EmberPurchaseButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: detail == nil ? 0 : 3) {
+            VStack(spacing: 3) {
                 if isBusy {
                     ProgressView().tint(.black)
+                        .frame(height: 26)
                 } else {
-                    HStack(spacing: 8) {
-                        Text(headline)
-                            .font(.headline.weight(.semibold))
-                        if let strikePrice {
-                            Text(strikePrice)
-                                .font(.subheadline)
-                                .strikethrough()
-                                .opacity(0.55)
-                        }
-                    }
+                    // One dominant element. The price was competing with a strikethrough at a
+                    // near-identical size, so the strike moved down to the terms line where it
+                    // belongs and this is now the only thing at this weight.
+                    Text(headline)
+                        .font(.title3.weight(.semibold))
+                        .tracking(-0.2)
+
                     if let detail {
                         Text(detail)
-                            .font(.caption.weight(.medium))
-                            .opacity(0.72)
+                            .font(.footnote.weight(.medium))
+                            // Proportional digits make a live countdown shift the whole line
+                            // every second it redraws.
+                            .monospacedDigit()
+                            .opacity(0.78)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.75)
+                            .minimumScaleFactor(0.8)
                     }
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, detail == nil ? 17 : 13)
+            .padding(.vertical, detail == nil ? 19 : 15)
             .background(background)
             .foregroundStyle(.black)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: orange.opacity(isEmber ? 0.35 : 0), radius: 18, y: 6)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: orange.opacity(isEmber ? 0.34 : 0.18), radius: 20, y: 8)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(detail.map { "\(headline). \($0)" } ?? headline)
     }
@@ -432,23 +435,26 @@ private struct EmberPurchaseButton: View {
         if isEmber && !reduceMotion {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
-                // Two coprime periods so the highlight never lands in the same place twice
-                // in a row, which is what stops it reading as a mechanical sweep.
+                // Two coprime periods so the highlight never lands in the same place twice in
+                // a row, which is what stops it reading as a mechanical sweep.
                 let x = 0.5 + 0.42 * sin(t / 3.1)
                 let y = 0.5 + 0.18 * sin(t / 2.3)
                 ZStack {
                     base
+                    // Kept well under half opacity: this sits behind black text, and a bright
+                    // wash moving under the terms line is the difference between warm and
+                    // unreadable.
                     RadialGradient(
-                        colors: [Color.white.opacity(0.32), .clear],
+                        colors: [Color.white.opacity(0.20), .clear],
                         center: UnitPoint(x: x, y: y),
-                        startRadius: 2,
-                        endRadius: 150
+                        startRadius: 4,
+                        endRadius: 170
                     )
                     RadialGradient(
-                        colors: [deep.opacity(0.55), .clear],
+                        colors: [deep.opacity(0.42), .clear],
                         center: UnitPoint(x: 1 - x, y: 1 - y),
-                        startRadius: 2,
-                        endRadius: 190
+                        startRadius: 4,
+                        endRadius: 200
                     )
                     .blendMode(.multiply)
                 }
@@ -457,5 +463,14 @@ private struct EmberPurchaseButton: View {
         } else {
             base
         }
+    }
+}
+
+/// Press feedback for the one control on this screen that takes money.
+private struct PressableButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

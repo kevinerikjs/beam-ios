@@ -1,4 +1,4 @@
-tuff // BeamWidget.swift
+// BeamWidget.swift
 // Lock screen and home screen widgets for one-tap stream start.
 //
 // Supports:
@@ -10,7 +10,7 @@ tuff // BeamWidget.swift
 import WidgetKit
 import SwiftUI
 
-// MARK: - Timeline
+// MARK: - Timelined de
 
 struct BeamWidgetEntry: TimelineEntry {
     let date: Date
