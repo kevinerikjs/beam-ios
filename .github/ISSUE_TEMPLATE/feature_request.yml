@@ -1,0 +1,14 @@
+name: Feature request
+description: Suggest something Beam should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: Describe the problem rather than the solution. It often has a better answer than the one either of us thought of first.
+    validations: { required: true }
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind

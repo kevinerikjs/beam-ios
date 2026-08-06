@@ -25,7 +25,12 @@ iPhone app that connects to a paired Mac running Beacon and displays the Mac's s
 - **Background audio.** The app needs the `audio` background mode so audio continues when PiP is active or screen is locked.
 - **StoreKit 2 only.** Use the modern StoreKit 2 API for IAP. No legacy StoreKit.
 - **Free tier enforcement.** Session timer logic must be tamper-resistant (server-side validation ideal, but for v1 use Keychain-stored timestamps that survive app reinstall).
-- **No third-party SDKs.** No analytics, no crash reporting, no ad SDKs in v1. Pure Apple.
+- **Apple frameworks in the streaming path.** No third-party networking, video, or audio libraries.
+  The only dependencies are `posthog-ios` (anonymous analytics) and `PLCrashReporter` (pulled in
+  transitively by PostHog). Both are MIT and AGPL-compatible. The bar for adding a third is high.
+- **Analytics stay anonymous.** No PII, no device identifiers, screen view capture off, and nothing
+  about stream content. The whole surface is `Beam/Analytics.swift` and it should stay small enough
+  to read in a minute, because the README points contributors at it as a promise we keep.
 
 ## Project Structure (Target)
 ```

@@ -197,7 +197,14 @@ struct FeedbackView: View {
                 var req = URLRequest(url: url)
                 req.httpMethod = "POST"
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                req.setValue("REDACTED_FEEDBACK_SECRET", forHTTPHeaderField: "X-Beam-Secret")
+                // Injected at build time from the BEAM_FEEDBACK_SECRET build setting, so it stays
+                // out of the source tree. Absent in contributor builds, which is fine: the server
+                // accepts unsigned feedback and only uses this to mark a report as coming from an
+                // official build.
+                if let secret = Bundle.main.object(forInfoDictionaryKey: "BeamFeedbackSecret") as? String,
+                   !secret.isEmpty {
+                    req.setValue(secret, forHTTPHeaderField: "X-Beam-Secret")
+                }
                 var payload: [String: String] = ["message": trimmedMessage, "source": "ios"]
                 if !trimmedEmail.isEmpty { payload["email"] = trimmedEmail }
                 if let log = diagnosticsSnapshot, !log.isEmpty {

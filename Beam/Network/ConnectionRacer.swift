@@ -36,8 +36,8 @@ enum ConnectionRacer {
     /// A pure first-past-the-post race picks the wrong winner here. The LAN candidate is a
     /// Bonjour SERVICE endpoint and needs mDNS resolution before it can connect; the Tailscale
     /// candidate is a literal IP and connects immediately. So the remote route wins the
-    /// handshake by ~10-15ms every time even while sitting on the same WiFi — measured in
-    /// Kevin's logs, which showed "Route race won by REDACTED_INTERNAL_IP" on every start with en0 up.
+    /// handshake by ~10-15ms every time even while sitting on the same WiFi, measured in logs
+    /// that showed the remote address winning the route race on every start with en0 up.
     ///
     /// Winning the handshake is not the same as being the better route: LAN is lower latency
     /// once established and does not depend on Tailscale being up at all. This is the same

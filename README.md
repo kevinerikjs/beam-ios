@@ -1,54 +1,94 @@
-# Beam — iOS Client App
+# Beam
 
-Beam is the iPhone app that connects to a paired Mac running Beacon and displays its screen stream with audio. Supports Picture-in-Picture, media controls, viewport locking, and quality selection.
+**Watch your Mac's screen on your iPhone.**
 
-**macOS counterpart:** [beam-macos](https://github.com/flowtheci/beam-macos) — **Download Beacon:** [Beacon.dmg](https://github.com/flowtheci/beacon-releases/releases/latest/download/Beacon.dmg)
+Beam connects to a Mac running [Beacon](https://github.com/kevinerikjs/beam-macos) and plays its
+screen and audio, over your local network. It supports Picture-in-Picture, media controls, viewport
+locking, and quality selection. No cables, no cloud, no account, and nothing leaves your network.
+
+### [Get Beam on the App Store](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962)
+
+You will also need **[Beacon](https://github.com/kevinerikjs/beacon-releases/releases/latest/download/Beacon.dmg)**,
+the free macOS companion app, on the Mac you want to stream from.
+
+> **Why the source is here.** Beam is on the other end of a link that carries your Mac's screen and
+> audio. Publishing the code means you do not have to take our word for what it does with that.
+> For actually using it, the App Store build is the one you want: it is signed, it updates itself,
+> and building it yourself requires a paid Apple Developer account.
 
 ---
 
+## How it works
+
+| | |
+| --- | --- |
+| **Discovery** | Bonjour, browsing for `_beam._tcp` on the local network |
+| **Transport** | Network.framework over TCP, LAN only |
+| **Video** | `AVSampleBufferDisplayLayer` for low-latency rendering, which also drives PiP |
+| **Audio** | `AVAudioEngine`, Float32 PCM, A/V sync via host clock comparison |
+| **Pairing** | Device keys held in the iOS Keychain |
+| **Purchases** | StoreKit 2 |
+
+There is no server between your phone and your Mac. Beam talks to Beacon directly.
+
+## Dependencies and what gets collected
+
+Beam has two dependencies, both MIT licensed and both compatible with the AGPL:
+
+| Package | Why |
+| --- | --- |
+| [posthog-ios](https://github.com/PostHog/posthog-ios) | Anonymous product analytics |
+| [PLCrashReporter](https://github.com/microsoft/plcrashreporter) | Pulled in transitively by PostHog for crash reports |
+
+Everything in the streaming path is Apple frameworks. There are no third-party networking, video,
+or audio libraries.
+
+On analytics, since this is the sort of thing worth being specific about rather than reassuring
+about: the entire surface is one small file, [`Beam/Analytics.swift`](./Beam/Analytics.swift), and
+you can read all of it in a minute.
+
+- It is **anonymous**. No accounts, no email, no device identifiers, no PII.
+- **Screen view capture is off** (`captureScreenViews = false`).
+- Events are product counters like `stream_started` and `stream_ended`, with properties such as
+  session duration, quality preset, and whether the unlock was purchased.
+- **Nothing about what you are streaming is collected.** No screen contents, no audio, no
+  filenames, no window titles. Those never leave your local network at all.
+- Data goes to `w.beamscreen.app`, a self-hosted endpoint, not to PostHog's cloud.
+
 ## Requirements
 
-- iOS 17.0+
-- Xcode 15+
-- A Mac running Beacon on the same local network
+- iOS 16.0 or later (the optional home screen widget needs a newer iOS)
+- A Mac on the same network running [Beacon](https://github.com/kevinerikjs/beam-macos)
+- Xcode 15 or later, if you are building rather than installing
 
-## Local Development
+## Free tier and unlocking
+
+Beam is free to use for 30 minutes per session, with a 24 hour cooldown between sessions. A
+one-time in-app purchase (`com.beam.ios.unlimited`) removes the limit permanently. It is a purchase
+rather than a subscription, so you pay once and that is the end of it. Current pricing is on the
+[App Store listing](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962).
+
+Session timing is stored in the Keychain so that it survives a reinstall. That code is in
+`Store/SessionManager.swift` and, like everything else here, you can read exactly what it does.
+
+## Building from source
 
 ```bash
-git clone git@github.com:flowtheci/beam-ios.git
+git clone https://github.com/kevinerikjs/beam-ios.git
 cd beam-ios
-git checkout develop        # active development branch
 open Beam.xcodeproj
 ```
 
-Select the `Beam` scheme and a real iOS device as the destination. Build and run.
+Select the `Beam` scheme and a **real device** as the destination, then Run.
 
-> **Note:** The simulator cannot test Bonjour discovery, real network streaming, or audio. Always test on a real device.
+> The simulator cannot do Bonjour discovery, real network streaming, or audio playback, so it
+> cannot run Beam in any meaningful way. Development requires a physical iPhone and a Mac running
+> Beacon.
 
-## Branch Strategy
+Note that running your own build on your own phone needs a paid Apple Developer account. With a
+free provisioning profile the app expires and has to be re-signed every seven days.
 
-| Branch | Purpose |
-|--------|---------|
-| `main` | Production — **protected**. Only updated via PR from `develop`. Triggers Xcode Cloud build → App Store Connect. |
-| `develop` | Active development. All feature work and bug fixes go here. |
-
-**Workflow:**
-1. Work on `develop` (or a short-lived branch off `develop`)
-2. Open a PR from `develop` → `main` when ready to ship
-3. Merging to `main` kicks off the Xcode Cloud CI/CD pipeline automatically
-
-## CI/CD — Xcode Cloud
-
-`main` is connected to Xcode Cloud. Merging to `main`:
-- Runs a clean build
-- Archives and signs with the App Store distribution certificate
-- Submits to App Store Connect for review
-
-No manual archive/upload step is needed. If you need to trigger a build manually, use [App Store Connect → Xcode Cloud](https://appstoreconnect.apple.com/teams/R4KDRC8S4D/activityFeed).
-
-> Do **not** push directly to `main` — always go through a PR so Xcode Cloud picks up a clean merge commit.
-
-## Project Structure
+## Project layout
 
 ```
 Beam/
@@ -61,46 +101,86 @@ Beam/
 │   ├── PaywallView.swift       # Free tier limit / upgrade prompt
 │   └── OnboardingView.swift
 ├── Streaming/
-│   ├── VideoRenderer.swift     # AVSampleBufferDisplayLayer wrapper
-│   ├── AudioPlayer.swift       # AVAudioEngine playback
-│   ├── StreamReceiver.swift    # Packet reassembly + video/audio dispatch
-│   ├── VideoMotionDetector.swift # Auto video region detection (VTDecompression)
-│   ├── PiPController.swift     # Picture-in-Picture management
-│   └── Protocol.swift          # Wire protocol (keep in sync with beam-macos)
+│   ├── VideoRenderer.swift       # AVSampleBufferDisplayLayer wrapper
+│   ├── AudioPlayer.swift         # AVAudioEngine playback
+│   ├── StreamReceiver.swift      # Packet reassembly + video/audio dispatch
+│   ├── VideoMotionDetector.swift # Auto video region detection
+│   ├── PiPController.swift       # Picture-in-Picture management
+│   └── Protocol.swift            # Wire protocol, kept in sync with beam-macos
 ├── Network/
-│   ├── BonjourBrowser.swift    # Discover _beam._tcp on local network
+│   ├── BonjourBrowser.swift    # Discover _beam._tcp
 │   └── ConnectionManager.swift # TCP connection lifecycle + auth
 ├── Pairing/
 │   ├── PairingManager.swift
 │   └── KeyStore.swift          # Keychain-stored pairing credentials
 └── Store/
     ├── StoreManager.swift      # StoreKit 2 IAP
-    └── SessionManager.swift    # Free tier timer (Keychain-persisted)
+    └── SessionManager.swift    # Free tier timer
 ```
 
-## Key Architecture Notes
+`Streaming/Protocol.swift` must stay in sync with its counterpart in
+[beam-macos](https://github.com/kevinerikjs/beam-macos). Changing one side alone breaks streaming,
+so protocol changes need to land in both repos together.
 
-- Uses `@Observable` (Swift Observation framework) — no `ObservableObject`/`@Published`
-- Video: `AVSampleBufferDisplayLayer` for low-latency rendering + PiP
-- Audio: `AVAudioEngine` with Float32 PCM, A/V sync via host clock comparison
-- Free tier: 30 min session, 24h cooldown, timestamps stored in Keychain (survive reinstall)
-- IAP product: `com.beam.ios.unlimited` — one-time $3.79 unlock
+## Contributing
 
-## AI Development (Claude Code)
+Issues and pull requests are welcome. Before you start:
 
-**Install Claude Code:**
-```bash
-npm install -g @anthropic-ai/claude-code
-claude  # run from the repo root
-```
+- Apple frameworks for anything in the streaming path. No third-party networking, video, or audio
+  libraries. The dependencies below are the complete list and the bar for adding another is high.
+- Swift concurrency (`async`/`await`, actors) for asynchronous work.
+- Test on a real device with a real Beacon host. A PR that only compiles has not been tested.
+- User-facing strings should be localizable (`String(localized:)`) from the start.
+- Discuss larger changes in an issue first.
 
-`CLAUDE.md` contains shared AI agent rules — architecture constraints, coding conventions, feature status. It's tracked in git and applies to all contributors.
+Contributions require agreeing to a short **[Contributor License Agreement](./CLA.md)**, which is
+one line in your PR description. [That document](./CLA.md) explains why, and the short version is
+that it is what keeps the dual licensing below possible.
 
-**Personal customization:** Create a `CLAUDE.local.md` in the repo root for your own overrides, notes, or local workflow preferences. It's gitignored and never committed.
+## Project documents
 
-```markdown
-# CLAUDE.local.md (example)
-- My test device is an iPhone 15 Pro on iOS 18.3
-- Prefer running on device over simulator always
-- My local Beacon host is usually at 192.168.1.x
-```
+| Document | What it covers |
+| --- | --- |
+| [SECURITY.md](./SECURITY.md) | How to report a vulnerability privately, and which parts of Beam are worth looking at |
+| [LICENSE](./LICENSE) | The AGPL-3.0 text |
+| [COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md) | Using Beam without the AGPL obligations, and how to arrange that |
+| [CLA.md](./CLA.md) | The one line contributors add to a PR, and why it is needed |
+| [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) | How people are expected to behave here |
+| [CLAUDE.md](./CLAUDE.md) | Architecture rules and coding conventions |
+
+**Found a security problem? Do not open an issue.** Read [SECURITY.md](./SECURITY.md) and mail
+[support@beamscreen.app](mailto:support@beamscreen.app) instead.
+
+## License
+
+Beam is **dual licensed**.
+
+**By default it is [AGPL-3.0](./LICENSE).** You can use it, study it, modify it, and redistribute
+it, including commercially. What the AGPL asks in return is that if you distribute Beam or
+something derived from it, you publish your source under the AGPL too.
+
+**A commercial license is available** if you want to build on Beam without those source disclosure
+obligations, for instance inside a closed source product. Terms are negotiable and there is no
+fixed price list, because a solo developer and a company shipping hardware do not need the same
+deal.
+
+If that is you, mail **[support@beamscreen.app](mailto:support@beamscreen.app)** with the subject
+`Commercial license` and a paragraph on what you are building. See
+**[COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md)** for the full picture.
+
+The **Beam** and **Beacon** names, logos, and icons are not covered by the AGPL grant. Fork the
+code freely, but please ship it under your own name.
+
+Copyright © Kevin Erik Iin.
+
+---
+
+## Maintainer notes
+
+| Branch | Purpose |
+| --- | --- |
+| `main` | Production, protected. Updated only via PR from `develop`. Merging triggers an Xcode Cloud build to App Store Connect. |
+| `develop` | Active development. Feature work and fixes go here. |
+
+Do not push directly to `main`, so Xcode Cloud always picks up a clean merge commit. Archiving and
+signing are handled by Xcode Cloud; there is no manual upload step.

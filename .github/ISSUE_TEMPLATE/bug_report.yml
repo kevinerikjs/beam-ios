@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in Beam is broken
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Found a security problem instead? Do not file it here. See [SECURITY.md](../blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected instead.
+    validations: { required: true }
+  - type: input
+    id: beam-version
+    attributes:
+      label: Beam version
+      description: Settings, then About.
+    validations: { required: true }
+  - type: input
+    id: ios-version
+    attributes:
+      label: iOS version and iPhone model
+    validations: { required: true }
+  - type: input
+    id: beacon-version
+    attributes:
+      label: Beacon version on the Mac
+  - type: textarea
+    id: network
+    attributes:
+      label: Network setup
+      description: Same WiFi, VPN, guest network, anything unusual. Most streaming bugs turn out to live here.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic log
+      description: Beam can attach a diagnostic log to in-app feedback. If you have one, paste it here.
+      render: text
