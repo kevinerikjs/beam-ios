@@ -11,6 +11,25 @@ locking, and quality selection. No cables, no cloud, no account, and nothing lea
 You will also need **[Beacon](https://github.com/kevinerikjs/beacon-macos/releases/latest/download/Beacon.dmg)**,
 the free macOS companion app, on the Mac you want to stream from.
 
+## Why this exists: Apple doesn't do this direction
+
+Getting a Mac screen onto an iPhone is the one mirroring direction Apple has never supported, and
+the features people find while looking all run the other way:
+
+- **AirPlay** — iPhones send AirPlay, they never receive it. A Mac can AirPlay to an Apple TV, a
+  compatible TV, or another Mac, but not to a phone.
+- **Sidecar** — iPad only, always has been.
+- **iPhone Mirroring** — shows your *iPhone* on your *Mac*. The opposite of this.
+
+So: no cables, no cloud, no account, and on your own WiFi nothing leaves your network.
+
+One honest limitation — Beam is a **viewer, not a remote control**. You watch your Mac, you don't
+drive it. For clicking and typing on a Mac remotely, a remote desktop app is the right category.
+
+More detail: [can you AirPlay Mac to iPhone?](https://beamscreen.app/guide/airplay-mac-to-iphone) ·
+[using an iPhone as a Mac monitor](https://beamscreen.app/guide/iphone-as-mac-monitor) ·
+[streaming from away from home](https://beamscreen.app/guide/remote-streaming-tailscale)
+
 > **Why the source is here.** Beam is on the other end of a link that carries your Mac's screen and
 > audio. Publishing the code means you do not have to take our word for what it does with that.
 > For actually using it, the App Store build is the one you want: it is signed, it updates itself,
