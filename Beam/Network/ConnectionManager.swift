@@ -217,10 +217,12 @@ final class ConnectionManager {
 
     // MARK: - Send Control Commands
 
-    func sendMediaKey(_ key: BeamMediaKeyPayload.Key) {
+    /// `controlID` names a button of the host's advertised layout (BEAM-39); `key` is what an
+    /// older host acts on and is only meaningful for the built-in layout.
+    func sendMediaKey(_ key: BeamMediaKeyPayload.Key, controlID: String? = nil) {
         let msg = BeamControlMessage(
             type: .mediaKey,
-            payload: .mediaKey(BeamMediaKeyPayload(key: key))
+            payload: .mediaKey(BeamMediaKeyPayload(key: key, controlID: controlID))
         )
         guard let data = try? JSONEncoder().encode(msg) else { return }
         sendTCP(data.lengthPrefixed())
@@ -633,7 +635,7 @@ final class ConnectionManager {
             hostSupportsVideoHold = msg.supportsVideoHold ?? false
             hostSupportsAudioToggle = msg.supportsAudioToggle ?? false
             hostSupportsWindowSelection = msg.supportsWindowSelection ?? false
-            let controls = Dictionary(uniqueKeysWithValues: (msg.phoneControls ?? []).map { ($0.id, $0) })
+            let controls = Array((msg.phoneControls ?? []).prefix(7))
             Task { @MainActor in
                 appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection
                 appState?.hostPhoneControls = controls

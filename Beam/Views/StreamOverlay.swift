@@ -189,26 +189,26 @@ struct StreamOverlay: View {
 
     // MARK: - Media Controls
 
-    /// A media button wearing whatever icon the host configured for it (BEAM-39). A symbol
-    /// this iOS version doesn't have falls back to the default so an older phone never shows
-    /// a blank button.
-    private func mediaButton(_ key: BeamMediaKeyPayload.Key, defaultSymbol: String, defaultLabel: String, large: Bool = false) -> some View {
-        let custom = appState.hostPhoneControls[key.rawValue]
-        let symbol = custom.map { UIImage(systemName: $0.symbol) != nil ? $0.symbol : defaultSymbol } ?? defaultSymbol
-        let label = custom?.label.isEmpty == false ? custom!.label : defaultLabel
-        return MediaButton(systemName: symbol, label: label, large: large) {
-            appState.connectionManager?.sendMediaKey(key)
-        }
-    }
-
-    @ViewBuilder
+    /// The host's layout when it advertised one (BEAM-39), else the built-in five. A symbol
+    /// this iOS version doesn't have falls back to a generic glyph so no button is ever blank.
     private var mediaControls: some View {
         HStack(spacing: 4) {
-            mediaButton(.seekBackward, defaultSymbol: "arrow.counterclockwise", defaultLabel: "Seek Backward")
-            mediaButton(.previous,     defaultSymbol: "backward.fill",         defaultLabel: "Previous")
-            mediaButton(.playPause,    defaultSymbol: "playpause.fill",        defaultLabel: "Play/Pause", large: true)
-            mediaButton(.next,         defaultSymbol: "forward.fill",          defaultLabel: "Next")
-            mediaButton(.seekForward,  defaultSymbol: "arrow.clockwise",       defaultLabel: "Seek Forward")
+            if appState.hostPhoneControls.isEmpty {
+                MediaButton(systemName: "arrow.counterclockwise", label: "Seek Backward") { appState.connectionManager?.sendMediaKey(.seekBackward) }
+                MediaButton(systemName: "backward.fill",   label: "Previous") { appState.connectionManager?.sendMediaKey(.previous) }
+                MediaButton(systemName: "playpause.fill",  label: "Play/Pause", large: true) { appState.connectionManager?.sendMediaKey(.playPause) }
+                MediaButton(systemName: "forward.fill",    label: "Next") { appState.connectionManager?.sendMediaKey(.next) }
+                MediaButton(systemName: "arrow.clockwise", label: "Seek Forward") { appState.connectionManager?.sendMediaKey(.seekForward) }
+            } else {
+                ForEach(appState.hostPhoneControls, id: \.id) { control in
+                    let symbol = UIImage(systemName: control.symbol) != nil ? control.symbol : "circle.fill"
+                    MediaButton(systemName: symbol, label: control.label, large: control.prominent ?? false) {
+                        // `key` is irrelevant to a host that sent a layout; playPause is the
+                        // harmless placeholder the wire format still requires.
+                        appState.connectionManager?.sendMediaKey(.playPause, controlID: control.id)
+                    }
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

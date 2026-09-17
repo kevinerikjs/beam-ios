@@ -472,6 +472,10 @@ struct BeamMediaKeyPayload: Codable {
         case seekForward    = "seek_forward"
     }
     let key: Key
+    /// BEAM-39. Id of the pressed button from the host's advertised `phoneControls`. A host
+    /// that advertised a layout acts on this and ignores `key`; older hosts never see it.
+    /// Keep in sync with the other Protocol.swift.
+    var controlID: String? = nil
 }
 
 /// Quality feedback payload — carries a 0.0–1.0 quality score from iOS to macOS.
@@ -659,14 +663,18 @@ struct BeamPairingMessage: Codable {
     var phoneControls: [BeamPhoneControl]? = nil
 }
 
-/// BEAM-39. One configurable phone button as the host presents it.
+/// BEAM-39. One button of the host's active phone-control layout, in left-to-right order.
+/// Up to 7 per layout. The phone renders exactly this list; a tap sends the button's `id`
+/// back in BeamMediaKeyPayload.controlID.
 struct BeamPhoneControl: Codable, Equatable {
-    /// BeamMediaKeyPayload.Key raw value: "seek_backward", "seek_forward", "play_pause"...
+    /// Stable button id within the layout (UUID string). Not semantic.
     let id: String
     /// SF Symbol name chosen on the Mac.
     let symbol: String
-    /// Short accessibility label / tooltip, e.g. "Rewind 10s" or "Next tab".
+    /// Short accessibility label / tooltip, e.g. "Back 10s" or "Next tab".
     let label: String
+    /// True for the one emphasised (larger) button, normally play/pause in the middle.
+    var prominent: Bool? = nil
 }
 
 // MARK: - Helpers
