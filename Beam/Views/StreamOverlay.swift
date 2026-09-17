@@ -17,6 +17,8 @@ struct StreamOverlay: View {
     let onUnlockViewport: () -> Void
     let onOpenQualityPicker: () -> Void
     let onOpenStreamSettings: () -> Void
+    /// A layout button that asks for text first (BEAM-39): the owner presents the input box.
+    let onPromptText: (BeamPhoneControl) -> Void
     let onOpenWindowPicker: () -> Void
     let onUpgrade: () -> Void
     let onDisconnect: () -> Void
@@ -203,9 +205,13 @@ struct StreamOverlay: View {
                 ForEach(appState.hostPhoneControls, id: \.id) { control in
                     let symbol = UIImage(systemName: control.symbol) != nil ? control.symbol : "circle.fill"
                     MediaButton(systemName: symbol, label: control.label, large: control.prominent ?? false) {
-                        // `key` is irrelevant to a host that sent a layout; playPause is the
-                        // harmless placeholder the wire format still requires.
-                        appState.connectionManager?.sendMediaKey(.playPause, controlID: control.id)
+                        if control.promptsForText == true {
+                            onPromptText(control)
+                        } else {
+                            // `key` is irrelevant to a host that sent a layout; playPause is the
+                            // harmless placeholder the wire format still requires.
+                            appState.connectionManager?.sendMediaKey(.playPause, controlID: control.id)
+                        }
                     }
                 }
             }

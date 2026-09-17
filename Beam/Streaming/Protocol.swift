@@ -476,6 +476,8 @@ struct BeamMediaKeyPayload: Codable {
     /// that advertised a layout acts on this and ignores `key`; older hosts never see it.
     /// Keep in sync with the other Protocol.swift.
     var controlID: String? = nil
+    /// BEAM-39. Text the phone user entered for a `promptsForText` button. The host types it.
+    var text: String? = nil
 }
 
 /// Quality feedback payload — carries a 0.0–1.0 quality score from iOS to macOS.
@@ -675,6 +677,12 @@ struct BeamPhoneControl: Codable, Equatable {
     let label: String
     /// True for the one emphasised (larger) button, normally play/pause in the middle.
     var prominent: Bool? = nil
+    /// True when the button asks the phone user for text first (a "keyboard" button). The
+    /// phone shows an input box and sends the entered text in BeamMediaKeyPayload.text; the
+    /// host types it as key presses (typically followed by Return). nil/false = plain tap.
+    var promptsForText: Bool? = nil
+    /// Placeholder / title for that input box, e.g. "Prompt Claude".
+    var textPrompt: String? = nil
 }
 
 // MARK: - Helpers

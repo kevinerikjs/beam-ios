@@ -14,6 +14,8 @@ struct StreamView: View {
     @State private var showQualityPicker = false
     @State private var showStreamSettings = false
     @State private var showWindowPicker = false
+    /// The "keyboard" layout button awaiting text (BEAM-39); non-nil shows the input sheet.
+    @State private var textPromptControl: BeamPhoneControl? = nil
 
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
@@ -250,6 +252,10 @@ struct StreamView: View {
                         showOverlay = true
                         showStreamSettings = true
                     },
+                    onPromptText: { control in
+                        overlayHideTask?.cancel()
+                        textPromptControl = control
+                    },
                     onOpenWindowPicker: {
                         guard !isSelectingViewportLock else { return }
                         showOverlay = true
@@ -302,6 +308,14 @@ struct StreamView: View {
                 .onDisappear {
                     scheduleOverlayHide()
                 }
+        }
+        .sheet(item: $textPromptControl) { control in
+            TextPromptSheet(control: control) { text in
+                appState.connectionManager?.sendMediaKey(.playPause, controlID: control.id, text: text)
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            .onDisappear { scheduleOverlayHide() }
         }
         .sheet(isPresented: $showWindowPicker) {
             HostWindowPickerSheet(appState: appState)
@@ -697,7 +711,7 @@ struct StreamView: View {
         // in-stream UI can be captured without racing the 3s auto-hide. Not in Release.
         if UserDefaults.standard.bool(forKey: "beam.debug.pinOverlay") { return }
         #endif
-        guard !showQualityPicker, !showStreamSettings, !showWindowPicker, !isSelectingViewportLock, !isAutoDetecting else { return }
+        guard !showQualityPicker, !showStreamSettings, !showWindowPicker, textPromptControl == nil, !isSelectingViewportLock, !isAutoDetecting else { return }
         overlayHideTask?.cancel()
         overlayHideTask = Task {
             try? await Task.sleep(for: .seconds(3))
@@ -1103,5 +1117,56 @@ extension Notification.Name {
 private extension Comparable {
     func clamped(to range: ClosedRange<Self>) -> Self {
         min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+
+// MARK: - Text prompt (BEAM-39)
+
+extension BeamPhoneControl: Identifiable {}
+
+/// Input box for a layout button that types on the Mac. Multi-line so a whole prompt fits;
+/// Send types it (the host appends Return when the button is configured to).
+struct TextPromptSheet: View {
+    let control: BeamPhoneControl
+    let onSend: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 12) {
+                TextEditor(text: $text)
+                    .focused($focused)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .frame(minHeight: 120)
+                Text("Typed on the Mac as key presses, into whatever has focus there.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
+            }
+            .padding()
+            .navigationTitle(control.textPrompt?.isEmpty == false ? control.textPrompt! : control.label)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") {
+                        onSend(text)
+                        dismiss()
+                    }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear { focused = true }
+        }
     }
 }

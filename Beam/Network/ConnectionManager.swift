@@ -219,10 +219,10 @@ final class ConnectionManager {
 
     /// `controlID` names a button of the host's advertised layout (BEAM-39); `key` is what an
     /// older host acts on and is only meaningful for the built-in layout.
-    func sendMediaKey(_ key: BeamMediaKeyPayload.Key, controlID: String? = nil) {
+    func sendMediaKey(_ key: BeamMediaKeyPayload.Key, controlID: String? = nil, text: String? = nil) {
         let msg = BeamControlMessage(
             type: .mediaKey,
-            payload: .mediaKey(BeamMediaKeyPayload(key: key, controlID: controlID))
+            payload: .mediaKey(BeamMediaKeyPayload(key: key, controlID: controlID, text: text))
         )
         guard let data = try? JSONEncoder().encode(msg) else { return }
         sendTCP(data.lengthPrefixed())
