@@ -35,6 +35,16 @@ private let versionChangelog: [ChangeEntry] = [
         detail: "Lock the stream to a single Mac window straight from the phone: tap the window button while streaming, choose one, or go back to the full display. Needs the latest Beacon on the Mac."
     ),
     ChangeEntry(
+        icon: "keyboard",
+        title: "Type on the Mac From Your Phone",
+        detail: "The new Keyboard Input button at the end of the media bar opens a text box. Send it and Beacon types your message into whatever has focus on the Mac, then presses Return."
+    ),
+    ChangeEntry(
+        icon: "slider.horizontal.3",
+        title: "Your Buttons, Your Layout",
+        detail: "In Beacon Settings, Controls, build the media bar you want: up to seven buttons, each with its own icon and action. Keys, shortcuts, media keys, or recorded macros. The phone shows whatever you set up."
+    ),
+    ChangeEntry(
         icon: "speaker.slash.fill",
         title: "Stream Without Audio",
         detail: "Turn audio off in Settings or with the speaker button while streaming. With the latest Beacon the Mac stops sending sound entirely, so the picture gets all the bandwidth."
@@ -42,7 +52,7 @@ private let versionChangelog: [ChangeEntry] = [
     ChangeEntry(
         icon: "rectangle.dashed",
         title: "Fixes",
-        detail: "The viewport-lock hint no longer hides under the notch in portrait, and the on-screen controls fit the screen on every iPhone."
+        detail: "Locking the viewport now streams exactly the region you chose, hold-to-detect finds the video edges precisely, the viewport-lock hint no longer hides under the notch, and the on-screen controls fit every iPhone."
     ),
 ]
 
