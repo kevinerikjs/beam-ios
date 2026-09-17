@@ -16,6 +16,7 @@ struct StreamView: View {
     @State private var showWindowPicker = false
     /// The "keyboard" layout button awaiting text (BEAM-39); non-nil shows the input sheet.
     @State private var textPromptControl: BeamPhoneControl? = nil
+    @State private var clickHaptic = false
 
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
@@ -120,11 +121,42 @@ struct StreamView: View {
                         guard !isViewportLocked else { return }
                         withAnimation(.spring(duration: 0.3)) { resetZoom() }
                     }
-                    .onTapGesture {
-                        toggleOverlay()
+                    .onTapGesture(count: 1, coordinateSpace: .local) { location in
+                        if appState.activeControlMode?.isClick == true {
+                            sendClick(at: location)
+                        } else {
+                            toggleOverlay()
+                        }
                     }
             }
             .ignoresSafeArea()
+            // Live keyboard (BEAM-40): a zero-size first responder that forwards each key.
+            .background(
+                KeyCaptureView(
+                    isActive: appState.activeControlMode?.isKeyboard == true,
+                    onKey: { key in
+                        guard let id = appState.activeControlMode?.controlID else { return }
+                        // Armed modifiers ride along once, then release (sticky keys).
+                        let mask = appState.armedModifiers.values.reduce(0, |)
+                        appState.connectionManager?.sendMediaKey(.playPause, controlID: id, keystroke: key,
+                                                                 keystrokeModifiers: mask == 0 ? nil : mask)
+                        if mask != 0 { appState.armedModifiers = [:] }
+                    },
+                    onDismissed: {
+                        if appState.activeControlMode?.isKeyboard == true { appState.activeControlMode = nil }
+                    }
+                )
+                .frame(width: 0, height: 0)
+            )
+            .onChange(of: appState.activeControlMode) { mode in
+                // A mode keeps the HUD up; leaving one restarts the auto-hide.
+                if mode != nil {
+                    overlayHideTask?.cancel()
+                    withAnimation(.easeInOut(duration: 0.25)) { showOverlay = true }
+                } else {
+                    scheduleOverlayHide()
+                }
+            }
             // Hold-to-detect + painting:
             //   • Touch down → hex glass reveal appears, hold timer starts (0.6 s)
             //   • Move > 15 pt before timer → cancel (pan takes over), reveal hides
@@ -272,6 +304,9 @@ struct StreamView: View {
         }
         .onChange(of: detectionLockHaptic) { _ in
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+        .onChange(of: clickHaptic) { _ in
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
         .statusBarHidden(true)
         .preferredColorScheme(.dark)
@@ -571,6 +606,25 @@ struct StreamView: View {
         }
     }
 
+    /// Click passthrough (BEAM-40): a tap in the video container, undone through the phone's
+    /// zoom and pan, then normalised to the encoded frame. Beacon takes it from there.
+    private func sendClick(at location: CGPoint) {
+        let container = CGRect(origin: .zero, size: videoContainerSize)
+        guard container.width > 0, container.height > 0,
+              let id = appState.activeControlMode?.controlID else { return }
+        let base = baseVideoRect(in: container)
+        guard base.width > 0, base.height > 0 else { return }
+        let untransformed = inverseTransformedRect(CGRect(origin: location, size: .zero), in: container)
+        let x = (untransformed.minX - base.minX) / base.width
+        let y = (untransformed.minY - base.minY) / base.height
+        guard (0...1).contains(x), (0...1).contains(y) else { return }
+        appState.connectionManager?.sendMediaKey(
+            .playPause, controlID: id,
+            click: BeamClickPayload(x: x, y: y, button: appState.clickModeRight ? "right" : "left")
+        )
+        clickHaptic.toggle()
+    }
+
     private func currentNormalizedViewportRect(for selectionFrame: CGRect) -> CGRect {
         let container = CGRect(origin: .zero, size: videoContainerSize)
         guard container.width > 0, container.height > 0, selectionFrame.width > 0, selectionFrame.height > 0 else {
@@ -711,7 +765,8 @@ struct StreamView: View {
         // in-stream UI can be captured without racing the 3s auto-hide. Not in Release.
         if UserDefaults.standard.bool(forKey: "beam.debug.pinOverlay") { return }
         #endif
-        guard !showQualityPicker, !showStreamSettings, !showWindowPicker, textPromptControl == nil, !isSelectingViewportLock, !isAutoDetecting else { return }
+        guard !showQualityPicker, !showStreamSettings, !showWindowPicker, textPromptControl == nil,
+              appState.activeControlMode == nil, !isSelectingViewportLock, !isAutoDetecting else { return }
         overlayHideTask?.cancel()
         overlayHideTask = Task {
             try? await Task.sleep(for: .seconds(3))
@@ -1168,5 +1223,69 @@ struct TextPromptSheet: View {
             }
             .onAppear { focused = true }
         }
+    }
+}
+
+
+// MARK: - Live keyboard capture (BEAM-40)
+
+/// An invisible first responder that turns the phone keyboard into a key stream. Each
+/// inserted string, Backspace and Return is forwarded as it happens; there is no text
+/// buffer. Dismissing the keyboard reports back so the toggle button can clear.
+struct KeyCaptureView: UIViewRepresentable {
+    let isActive: Bool
+    let onKey: (String) -> Void
+    let onDismissed: () -> Void
+
+    func makeUIView(context: Context) -> KeyCaptureUIView {
+        let view = KeyCaptureUIView()
+        view.onKey = onKey
+        view.onDismissed = onDismissed
+        return view
+    }
+
+    func updateUIView(_ view: KeyCaptureUIView, context: Context) {
+        view.onKey = onKey
+        view.onDismissed = onDismissed
+        if isActive, !view.isFirstResponder {
+            DispatchQueue.main.async { view.becomeFirstResponder() }
+        } else if !isActive, view.isFirstResponder {
+            DispatchQueue.main.async { view.resignFirstResponder() }
+        }
+    }
+}
+
+final class KeyCaptureUIView: UIView, UIKeyInput {
+    var onKey: ((String) -> Void)?
+    var onDismissed: (() -> Void)?
+
+    override var canBecomeFirstResponder: Bool { true }
+    var hasText: Bool { true }
+    var autocorrectionType: UITextAutocorrectionType = .no
+    var spellCheckingType: UITextSpellCheckingType = .no
+    var autocapitalizationType: UITextAutocapitalizationType = .none
+    var smartQuotesType: UITextSmartQuotesType = .no
+    var smartDashesType: UITextSmartDashesType = .no
+    var keyboardType: UIKeyboardType = .default
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardHidden),
+                                               name: UIResponder.keyboardDidHideNotification, object: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func insertText(_ text: String) {
+        // The keyboard sends "\n" for Return; forward every other string as typed.
+        onKey?(text)
+    }
+
+    func deleteBackward() {
+        onKey?("\u{8}")
+    }
+
+    @objc private func keyboardHidden() {
+        if isFirstResponder { resignFirstResponder() }
+        onDismissed?()
     }
 }

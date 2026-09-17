@@ -478,6 +478,24 @@ struct BeamMediaKeyPayload: Codable {
     var controlID: String? = nil
     /// BEAM-39. Text the phone user entered for a `promptsForText` button. The host types it.
     var text: String? = nil
+    /// BEAM-40. One key from the phone keyboard in live mode: a character, "\n" for Return
+    /// or "\u{8}" for Backspace. The host types it immediately, no Return appended.
+    var keystroke: String? = nil
+    /// BEAM-40. Carbon modifier mask armed on the phone for this keystroke (cmdKey etc.).
+    /// The host posts the key as a chord when it can map the character to a key code.
+    var keystrokeModifiers: UInt32? = nil
+    /// BEAM-40. A tap on the stream while a click button is toggled on.
+    var click: BeamClickPayload? = nil
+}
+
+/// BEAM-40. Where the phone user tapped, normalised to the encoded frame the phone is
+/// showing (0...1, origin top-left). The host maps that through the viewport lock and the
+/// captured window or display to a point on screen and clicks there.
+struct BeamClickPayload: Codable, Equatable {
+    let x: Double
+    let y: Double
+    /// "left" or "right".
+    let button: String
 }
 
 /// Quality feedback payload — carries a 0.0–1.0 quality score from iOS to macOS.
@@ -683,6 +701,14 @@ struct BeamPhoneControl: Codable, Equatable {
     var promptsForText: Bool? = nil
     /// Placeholder / title for that input box, e.g. "Prompt Claude".
     var textPrompt: String? = nil
+    /// BEAM-40. How the phone treats the button. nil/"tap" = send a press. "text" = same as
+    /// promptsForText. "keyboard" = toggle: raise the phone keyboard and send every key as a
+    /// `keystroke`. "click" = toggle: taps on the stream become `click`s on the Mac. Older
+    /// phones ignore this and treat every button as a plain tap.
+    var mode: String? = nil
+    /// BEAM-40. For mode "modifier": which key this button arms for the next live keystroke.
+    /// "cmd", "ctrl", "alt" or "shift".
+    var modifier: String? = nil
 }
 
 // MARK: - Helpers

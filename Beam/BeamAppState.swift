@@ -50,6 +50,39 @@ final class BeamAppState: ObservableObject {
     /// The host's active phone-control layout (BEAM-39), left to right, up to 7 buttons.
     /// Empty until an authSuccess carries one; the overlay then shows the built-in five.
     @Published var hostPhoneControls: [BeamPhoneControl] = []
+    /// A toggled phone-control mode (BEAM-40): live keyboard or click passthrough, by button id.
+    /// The overlay stays up while one is active.
+    @Published var activeControlMode: ActiveControlMode? = nil
+    /// Right-click instead of left while click mode is on.
+    @Published var clickModeRight = false
+    /// Sticky modifiers armed by modifier buttons (BEAM-40), by control id → Carbon mask.
+    /// Folded into the next live keystroke, then cleared.
+    @Published var armedModifiers: [String: UInt32] = [:]
+
+    /// Carbon mask for a host modifier name. Values mirror Carbon's cmdKey etc.
+    static func carbonMask(forModifier name: String) -> UInt32 {
+        switch name {
+        case "cmd": return 1 << 8
+        case "shift": return 1 << 9
+        case "alt": return 1 << 11
+        case "ctrl": return 1 << 12
+        default: return 0
+        }
+    }
+
+    enum ActiveControlMode: Equatable {
+        case keyboard(controlID: String)
+        /// `fixed`: the host chose left or right for this button, so no switch is shown.
+        case click(controlID: String, fixed: Bool)
+
+        var controlID: String {
+            switch self {
+            case .keyboard(let id), .click(let id, _): return id
+            }
+        }
+        var isClick: Bool { if case .click = self { return true } else { return false } }
+        var isKeyboard: Bool { if case .keyboard = self { return true } else { return false } }
+    }
     /// Windows the host offered in its last `window_list` reply. Ids are only valid until the
     /// next refresh, so the picker requests a fresh list every time it opens.
     @Published var hostWindows: [BeamWindowInfo] = []
@@ -594,6 +627,8 @@ final class BeamAppState: ObservableObject {
         isStreaming = false
         hostSupportsWindowSelection = false
         hostPhoneControls = []
+        activeControlMode = nil
+        armedModifiers = [:]
         videoAspect = 16.0 / 9.0
         hostWindows = []
         isLoadingHostWindows = false

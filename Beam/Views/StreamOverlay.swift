@@ -191,6 +191,18 @@ struct StreamOverlay: View {
 
     // MARK: - Media Controls
 
+    /// Left / right choice shown while click mode is on (BEAM-40).
+    private var clickButtonPicker: some View {
+        Picker("Mouse button", selection: $appState.clickModeRight) {
+            Text("L").tag(false)
+            Text("R").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .tint(.orange)
+        .frame(width: 88)
+        .padding(.leading, 6)
+    }
+
     /// The host's layout when it advertised one (BEAM-39), else the built-in five. A symbol
     /// this iOS version doesn't have falls back to a generic glyph so no button is ever blank.
     private var mediaControls: some View {
@@ -204,15 +216,35 @@ struct StreamOverlay: View {
             } else {
                 ForEach(appState.hostPhoneControls, id: \.id) { control in
                     let symbol = UIImage(systemName: control.symbol) != nil ? control.symbol : "circle.fill"
-                    MediaButton(systemName: symbol, label: control.label, large: control.prominent ?? false) {
-                        if control.promptsForText == true {
+                    let mode = control.mode ?? (control.promptsForText == true ? "text" : "tap")
+                    let isOn = appState.activeControlMode?.controlID == control.id
+                        || appState.armedModifiers[control.id] != nil
+                    MediaButton(systemName: symbol, label: control.label, large: control.prominent ?? false,
+                                isOn: isOn, compact: isNarrowPortrait && appState.hostPhoneControls.count >= 7) {
+                        switch mode {
+                        case "text":
                             onPromptText(control)
-                        } else {
+                        case "keyboard":
+                            appState.activeControlMode = isOn ? nil : .keyboard(controlID: control.id)
+                        case "modifier":
+                            if isOn {
+                                appState.armedModifiers[control.id] = nil
+                            } else {
+                                appState.armedModifiers[control.id] = BeamAppState.carbonMask(forModifier: control.modifier ?? "")
+                            }
+                        case "click", "click_left", "click_right":
+                            if mode == "click_left" { appState.clickModeRight = false }
+                            if mode == "click_right" { appState.clickModeRight = true }
+                            appState.activeControlMode = isOn ? nil : .click(controlID: control.id, fixed: mode != "click")
+                        default:
                             // `key` is irrelevant to a host that sent a layout; playPause is the
                             // harmless placeholder the wire format still requires.
                             appState.connectionManager?.sendMediaKey(.playPause, controlID: control.id)
                         }
                     }
+                }
+                if case .click(_, let fixed) = appState.activeControlMode, !fixed {
+                    clickButtonPicker
                 }
             }
         }
@@ -701,15 +733,22 @@ struct MediaButton: View {
     let systemName: String
     let label: String
     var large: Bool = false
+    /// Toggled state for mode buttons (BEAM-40): filled accent circle behind the glyph.
+    var isOn: Bool = false
+    /// Tighter hit targets so an eight-button bar fits an iPhone in portrait.
+    var compact: Bool = false
     let action: () -> Void
 
     var body: some View {
+        let side: CGFloat = large ? (compact ? 44 : 52) : (compact ? 34 : 40)
         Button(action: action) {
             Image(systemName: systemName)
-                .font(large ? .title2 : .body)
-                .foregroundStyle(.white)
-                .frame(width: large ? 52 : 40, height: large ? 52 : 40)
+                .font(large ? .title2 : (compact ? .subheadline : .body))
+                .foregroundStyle(isOn ? .black : .white)
+                .frame(width: side, height: side)
+                .background(isOn ? Color.orange : .clear, in: Circle())
         }
         .accessibilityLabel(label)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
