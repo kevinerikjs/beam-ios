@@ -355,7 +355,7 @@ final class BeamAppState: ObservableObject {
             // Bonjour got there first and already cleared the searching state.
             guard self.isSearchingForMac else { return }
 
-            if let mac = self.pairedMac, !mac.allRemoteHosts.isEmpty {
+            if self.remoteConnectionsEnabled, let mac = self.pairedMac, !mac.allRemoteHosts.isEmpty {
                 self.activateRemoteHost(reason: "Bonjour found nothing in \(Int(Self.remoteFallbackGrace))s")
             } else {
                 // Nothing to fall back to. Stop spinning and let the UI say so, rather than
@@ -385,8 +385,22 @@ final class BeamAppState: ObservableObject {
     /// so the UI can offer the upgrade instead of just saying "not found".
     @Published var remoteBlockedByPaywall = false
 
+    /// User switch for away-from-home connections. Off means Beam never dials the stored
+    /// Tailscale address, but keeps it, so turning it back on needs no re-pairing.
+    static let remoteEnabledDefaultsKey = "beam.remoteEnabled"
+    var remoteConnectionsEnabled: Bool {
+        UserDefaults.standard.object(forKey: Self.remoteEnabledDefaultsKey) as? Bool ?? true
+    }
+
     @MainActor
     private func activateRemoteHost(reason: String) {
+        guard remoteConnectionsEnabled else {
+            DiagnosticLogger.shared.log("Remote host requested but away-from-home is switched off", category: "Discovery")
+            discoveredHost = nil
+            usingRemoteHost = false
+            isSearchingForMac = false
+            return
+        }
         guard let mac = pairedMac, let address = mac.allRemoteHosts.first else {
             DiagnosticLogger.shared.log("Remote host requested but none stored", category: "Discovery")
             isSearchingForMac = false
@@ -631,7 +645,7 @@ final class BeamAppState: ObservableObject {
         // and skip the backoff for that first remote try: the user is staring at a frozen
         // frame, and we already know where the host lives.
         var immediate = false
-        if !usingRemoteHost, canUseRemoteStreaming,
+        if !usingRemoteHost, canUseRemoteStreaming, remoteConnectionsEnabled,
            let mac = pairedMac, !mac.allRemoteHosts.isEmpty {
             activateRemoteHost(reason: "LAN dropped mid-stream, failing over to remote")
             immediate = true

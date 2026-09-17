@@ -10,6 +10,7 @@ struct SettingsView: View {
     @ObservedObject private var session = SessionManager.shared
     @AppStorage("beam.keepViewportLock") private var keepViewportLock = true
     @AppStorage(ConnectionManager.streamAudioDefaultsKey) private var streamAudio = true
+    @AppStorage(BeamAppState.remoteEnabledDefaultsKey) private var remoteEnabled = true
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
     @State private var showPaywall = false
@@ -294,6 +295,22 @@ struct SettingsView: View {
                     .padding(.vertical, 14)
 
                     if !locked {
+                        cardDivider
+                        Toggle(isOn: $remoteEnabled) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Connect When Away")
+                                    .foregroundStyle(.white)
+                                Text(remoteEnabled
+                                     ? "Use the Tailscale address when your Mac isn't on this WiFi"
+                                     : "Off. Local WiFi only; the address is kept for later")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .tint(.orange)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+
                         cardDivider
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
