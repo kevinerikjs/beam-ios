@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage("beam.flipVertical") private var flipVertical = false
     @State private var showPaywall = false
     @State private var showFeedback = false
+    @State private var showWhatsNew = false
     @State private var manualRemoteHost = ""
     #if DEBUG
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
@@ -556,16 +557,35 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("About")
             VStack(spacing: 0) {
-                HStack {
-                    Text("Version")
-                        .foregroundStyle(.white)
-                    Spacer()
-                    Text(WhatsNewManager.appVersion)
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                // Tapping the version reopens this release's notes.
+                Button {
+                    showWhatsNew = true
+                } label: {
+                    HStack {
+                        Text("Version")
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Text(WhatsNewManager.appVersion)
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Version \(WhatsNewManager.appVersion), show what's new")
+                .sheet(isPresented: $showWhatsNew) {
+                    WhatsNewView(
+                        entries: WhatsNewManager.versionEntries,
+                        subtitle: "Version \(WhatsNewManager.appVersion)"
+                    ) {
+                        showWhatsNew = false
+                    }
+                }
 
                 cardDivider
 

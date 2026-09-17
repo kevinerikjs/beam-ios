@@ -30,29 +30,34 @@ private let versionChangelog: [ChangeEntry] = [
         detail: "Beam now runs on iPad. Same pairing, same stream, more screen."
     ),
     ChangeEntry(
-        icon: "macwindow",
-        title: "Pick the Window From Here",
-        detail: "Lock the stream to a single Mac window straight from the phone: tap the window button while streaming, choose one, or go back to the full display. Needs the latest Beacon on the Mac."
+        icon: "cursorarrow.click",
+        title: "Click the Mac From Your Phone",
+        detail: "Turn on click mode and tap the stream. The Mac clicks the same point, with zoom, viewport lock and window mode taken into account. Left click and right click are separate buttons in the default bar."
     ),
     ChangeEntry(
         icon: "keyboard",
-        title: "Type on the Mac From Your Phone",
-        detail: "The new Keyboard Input button at the end of the media bar opens a text box. Send it and Beacon types your message into whatever has focus on the Mac, then presses Return."
+        title: "Type on the Mac Live",
+        detail: "The Keyboard button opens your phone keyboard. Each key goes to the app that has focus on the Mac as you type. In the Computer Use layout, the ⌘ ⌃ ⌥ ⇧ buttons hold a modifier for the next key, so you can type shortcuts."
     ),
     ChangeEntry(
         icon: "slider.horizontal.3",
         title: "Your Buttons, Your Layout",
-        detail: "In Beacon Settings, Controls, build the media bar you want: up to seven buttons, each with its own icon and action. Keys, shortcuts, media keys, or recorded macros. The phone shows whatever you set up."
+        detail: "Open Beacon Settings, then Controls, and build your own bar: up to eight buttons, each with its own icon and action. Actions are keys, shortcuts, media keys, recorded macros, a text box, live keyboard and click. Two built-in layouts are included."
+    ),
+    ChangeEntry(
+        icon: "macwindow",
+        title: "Pick the Window From Here",
+        detail: "Lock the stream to one Mac window from the phone, or go back to the full display. Beacon can also start on a window you choose each time you connect."
     ),
     ChangeEntry(
         icon: "speaker.slash.fill",
         title: "Stream Without Audio",
-        detail: "Turn audio off in Settings or with the speaker button while streaming. With the latest Beacon the Mac stops sending sound entirely, so the picture gets all the bandwidth."
+        detail: "Turn audio off in Settings, or with the speaker button while streaming. With the latest Beacon, the Mac sends no audio at all, so the picture gets all the bandwidth."
     ),
     ChangeEntry(
         icon: "rectangle.dashed",
         title: "Fixes",
-        detail: "Locking the viewport now streams exactly the region you chose, hold-to-detect finds the video edges precisely, the viewport-lock hint no longer hides under the notch, and the on-screen controls fit every iPhone."
+        detail: "The viewport lock streams exactly the region you chose. Hold-to-detect finds the video edges precisely. The lock hint no longer hides under the notch. The on-screen controls fit every iPhone."
     ),
 ]
 
@@ -88,6 +93,11 @@ struct WhatsNewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Header and entries scroll together only when they outgrow the screen; the
+            // Continue button stays put underneath. `.automatic` disables the bounce when
+            // everything fits, so short changelogs look exactly as before.
+            ScrollView {
+            VStack(spacing: 0) {
             // Header
             VStack(spacing: 12) {
                 Image(systemName: "sparkles")
@@ -145,8 +155,12 @@ struct WhatsNewView: View {
                 }
                 .padding(.horizontal, 28)
             }
+            }
+            .padding(.bottom, 24)
+            }
+            .modifier(BounceOnlyWhenNeeded())
 
-            Spacer(minLength: 40)
+            Spacer(minLength: 16)
 
             // CTA
             Button(action: onDismiss) {
@@ -173,6 +187,18 @@ struct WhatsNewView: View {
 
 }
 
+/// `scrollBounceBehavior` is iOS 16.4+; the app floor is 16.0, where a short list simply
+/// bounces a little.
+private struct BounceOnlyWhenNeeded: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.scrollBounceBehavior(.basedOnSize)
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - Presentation gate
 
 enum WhatsNewManager {
@@ -180,6 +206,14 @@ enum WhatsNewManager {
 
     static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1"
+    }
+
+    /// The seen marker includes the build number, so a new build of the same version shows
+    /// the changelog again. Builds only change per submission, so users see it once per
+    /// release; developers see it on every install.
+    private static var seenMarker: String {
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        return "\(appVersion) (\(build))"
     }
 
     /// Shared preconditions for interrupting the user with a sheet at launch.
@@ -196,13 +230,13 @@ enum WhatsNewManager {
     static var shouldShowVersion: Bool {
         guard !versionChangelog.isEmpty, canInterrupt else { return false }
         let seen = UserDefaults.standard.string(forKey: key) ?? ""
-        return seen != appVersion
+        return seen != seenMarker
     }
 
     static var versionEntries: [ChangeEntry] { versionChangelog }
 
     static func markVersionSeen() {
-        UserDefaults.standard.set(appVersion, forKey: key)
+        UserDefaults.standard.set(seenMarker, forKey: key)
     }
 
     // MARK: Feature-unlock changelog
