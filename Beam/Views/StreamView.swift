@@ -594,7 +594,10 @@ struct StreamView: View {
         guard !visibleVideoRect.isNull, visibleVideoRect.width > 0, visibleVideoRect.height > 0 else {
             return largest16x9Rect(in: container)
         }
-        return largest16x9Rect(in: visibleVideoRect)
+        // Free-form: the lock is exactly the video the user has zoomed and panned into view.
+        // Beacon resizes the frame to the locked region's aspect (BEAM-38), so there is no
+        // longer any reason to force the selection into the frame's shape.
+        return visibleVideoRect
     }
 
     private func baseVideoRect(in container: CGRect) -> CGRect {
