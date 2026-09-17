@@ -47,6 +47,9 @@ final class BeamAppState: ObservableObject {
     /// True once the connected Beacon said it can list windows and lock capture to one.
     /// Reset on every stream stop so a picker never shows against an older host.
     @Published var hostSupportsWindowSelection = false
+    /// Icons and labels the host chose for the phone's media buttons (BEAM-39), keyed by
+    /// media-key wire name. Empty until an authSuccess carries them.
+    @Published var hostPhoneControls: [String: BeamPhoneControl] = [:]
     /// Windows the host offered in its last `window_list` reply. Ids are only valid until the
     /// next refresh, so the picker requests a fresh list every time it opens.
     @Published var hostWindows: [BeamWindowInfo] = []
@@ -590,6 +593,7 @@ final class BeamAppState: ObservableObject {
         connectionManager = nil
         isStreaming = false
         hostSupportsWindowSelection = false
+        hostPhoneControls = [:]
         videoAspect = 16.0 / 9.0
         hostWindows = []
         isLoadingHostWindows = false

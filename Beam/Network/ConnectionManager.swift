@@ -633,8 +633,10 @@ final class ConnectionManager {
             hostSupportsVideoHold = msg.supportsVideoHold ?? false
             hostSupportsAudioToggle = msg.supportsAudioToggle ?? false
             hostSupportsWindowSelection = msg.supportsWindowSelection ?? false
+            let controls = Dictionary(uniqueKeysWithValues: (msg.phoneControls ?? []).map { ($0.id, $0) })
             Task { @MainActor in
                 appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection
+                appState?.hostPhoneControls = controls
             }
             if !isAudioEnabled, !hostSupportsAudioToggle {
                 DiagnosticLogger.shared.log("Audio off but host predates the audio toggle — muting locally only", category: "Audio")

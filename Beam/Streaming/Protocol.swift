@@ -650,6 +650,23 @@ struct BeamPairingMessage: Codable {
     /// macOS → iOS (BEAM-35). True on hosts that answer `window_list_request` and honour
     /// `window_select_request`. Absence hides the window picker on the phone entirely.
     var supportsWindowSelection: Bool? = nil
+
+    /// macOS → iOS (BEAM-39). What the phone's media buttons are configured to do on the Mac,
+    /// so the phone can show the icon Kevin picked in Beacon Settings. Keyed by the same
+    /// wire names as BeamMediaKeyPayload.Key. Absence = host predates the feature = default
+    /// glyphs. Unknown or unavailable symbols fall back to the default glyph on the phone.
+    /// Keep in sync with the other Protocol.swift.
+    var phoneControls: [BeamPhoneControl]? = nil
+}
+
+/// BEAM-39. One configurable phone button as the host presents it.
+struct BeamPhoneControl: Codable, Equatable {
+    /// BeamMediaKeyPayload.Key raw value: "seek_backward", "seek_forward", "play_pause"...
+    let id: String
+    /// SF Symbol name chosen on the Mac.
+    let symbol: String
+    /// Short accessibility label / tooltip, e.g. "Rewind 10s" or "Next tab".
+    let label: String
 }
 
 // MARK: - Helpers
