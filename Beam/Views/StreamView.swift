@@ -837,26 +837,41 @@ private struct ViewportLockSelectionOverlay: View {
 // Deliberately NOT inside an .ignoresSafeArea() subtree — see call site comment in StreamView.
 private struct ViewportLockTooltip: View {
     var body: some View {
-        VStack {
-            VStack(spacing: 2) {
-                Text("Lock viewport to a screen area")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text("Use Cancel/Confirm above · or hold to auto-detect video")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.7))
+        GeometryReader { geometry in
+            let landscape = geometry.size.width > geometry.size.height
+            VStack {
+                Group {
+                    if landscape {
+                        // One line, tucked into the 44pt gutter above the HUD row. The safe
+                        // area is zero on top in landscape, so anything lower covers content.
+                        Text("Lock viewport to a screen area · Cancel/Confirm above · hold to auto-detect video")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.white)
+                    } else {
+                        VStack(spacing: 2) {
+                            Text("Lock viewport to a screen area")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white)
+                            Text("Use Cancel/Confirm above · or hold to auto-detect video")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+                }
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 14)
+                .padding(.vertical, landscape ? 6 : 8)
+                .background(.ultraThinMaterial, in: Capsule())
+                // Portrait: just under the StreamOverlay top bar (44pt inset + 32pt bar), in the
+                // same safe-area coordinate space, so it never collides with the HUD.
+                .padding(.top, landscape ? 6 : 44 + 32 + 12)
+                Spacer()
             }
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
-            // Sits just under the StreamOverlay top bar (44pt inset + 32pt bar), in the
-            // same safe-area coordinate space, so it never collides with the HUD in portrait.
-            .padding(.top, 44 + 32 + 12)
-            Spacer()
+            .padding(.horizontal, 20)
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

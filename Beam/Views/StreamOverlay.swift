@@ -19,6 +19,14 @@ struct StreamOverlay: View {
     let onOpenStreamSettings: () -> Void
     let onUpgrade: () -> Void
     let onDisconnect: () -> Void
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// iPhone in portrait. The one layout where the bottom bar's full set of controls is
+    /// wider than the screen, so it stacks into two rows there.
+    private var isNarrowPortrait: Bool {
+        horizontalSizeClass == .compact && verticalSizeClass == .regular
+    }
 
     var body: some View {
         VStack {
@@ -28,6 +36,9 @@ struct StreamOverlay: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 44)
+        // Never wider than the screen: an overflowing HStack would otherwise centre itself
+        // and push both bars' outer buttons off the edges.
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Top Bar
@@ -52,6 +63,8 @@ struct StreamOverlay: View {
             }
 
             Spacer()
+
+            audioToggleButton
 
             // Quality indicator button
             Button {
@@ -79,16 +92,52 @@ struct StreamOverlay: View {
         }
     }
 
+    // MARK: - Audio Toggle (BEAM-34)
+
+    @AppStorage(ConnectionManager.streamAudioDefaultsKey) private var streamAudio = true
+
+    /// Same switch as Settings → Stream Audio, just within reach mid-session. It is one
+    /// preference, not a per-session override, so what you set here is what the next session
+    /// starts with.
+    @ViewBuilder
+    private var audioToggleButton: some View {
+        Button {
+            streamAudio.toggle()
+            appState.connectionManager?.setAudioEnabled(streamAudio)
+        } label: {
+            Image(systemName: streamAudio ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(streamAudio ? .white : Color.orange)
+                .frame(width: 32, height: 32)
+                .beamGlass()
+        }
+        .accessibilityLabel(streamAudio ? "Mute Stream Audio" : "Unmute Stream Audio")
+    }
+
     // MARK: - Bottom Bar
 
     @ViewBuilder
     private var bottomBar: some View {
-        HStack(spacing: 0) {
-            mediaControls
-            Spacer()
-            HStack(spacing: 10) {
-                lockViewportControls
-                pipButton
+        if isNarrowPortrait {
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    Spacer()
+                    lockViewportControls
+                    pipButton
+                }
+                HStack {
+                    mediaControls
+                    Spacer()
+                }
+            }
+        } else {
+            HStack(spacing: 0) {
+                mediaControls
+                Spacer()
+                HStack(spacing: 10) {
+                    lockViewportControls
+                    pipButton
+                }
             }
         }
     }
@@ -388,12 +437,29 @@ struct StreamSettingsSheet: View {
     let appState: BeamAppState
     @Environment(\.dismiss) private var dismiss
     @AppStorage("beam.keepViewportLock") private var keepViewportLock = true
+    @AppStorage(ConnectionManager.streamAudioDefaultsKey) private var streamAudio = true
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Toggle("Stream Audio", isOn: $streamAudio)
+                        .tint(.orange)
+                        .onChange(of: streamAudio) { enabled in
+                            appState.connectionManager?.setAudioEnabled(enabled)
+                        }
+                } header: {
+                    Text("Audio")
+                } footer: {
+                    if !streamAudio, let cm = appState.connectionManager, !cm.hostSupportsAudioToggle {
+                        Text("This Mac's Beacon is too old to stop sending audio, so it is muted on the phone instead. Update Beacon to save bandwidth.")
+                    } else {
+                        Text("Off keeps the Mac from sending sound at all.")
+                    }
+                }
+
                 Section("Stream") {
                     Picker("Quality", selection: Binding(
                         get: { appState.preferredQualityPreset },
