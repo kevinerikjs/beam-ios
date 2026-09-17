@@ -14,6 +14,11 @@
 //   6. Compute the 95th-percentile bounding box of that blob: iteratively peel
 //      rows/columns from all four edges while retaining ≥95% of the blob's
 //      motion energy. This trims cold-periphery cells and gives a tight rect.
+//   7. Edge refinement: the coarse rect can only land on 20px cell boundaries and
+//      the blur/trim pair is tuned for "close", so each edge is re-found on a 4×
+//      finer change map inside a narrow band around the coarse edge, snapping to
+//      where change frequency steps from "moving" to "still". Nothing outside
+//      the band can move an edge, so a loading bar elsewhere cannot skew it.
 
 import Foundation
 import CoreMedia
@@ -98,6 +103,23 @@ final class VideoMotionDetector: ObservableObject {
     /// Analyse every Nth decoded frame. At 30 fps input this gives ~10 fps analysis.
     private static let analyzeEveryNFrames = 3
 
+    // Edge refinement (step 7)
+    /// Fine map is this many samples per coarse cell along each axis (4 → 384×216, ~5px).
+    private static let fineScale = 4
+    static let fineW = gridW * fineScale
+    static let fineH = gridH * fineScale
+    /// Luma delta for a fine sample to count as changed. Lower than fineThreshold on
+    /// purpose: dark or slow film edges still need to register as "moving".
+    private static let fineRefineThreshold: Int = 6
+    /// How far (in fine samples) each side of the coarse edge to search. 2 cells.
+    private static let refineBand = fineScale * 2
+    /// Rows/cols averaged on each side of a candidate boundary when scoring it.
+    private static let refineWindow = 3
+    /// A boundary is only accepted when the inside is this much more active than
+    /// the outside; otherwise the coarse edge stands.
+    private static let refineMinInside: Float = 0.12
+    private static let refineContrastRatio: Float = 2.0
+
     // MARK: - Queue-Confined State
 
     private let queue = DispatchQueue(label: "com.beam.ios.motiondetector", qos: .utility)
@@ -106,6 +128,10 @@ final class VideoMotionDetector: ObservableObject {
     private var prevGrid: [UInt8] = []
     /// Per-cell count of active frames in which the cell changed.
     private var changeCount: [Int] = []
+    /// Fine-grid luma and change counts for edge refinement (fineW × fineH).
+    private var prevFine: [UInt8] = []
+    private var currentFine: [UInt8] = []
+    private var fineChangeCount: [Int] = []
     private var activeFrameCount = 0
     private var lastPublishedRect: CGRect? = nil
     private var stableCount = 0
@@ -282,7 +308,18 @@ final class VideoMotionDetector: ObservableObject {
             }
         }
 
-        guard prevGrid.count == size else { prevGrid = current; return }
+        // ── Fine grid (4× per axis) for edge refinement ───────────────────────
+        let fW = Self.fineW, fH = Self.fineH, fSize = fW * fH
+        var fine = [UInt8](repeating: 0, count: fSize)
+        for fy in 0..<fH {
+            let py = min(fy * pH / fH, pH - 1)
+            let row = py * stride
+            for fx in 0..<fW {
+                fine[fy * fW + fx] = luma[row + min(fx * pW / fW, pW - 1)]
+            }
+        }
+
+        guard prevGrid.count == size else { prevGrid = current; prevFine = fine; return }
 
         // ── Per-cell luma diffs ────────────────────────────────────────────────
         var diffs = [Int](repeating: 0, count: size)
@@ -304,6 +341,13 @@ final class VideoMotionDetector: ObservableObject {
         for i in 0..<size where diffs[i] > Self.fineThreshold {
             changeCount[i] += 1
         }
+        if prevFine.count == fSize {
+            for i in 0..<fSize where abs(Int(fine[i]) - Int(prevFine[i])) > Self.fineRefineThreshold {
+                fineChangeCount[i] += 1
+            }
+        }
+        prevFine = fine
+        currentFine = fine
 
         guard activeFrameCount >= Self.minActiveFrames else { return }
 
@@ -385,8 +429,9 @@ final class VideoMotionDetector: ObservableObject {
 
         let bestBlob = findBestBlob(hotCells: hotSet, blurred: blurred, gW: gW, gH: gH)
 
-        // ── 95th-percentile bounding box ──────────────────────────────────────
-        let normRect = percentileBoundingBox(cells: bestBlob, blurred: blurred, gW: gW, gH: gH)
+        // ── 95th-percentile bounding box, then snap edges on the fine map ─────
+        let coarseRect = percentileBoundingBox(cells: bestBlob, blurred: blurred, gW: gW, gH: gH)
+        let normRect = refineEdges(coarseRect)
 
         // ── Stability / confidence ────────────────────────────────────────────
         if let last = lastPublishedRect, rectsAreSimilar(normRect, last) {
@@ -514,9 +559,88 @@ final class VideoMotionDetector: ObservableObject {
             && abs(a.maxX - b.maxX) < e && abs(a.maxY - b.maxY) < e
     }
 
+    // MARK: - Edge Refinement
+
+    /// Re-finds each edge of `rect` (normalised) on the fine change map. For one edge,
+    /// every candidate boundary within `refineBand` gets a score: how much more often
+    /// the samples just inside it change than the samples just outside, plus a small
+    /// luma-contrast term so a hard player border wins a tie. The best boundary is
+    /// accepted only if the inside is clearly active and clearly more active than the
+    /// outside; otherwise the coarse edge stands, so refinement can never make a
+    /// result worse than before.
+    private func refineEdges(_ rect: CGRect) -> CGRect {
+        let fW = Self.fineW, fH = Self.fineH
+        guard activeFrameCount > 0, fineChangeCount.count == fW * fH, currentFine.count == fW * fH else { return rect }
+        let inv = 1.0 / Float(activeFrameCount)
+        func freq(_ x: Int, _ y: Int) -> Float { Float(fineChangeCount[y * fW + x]) * inv }
+        func luma(_ x: Int, _ y: Int) -> Float { Float(currentFine[y * fW + x]) }
+
+        var x0 = Int((rect.minX * CGFloat(fW)).rounded()), x1 = Int((rect.maxX * CGFloat(fW)).rounded())
+        var y0 = Int((rect.minY * CGFloat(fH)).rounded()), y1 = Int((rect.maxY * CGFloat(fH)).rounded())
+        x0 = max(0, min(x0, fW - 1)); x1 = max(x0 + 1, min(x1, fW))
+        y0 = max(0, min(y0, fH - 1)); y1 = max(y0 + 1, min(y1, fH))
+
+        // Profile along one axis: mean change frequency per line, over the interior of the
+        // other axis (10% inset so corners and adjacent chrome don't leak in).
+        func profile(horizontalLines: Bool, from a: Int, to b: Int) -> ([Float], [Float]) {
+            let spanLo = horizontalLines ? x0 : y0, spanHi = horizontalLines ? x1 : y1
+            let inset = max(1, (spanHi - spanLo) / 10)
+            let lo = spanLo + inset, hi = max(lo + 1, spanHi - inset)
+            var f = [Float](repeating: 0, count: b - a), e = [Float](repeating: 0, count: b - a)
+            for line in a..<b {
+                var fs: Float = 0, es: Float = 0
+                for k in lo..<hi {
+                    if horizontalLines {
+                        fs += freq(k, line)
+                        if line > 0 { es += abs(luma(k, line) - luma(k, line - 1)) }
+                    } else {
+                        fs += freq(line, k)
+                        if line > 0 { es += abs(luma(line, k) - luma(line - 1, k)) }
+                    }
+                }
+                let n = Float(hi - lo)
+                f[line - a] = fs / n; e[line - a] = es / n / 255
+            }
+            return (f, e)
+        }
+
+        // Pick the boundary in [lo, hi) with the strongest inside-vs-outside step.
+        // `insideIsAfter` = true for top/left edges (inside lies at higher indices).
+        func bestBoundary(coarse: Int, limit: Int, horizontalLines: Bool, insideIsAfter: Bool) -> Int {
+            let w = Self.refineWindow
+            let a = max(w, coarse - Self.refineBand), b = min(limit - w, coarse + Self.refineBand)
+            guard b > a else { return coarse }
+            let (f, e) = profile(horizontalLines: horizontalLines, from: a - w, to: b + w)
+            var best = coarse, bestScore: Float = -1
+            for cand in a..<b {
+                let i = cand - (a - w)
+                var before: Float = 0, after: Float = 0
+                for k in 1...w { before += f[i - k]; after += f[i + k - 1] }
+                before /= Float(w); after /= Float(w)
+                let inside = insideIsAfter ? after : before
+                let outside = insideIsAfter ? before : after
+                guard inside >= Self.refineMinInside, inside >= outside * Self.refineContrastRatio else { continue }
+                let score = (inside - outside) + e[i] * 0.5
+                if score > bestScore { bestScore = score; best = cand }
+            }
+            return best
+        }
+
+        let ny0 = bestBoundary(coarse: y0, limit: fH, horizontalLines: true, insideIsAfter: true)
+        let ny1 = bestBoundary(coarse: y1, limit: fH, horizontalLines: true, insideIsAfter: false)
+        let nx0 = bestBoundary(coarse: x0, limit: fW, horizontalLines: false, insideIsAfter: true)
+        let nx1 = bestBoundary(coarse: x1, limit: fW, horizontalLines: false, insideIsAfter: false)
+        guard nx1 > nx0 + Self.fineScale, ny1 > ny0 + Self.fineScale else { return rect }
+        return CGRect(x: CGFloat(nx0) / CGFloat(fW), y: CGFloat(ny0) / CGFloat(fH),
+                      width: CGFloat(nx1 - nx0) / CGFloat(fW), height: CGFloat(ny1 - ny0) / CGFloat(fH))
+    }
+
     private func resetState() {
         let size = Self.gridW * Self.gridH
         prevGrid = []
+        prevFine = []
+        currentFine = []
+        fineChangeCount = [Int](repeating: 0, count: Self.fineW * Self.fineH)
         changeCount = [Int](repeating: 0, count: size)
         activeFrameCount = 0
         lastPublishedRect = nil
