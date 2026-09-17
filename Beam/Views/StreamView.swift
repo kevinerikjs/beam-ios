@@ -196,6 +196,13 @@ struct StreamView: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                     .transition(.opacity)
+
+                // Tooltip lives outside the ignoresSafeArea() scope above so it gets the real
+                // device safe area (notch/Dynamic Island) instead of reporting a zero inset —
+                // GeometryReaders inside an ignoresSafeArea() subtree see no safe area to pad for.
+                ViewportLockTooltip()
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
             }
 
             // Reconnect overlay (BEAM-24). MUST sit outside `if showOverlay` — that block is
@@ -261,6 +268,9 @@ struct StreamView: View {
             // because they are the point of the capture.
             guard !ShotMode.isActive else {
                 showOverlay = true
+                if ShotMode.screen == "stream-viewport-lock" {
+                    startViewportLockSelection()
+                }
                 return
             }
             setupStreaming()
@@ -818,26 +828,35 @@ private struct ViewportLockSelectionOverlay: View {
                     .stroke(Color.orange.opacity(0.95), lineWidth: 2)
                     .frame(width: selectionFrame.width, height: selectionFrame.height)
                     .position(x: selectionFrame.midX, y: selectionFrame.midY)
-
-                // Tooltip at top
-                VStack {
-                    VStack(spacing: 2) {
-                        Text("Lock viewport to a screen area")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                        Text("Use Cancel/Confirm above · or hold to auto-detect video")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 16)
-                    Spacer()
-                }
             }
         }
+    }
+}
+
+// MARK: - ViewportLockTooltip
+// Deliberately NOT inside an .ignoresSafeArea() subtree — see call site comment in StreamView.
+private struct ViewportLockTooltip: View {
+    var body: some View {
+        VStack {
+            VStack(spacing: 2) {
+                Text("Lock viewport to a screen area")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("Use Cancel/Confirm above · or hold to auto-detect video")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: Capsule())
+            // Sits just under the StreamOverlay top bar (44pt inset + 32pt bar), in the
+            // same safe-area coordinate space, so it never collides with the HUD in portrait.
+            .padding(.top, 44 + 32 + 12)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

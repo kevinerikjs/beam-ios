@@ -76,6 +76,7 @@ enum ShotMode {
         appState.isSearchingForMac = false
         appState.connectionQuality = 1.0
         appState.isStreaming = screen.hasPrefix("stream")
+        appState.lockedViewportRect = nil
 
         // Teleprompter mode is a real setting, so it persists across launches in the same
         // simulator. Clear it first or every screen captured after the teleprompter one comes
@@ -119,7 +120,7 @@ enum ShotMode {
                 entries: WhatsNewManager.versionEntries,
                 subtitle: "Version \(WhatsNewManager.appVersion)"
             ) {}
-        case "stream", "stream-teleprompter", "stream-remote": StreamView()
+        case "stream", "stream-teleprompter", "stream-remote", "stream-viewport-lock": StreamView()
         default:           HomeView()
         }
     }
