@@ -35,16 +35,20 @@ struct StreamOverlay: View {
     private var bigButtonFont: Font { isNarrowPortrait ? .system(size: 13, weight: .semibold) : .title3.weight(.semibold) }
 
     var body: some View {
-        VStack {
-            topBar
-            Spacer()
-            bottomBar
+        // One shared glass layer for every HUD element (iOS 26), so the small buttons and the
+        // media bar sample and refract identically instead of each rendering its own material.
+        BeamGlassContainer {
+            VStack {
+                topBar
+                Spacer()
+                bottomBar
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 44)
+            // Never wider than the screen: an overflowing HStack would otherwise centre itself
+            // and push both bars' outer buttons off the edges.
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 44)
-        // Never wider than the screen: an overflowing HStack would otherwise centre itself
-        // and push both bars' outer buttons off the edges.
-        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Top Bar
@@ -69,15 +73,6 @@ struct StreamOverlay: View {
             }
 
             Spacer()
-
-            // In narrow portrait these two live in the bottom bar instead; there is no room
-            // up here next to the free-tier timer.
-            if !isNarrowPortrait {
-                if appState.hostSupportsWindowSelection {
-                    windowPickerButton
-                }
-                audioToggleButton
-            }
 
             // Quality indicator button
             Button {
@@ -175,13 +170,19 @@ struct StreamOverlay: View {
                 }
             }
         } else {
-            HStack(spacing: 0) {
-                mediaControls
-                Spacer()
+            // Window + audio bottom-left, lock/PiP bottom-right, media bar centred on the
+            // screen regardless of how wide either side group is.
+            ZStack {
                 HStack(spacing: 10) {
+                    if appState.hostSupportsWindowSelection {
+                        windowPickerButton
+                    }
+                    audioToggleButton
+                    Spacer()
                     lockViewportControls
                     pipButton
                 }
+                mediaControls
             }
         }
     }
@@ -197,8 +198,9 @@ struct StreamOverlay: View {
             MediaButton(systemName: "forward.fill",    label: "Next") { appState.connectionManager?.sendMediaKey(.next) }
             MediaButton(systemName: "arrow.clockwise", label: "Seek Forward") { appState.connectionManager?.sendMediaKey(.seekForward) }
         }
-        .padding(10)
-        .beamGlass()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .beamGlass(.capsule)
     }
 
     // MARK: - PiP Button
@@ -351,7 +353,7 @@ struct StreamOverlay: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .beamGlass()
+        .beamGlass(.capsule)
     }
 
     // MARK: - Session Timer
@@ -385,7 +387,7 @@ struct StreamOverlay: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .beamGlass()
+        .beamGlass(.capsule)
     }
 }
 
@@ -637,19 +639,42 @@ struct StreamSettingsSheet: View {
 // MARK: - Beam Glass modifier
 
 /// Applies Liquid Glass (iOS 26+) with ultraThinMaterial fallback for older OS.
+enum BeamGlassShape { case rounded, capsule }
+
 struct BeamGlassModifier: ViewModifier {
+    var shape: BeamGlassShape = .rounded
+
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
+            // `.interactive()` gives every element the same press shimmer and specular
+            // response, so a big bar and a small button react alike under a finger.
+            switch shape {
+            case .rounded: content.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 12))
+            case .capsule: content.glassEffect(.regular.interactive(), in: Capsule())
+            }
         } else {
-            content
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            switch shape {
+            case .rounded: content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            case .capsule: content.background(.ultraThinMaterial, in: Capsule())
+            }
+        }
+    }
+}
+
+/// GlassEffectContainer on iOS 26, plain passthrough before it.
+struct BeamGlassContainer<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        if #available(iOS 26, *) {
+            GlassEffectContainer(spacing: 10) { content() }
+        } else {
+            content()
         }
     }
 }
 
 extension View {
-    func beamGlass() -> some View { modifier(BeamGlassModifier()) }
+    func beamGlass(_ shape: BeamGlassShape = .rounded) -> some View { modifier(BeamGlassModifier(shape: shape)) }
 }
 
 // MARK: - Media Button

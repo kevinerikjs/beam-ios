@@ -77,6 +77,8 @@ enum ShotMode {
         appState.connectionQuality = 1.0
         appState.isStreaming = screen.hasPrefix("stream")
         appState.lockedViewportRect = nil
+        // The window button shows for every stream capture: a current Beacon supports it.
+        appState.hostSupportsWindowSelection = screen.hasPrefix("stream")
 
         // Teleprompter mode is a real setting, so it persists across launches in the same
         // simulator. Clear it first or every screen captured after the teleprompter one comes
