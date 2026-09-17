@@ -205,7 +205,24 @@ final class VideoMotionDetector: ObservableObject {
     // Beacon prepends SPS (7) + PPS (8) before the IDR in every keyframe packet, so
     // checking only byte 4 always reads SPS and misses the IDR — must scan them all.
 
+    /// Keyframe test for both codecs. H.264: NAL type (low 5 bits) 5 = IDR. HEVC: NAL type is
+    /// bits 1-6 of the first header byte; 16-21 are the IRAP pictures (IDR/CRA/BLA), any of
+    /// which starts a decodable sequence. Checking only the H.264 layout meant that on an HEVC
+    /// stream the detector never saw a "first keyframe" and never decoded a single frame.
     private func isKeyframeSample(_ sampleBuffer: CMSampleBuffer) -> Bool {
+        // The sync flag is authoritative when present (StreamReceiver stamps it on IDR frames).
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false),
+           CFArrayGetCount(attachments) > 0,
+           let dict = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFDictionary.self) as? [CFString: Any],
+           let notSync = dict[kCMSampleAttachmentKey_NotSync] as? Bool {
+            return !notSync
+        }
+        let isHEVC: Bool
+        if let fd = CMSampleBufferGetFormatDescription(sampleBuffer) {
+            isHEVC = CMFormatDescriptionGetMediaSubType(fd) == kCMVideoCodecType_HEVC
+        } else {
+            isHEVC = false
+        }
         guard let db = CMSampleBufferGetDataBuffer(sampleBuffer) else { return false }
         var totalLen = 0
         var ptr: UnsafeMutablePointer<Int8>?
@@ -220,7 +237,13 @@ final class VideoMotionDetector: ObservableObject {
                     | (Int(UInt8(bitPattern: ptr[off+2])) << 8)
                     |  Int(UInt8(bitPattern: ptr[off+3]))
             guard len > 0, off + 4 + len <= totalLen else { break }
-            if UInt8(bitPattern: ptr[off+4]) & 0x1F == 5 { return true }
+            let header = UInt8(bitPattern: ptr[off+4])
+            if isHEVC {
+                let nalType = (header >> 1) & 0x3F
+                if (16...21).contains(nalType) { return true }
+            } else if header & 0x1F == 5 {
+                return true
+            }
             off += 4 + len
         }
         return false
