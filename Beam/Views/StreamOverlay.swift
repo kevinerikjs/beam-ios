@@ -29,6 +29,11 @@ struct StreamOverlay: View {
         horizontalSizeClass == .compact && verticalSizeClass == .regular
     }
 
+    /// Lock / confirm / cancel / PiP buttons: 48pt in landscape, 32pt in portrait so they match
+    /// the window and audio buttons sharing their row.
+    private var bigButtonSize: CGFloat { isNarrowPortrait ? 32 : 48 }
+    private var bigButtonFont: Font { isNarrowPortrait ? .system(size: 13, weight: .semibold) : .title3.weight(.semibold) }
+
     var body: some View {
         VStack {
             topBar
@@ -164,6 +169,7 @@ struct StreamOverlay: View {
                     pipButton
                 }
                 HStack {
+                    Spacer()
                     mediaControls
                     Spacer()
                 }
@@ -203,9 +209,9 @@ struct StreamOverlay: View {
             pipController.start()
         } label: {
             Image(systemName: "pip.enter")
-                .font(.title2)
+                .font(isNarrowPortrait ? .system(size: 14, weight: .semibold) : .title2)
                 .foregroundStyle(.white)
-                .frame(width: 48, height: 48)
+                .frame(width: bigButtonSize, height: bigButtonSize)
                 .beamGlass()
         }
         .disabled(!pipController.isPiPSupported)
@@ -224,9 +230,9 @@ struct StreamOverlay: View {
                         }
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.title3.weight(.semibold))
+                            .font(bigButtonFont)
                             .foregroundStyle(.white)
-                            .frame(width: 48, height: 48)
+                            .frame(width: bigButtonSize, height: bigButtonSize)
                             .beamGlass()
                     }
                     .accessibilityLabel("Cancel Viewport Selection")
@@ -237,9 +243,9 @@ struct StreamOverlay: View {
                         }
                     } label: {
                         Image(systemName: "checkmark")
-                            .font(.title3.weight(.semibold))
+                            .font(bigButtonFont)
                             .foregroundStyle(.orange)
-                            .frame(width: 48, height: 48)
+                            .frame(width: bigButtonSize, height: bigButtonSize)
                             .beamGlass()
                     }
                     .accessibilityLabel("Confirm Viewport Selection")
@@ -255,9 +261,9 @@ struct StreamOverlay: View {
                     }
                 } label: {
                     Image(systemName: isViewportLocked ? "lock.fill" : "lock.open.fill")
-                        .font(.title3)
+                        .font(bigButtonFont)
                         .foregroundStyle(isViewportLocked ? Color.orange : .white)
-                        .frame(width: 48, height: 48)
+                        .frame(width: bigButtonSize, height: bigButtonSize)
                         .beamGlass()
                 }
                 .accessibilityLabel(isViewportLocked ? "Unlock Viewport" : "Lock Viewport")
