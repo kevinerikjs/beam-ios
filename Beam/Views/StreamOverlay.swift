@@ -141,10 +141,11 @@ struct StreamOverlay: View {
         .accessibilityLabel(streamAudio ? "Mute Stream Audio" : "Unmute Stream Audio")
     }
 
-    /// "1080p · 30 fps" → "1080p"; the fps half doesn't fit an iPhone in portrait.
+    /// "1080p · 30 fps" → "1080p30"; the long form doesn't fit an iPhone in portrait.
     private var compactQualityName: String {
-        let name = appState.currentQualityPreset.displayName
-        return String(name.split(separator: " ").first ?? Substring(name))
+        appState.currentQualityPreset.displayName
+            .replacingOccurrences(of: " · ", with: "")
+            .replacingOccurrences(of: " fps", with: "")
     }
 
     // MARK: - Bottom Bar
