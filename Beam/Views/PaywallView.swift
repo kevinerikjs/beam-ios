@@ -141,7 +141,7 @@ struct PaywallView: View {
                         compact: compact,
                         icon: "playpause.fill",
                         title: "Full media controls",
-                        subtitle: "Play, pause, and skip directly from your iPhone"
+                        subtitle: "Play, pause, and skip directly from your \(UIDevice.deviceNoun)"
                     )
                     featureDivider
                     UnlimitedFeatureRow(

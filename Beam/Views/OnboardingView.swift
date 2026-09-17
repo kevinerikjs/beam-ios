@@ -12,7 +12,7 @@ struct OnboardingView: View {
         OnboardingPage(
             icon: "film.fill",
             title: "Never lose your place",
-            body: "Watching something on your Mac? Beam streams your screen directly to your iPhone, instantly.",
+            body: "Watching something on your Mac? Beam streams your screen directly to your \(UIDevice.deviceNoun), instantly.",
             color: .orange
         ),
         OnboardingPage(

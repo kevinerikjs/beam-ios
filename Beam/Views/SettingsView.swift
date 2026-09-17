@@ -464,7 +464,7 @@ struct SettingsView: View {
                  + "away. Keep Tailscale running on both devices."
         case .hostNeedsTailscale:
             return "Install Tailscale on \(macName) and sign in with the same account as this "
-                 + "iPhone, then tap Set Up Automatically."
+                 + "\(UIDevice.deviceNoun), then tap Set Up Automatically."
         case .hostNeedsUpdate:
             return "\(macName) is running a version of Beacon that doesn't support streaming "
                  + "from outside your network yet. Update Beacon on your Mac (Beacon → Check "

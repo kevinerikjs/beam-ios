@@ -194,3 +194,13 @@ private extension ProcessInfo.ThermalState {
         }
     }
 }
+
+
+// MARK: - Device wording (BEAM-36)
+
+extension UIDevice {
+    /// "iPhone" or "iPad", for copy that names the device the user is holding.
+    static var deviceNoun: String {
+        UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+    }
+}
