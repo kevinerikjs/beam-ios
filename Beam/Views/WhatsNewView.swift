@@ -25,9 +25,24 @@ struct ChangeEntry: Identifiable {
 /// Ships with the release. Must NOT mention any feature that is still behind a flag.
 private let versionChangelog: [ChangeEntry] = [
     ChangeEntry(
-        icon: "chevron.left.forwardslash.chevron.right",
-        title: "Beam Is Open Source",
-        detail: "Beam and Beacon are both public now, under the AGPL. Beam carries your Mac's screen and audio, so rather than asking you to trust that nothing else happens to them, you can read the code and check. The links are in Settings, under About."
+        icon: "ipad.landscape",
+        title: "Beam on iPad",
+        detail: "Beam now runs on iPad. Same pairing, same stream, more screen."
+    ),
+    ChangeEntry(
+        icon: "macwindow",
+        title: "Pick the Window From Here",
+        detail: "Lock the stream to a single Mac window straight from the phone: tap the window button while streaming, choose one, or go back to the full display. Needs the latest Beacon on the Mac."
+    ),
+    ChangeEntry(
+        icon: "speaker.slash.fill",
+        title: "Stream Without Audio",
+        detail: "Turn audio off in Settings or with the speaker button while streaming. With the latest Beacon the Mac stops sending sound entirely, so the picture gets all the bandwidth."
+    ),
+    ChangeEntry(
+        icon: "rectangle.dashed",
+        title: "Fixes",
+        detail: "The viewport-lock hint no longer hides under the notch in portrait, and the on-screen controls fit the screen on every iPhone."
     ),
 ]
 
