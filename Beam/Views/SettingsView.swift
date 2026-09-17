@@ -482,8 +482,7 @@ struct SettingsView: View {
                     showFeedback = true
                 } label: {
                     HStack {
-                        Label("Send Feedback", systemImage: "bubble.left.and.bubble.right")
-                            .foregroundStyle(.white)
+                        rowLabel("Send Feedback", systemImage: "bubble.left.and.bubble.right")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
@@ -500,8 +499,7 @@ struct SettingsView: View {
                 // device, so the download link has to be reachable from this one.
                 Link(destination: URL(string: "https://beamscreen.app")!) {
                     HStack {
-                        Label("Get Beacon for a Mac", systemImage: "laptopcomputer.and.arrow.down")
-                            .foregroundStyle(.white)
+                        rowLabel("Get Beacon for a Mac", systemImage: "laptopcomputer.and.arrow.down")
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption.weight(.semibold))
@@ -515,8 +513,7 @@ struct SettingsView: View {
 
                 Link(destination: URL(string: "https://beamscreen.app/guide/mirror-mac-to-iphone")!) {
                     HStack {
-                        Label("Setup Guide", systemImage: "book")
-                            .foregroundStyle(.white)
+                        rowLabel("Setup Guide", systemImage: "book")
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption.weight(.semibold))
@@ -633,6 +630,16 @@ struct SettingsView: View {
             .textCase(.uppercase)
             .kerning(0.5)
             .padding(.horizontal, 4)
+    }
+
+    /// Label whose icon sits in a fixed-width slot, so rows with different SF Symbols line up.
+    private func rowLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .frame(width: 26)
+            Text(title)
+        }
+        .foregroundStyle(.white)
     }
 
     private var cardDivider: some View {
