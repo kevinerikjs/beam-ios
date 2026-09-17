@@ -110,6 +110,9 @@ final class ConnectionManager {
         self.pairedMac = pairedMac
         self.appState = appState
         self.streamReceiver.audioPlayer = self.audioPlayer
+        self.streamReceiver.onVideoDimensionsChanged = { [weak self] size in
+            Task { @MainActor in self?.appState?.videoAspect = size.width / size.height }
+        }
         // When AudioPlayer's watchdog rebuilds the playback chain, the AAC decoder upstream
         // must go with it — it is one of the ways the chain can be silent while packets arrive.
         self.audioPlayer.onForceRebuild = { [weak self] in

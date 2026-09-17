@@ -598,7 +598,7 @@ struct StreamView: View {
     }
 
     private func baseVideoRect(in container: CGRect) -> CGRect {
-        let aspect: CGFloat = 16.0 / 9.0
+        let aspect = appState.videoAspect
         let containerAspect = container.width / max(container.height, 1)
         if containerAspect > aspect {
             let height = container.height
@@ -652,9 +652,11 @@ struct StreamView: View {
         )
     }
 
+    /// Largest rect of the stream's aspect that fits `rect`, centred. The lock selection keeps
+    /// the frame's shape so the host never has to letterbox the locked region.
     private func largest16x9Rect(in rect: CGRect) -> CGRect {
         guard rect.width > 0, rect.height > 0 else { return .zero }
-        let targetAspect: CGFloat = 16.0 / 9.0
+        let targetAspect = appState.videoAspect
         let rectAspect = rect.width / rect.height
         let width: CGFloat
         let height: CGFloat

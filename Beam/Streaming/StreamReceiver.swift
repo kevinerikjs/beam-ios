@@ -34,6 +34,11 @@ final class StreamReceiver {
     weak var videoRenderer: VideoRenderer?
     weak var audioPlayer: AudioPlayer?
 
+    /// Encoded frame size, from the SPS. Fires whenever it changes: the host switches frame
+    /// shape when it locks onto a window (BEAM-38) and the overlay geometry must follow.
+    var onVideoDimensionsChanged: ((CGSize) -> Void)?
+    private var lastVideoDimensions: CGSize = .zero
+
     // Parameter sets for the active codec (H.264: SPS+PPS; HEVC: VPS+SPS+PPS), Annex B.
     private var parameterSets: Data? = nil
     /// Codec of the current parameter sets, taken from the .spsPps packet's flags. Decides
@@ -89,7 +94,14 @@ final class StreamReceiver {
             var desc: CMFormatDescription?
             self.buildFormatDescription(from: data, codec: codec, into: &desc)
             self.cachedFormatDesc = desc
-            if desc != nil {
+            if let desc {
+                let dims = CMVideoFormatDescriptionGetDimensions(desc)
+                let size = CGSize(width: CGFloat(dims.width), height: CGFloat(dims.height))
+                if size != self.lastVideoDimensions, size.width > 0, size.height > 0 {
+                    self.lastVideoDimensions = size
+                    DiagnosticLogger.shared.log("Video frame size \(Int(size.width))x\(Int(size.height))", category: "Video")
+                    self.onVideoDimensionsChanged?(size)
+                }
                 logger.info("Received \(codec.wireName) parameter sets (\(data.count) bytes)")
                 DiagnosticLogger.shared.log("\(codec.wireName) parameter sets received (\(data.count) bytes)", category: "Video")
             } else {

@@ -38,6 +38,10 @@ final class BeamAppState: ObservableObject {
     /// The quality preset currently active on the host (set from .qualityChanged messages).
     @Published var currentQualityPreset: StreamQualityPreset = .p1080_30
 
+    /// Aspect of the frames the host is sending (width / height). 16:9 on a full display; a
+    /// window's own aspect in window mode (BEAM-38). Drives every overlay geometry calculation.
+    @Published var videoAspect: CGFloat = 16.0 / 9.0
+
     // MARK: - Host window selection (BEAM-35)
 
     /// True once the connected Beacon said it can list windows and lock capture to one.
@@ -586,6 +590,7 @@ final class BeamAppState: ObservableObject {
         connectionManager = nil
         isStreaming = false
         hostSupportsWindowSelection = false
+        videoAspect = 16.0 / 9.0
         hostWindows = []
         isLoadingHostWindows = false
         hostCaptureMode = nil
