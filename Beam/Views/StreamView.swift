@@ -1137,18 +1137,18 @@ struct TextPromptSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 12) {
-                TextEditor(text: $text)
+            VStack(alignment: .leading, spacing: 8) {
+                // A growing text field, not an editor: as tall as the text, up to eight lines.
+                TextField("Message", text: $text, axis: .vertical)
+                    .lineLimit(1...8)
                     .focused($focused)
                     .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(10)
+                    .padding(12)
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                    .frame(minHeight: 120)
+                    .submitLabel(.return)
                 Text("Typed on the Mac as key presses, into whatever has focus there.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer(minLength: 0)
             }
             .padding()
