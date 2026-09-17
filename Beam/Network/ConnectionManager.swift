@@ -188,7 +188,8 @@ final class ConnectionManager {
             // has to change mid-session (BEAM-29). AVAudioSession.sampleRate is the rate the
             // hardware is actually running at right now, which is the number that matters.
             preferredAudioSampleRate: AVAudioSession.sharedInstance().sampleRate,
-            supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs()
+            supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs(),
+            supportedVideoCodecs: BeamVideoCodec.clientAdvertisedCodecs()
         )
         guard let data = try? JSONEncoder().encode(auth) else { return }
         sendTCP(data.lengthPrefixed())
@@ -355,7 +356,9 @@ final class ConnectionManager {
             streamReceiver.receive(videoPayload: Data(payload), isKeyframe: header.type == .videoIDR)
 
         case .spsPps:
-            streamReceiver.receiveParameterSets(Data(payload))
+            // The codec (H.264 vs HEVC) is carried in the packet's flags nibble; a legacy host
+            // sends 0 = H.264. This decides which format-description builder the receiver uses.
+            streamReceiver.receiveParameterSets(Data(payload), codec: BeamVideoCodec(packetFlags: header.flags))
 
         case .audio:
             lastMediaPacketReceivedAt = Date()
@@ -540,6 +543,12 @@ final class ConnectionManager {
             DiagnosticLogger.shared.log(
                 "Host audio codec: \(msg.selectedAudioCodec ?? "pcm (legacy host)")",
                 category: "Audio"
+            )
+            // Diagnostic only — the authority for how to decode video is the .spsPps packet's
+            // flags, never this field. A legacy host omits it and streams H.264.
+            DiagnosticLogger.shared.log(
+                "Host video codec: \(msg.selectedVideoCodec ?? "h264 (legacy host)")",
+                category: "Video"
             )
             streamStartedAt = Date()
             // Read synchronously: beginWarmupIfRemote() below decides whether to hold video

@@ -34,8 +34,11 @@ final class StreamReceiver {
     weak var videoRenderer: VideoRenderer?
     weak var audioPlayer: AudioPlayer?
 
-    // SPS/PPS parameter sets for H.264
+    // Parameter sets for the active codec (H.264: SPS+PPS; HEVC: VPS+SPS+PPS), Annex B.
     private var parameterSets: Data? = nil
+    /// Codec of the current parameter sets, taken from the .spsPps packet's flags. Decides
+    /// which format-description builder is used. Defaults to H.264 (the legacy wire default).
+    private var currentVideoCodec: BeamVideoCodec = .h264
 
     // In-flight video frame assembly
     private var frameBuffers: [UInt32: VideoFrameBuffer] = [:]
@@ -64,6 +67,7 @@ final class StreamReceiver {
         assemblyQueue.async { [weak self] in
             guard let self else { return }
             parameterSets = nil
+            currentVideoCodec = .h264
             frameBuffers.removeAll()
             cachedFormatDesc = nil
             lastDeliveredFrameNumber = UInt32.max
@@ -76,20 +80,21 @@ final class StreamReceiver {
 
     // MARK: - Parameter Sets
 
-    func receiveParameterSets(_ data: Data) {
+    func receiveParameterSets(_ data: Data, codec: BeamVideoCodec) {
         assemblyQueue.async { [weak self] in
             guard let self else { return }
             self.parameterSets = data
+            self.currentVideoCodec = codec
             // Pre-build and cache the format description so it's ready for the first IDR frame
             var desc: CMFormatDescription?
-            self.buildFormatDescription(from: data, into: &desc)
+            self.buildFormatDescription(from: data, codec: codec, into: &desc)
             self.cachedFormatDesc = desc
             if desc != nil {
-                logger.info("Received SPS/PPS parameter sets (\(data.count) bytes)")
-                DiagnosticLogger.shared.log("SPS/PPS received (\(data.count) bytes)", category: "Video")
+                logger.info("Received \(codec.wireName) parameter sets (\(data.count) bytes)")
+                DiagnosticLogger.shared.log("\(codec.wireName) parameter sets received (\(data.count) bytes)", category: "Video")
             } else {
-                logger.error("Failed to build format description from SPS/PPS")
-                DiagnosticLogger.shared.log("SPS/PPS parse failed — video decode will not work", category: "Video")
+                logger.error("Failed to build format description from \(codec.wireName) parameter sets")
+                DiagnosticLogger.shared.log("\(codec.wireName) parameter set parse failed — video decode will not work", category: "Video")
             }
         }
     }
@@ -265,56 +270,85 @@ final class StreamReceiver {
         return result
     }
 
-    private func buildFormatDescription(from spsPpsData: Data, into desc: inout CMFormatDescription?) {
-        // Parse SPS/PPS from Annex B formatted data
-        // Find start codes and extract NAL units
-        var nalUnits: [Data] = []
-        var offset = 0
-        let startCode: [UInt8] = [0x00, 0x00, 0x00, 0x01]
+    private func buildFormatDescription(from paramData: Data, codec: BeamVideoCodec, into desc: inout CMFormatDescription?) {
+        // Split the Annex B blob into NAL units. H.264 carries SPS+PPS (2); HEVC carries
+        // VPS+SPS+PPS (3). The macOS encoder emits them start-code prefixed and in order.
+        let nalUnits = Self.splitAnnexBNALUnits(paramData)
+        let required = codec == .hevc ? 3 : 2
+        guard nalUnits.count >= required else { return }
 
-        while offset < spsPpsData.count - 4 {
-            if Array(spsPpsData[offset..<offset+4]) == startCode {
-                var end = offset + 4
-                while end < spsPpsData.count - 4 {
-                    if Array(spsPpsData[end..<end+4]) == startCode { break }
-                    end += 1
-                }
-                if end == spsPpsData.count - 4 { end = spsPpsData.count }
-                nalUnits.append(Data(spsPpsData[(offset+4)..<end]))
-                offset = end
+        // Take exactly the first `required` sets in order. Both VideoToolbox builders need
+        // parallel pointer/size arrays that stay valid for the duration of the call, so bind
+        // each NAL's bytes with nested withUnsafeBytes.
+        let sets = Array(nalUnits.prefix(required))
+        withNALPointers(sets) { ptrs, sizes in
+            if codec == .hevc {
+                _ = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                    allocator: kCFAllocatorDefault,
+                    parameterSetCount: sets.count,
+                    parameterSetPointers: ptrs.baseAddress!,
+                    parameterSetSizes: sizes.baseAddress!,
+                    nalUnitHeaderLength: 4,
+                    extensions: nil,
+                    formatDescriptionOut: &desc
+                )
             } else {
-                offset += 1
+                _ = CMVideoFormatDescriptionCreateFromH264ParameterSets(
+                    allocator: kCFAllocatorDefault,
+                    parameterSetCount: sets.count,
+                    parameterSetPointers: ptrs.baseAddress!,
+                    parameterSetSizes: sizes.baseAddress!,
+                    nalUnitHeaderLength: 4,
+                    formatDescriptionOut: &desc
+                )
             }
         }
+    }
 
-        guard nalUnits.count >= 2 else { return }
+    /// Split Annex B (4-byte start-code prefixed) data into its constituent NAL units.
+    private static func splitAnnexBNALUnits(_ data: Data) -> [Data] {
+        var nalUnits: [Data] = []
+        let startCode: [UInt8] = [0x00, 0x00, 0x00, 0x01]
+        let bytes = [UInt8](data)
+        var offset = 0
+        while offset + 4 <= bytes.count {
+            guard Array(bytes[offset..<offset+4]) == startCode else { offset += 1; continue }
+            let nalStart = offset + 4
+            var end = nalStart
+            while end + 4 <= bytes.count {
+                if Array(bytes[end..<end+4]) == startCode { break }
+                end += 1
+            }
+            if end + 4 > bytes.count { end = bytes.count }
+            if nalStart < end { nalUnits.append(Data(bytes[nalStart..<end])) }
+            offset = end
+        }
+        return nalUnits
+    }
 
-        let spsData = nalUnits[0]
-        let ppsData = nalUnits[1]
-
-        spsData.withUnsafeBytes { spsPtr in
-            ppsData.withUnsafeBytes { ppsPtr in
-                guard let spsBase = spsPtr.baseAddress?.assumingMemoryBound(to: UInt8.self),
-                      let ppsBase = ppsPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-
-                // Build non-optional pointer array for CMVideoFormatDescriptionCreateFromH264ParameterSets
-                let paramPtrs: [UnsafePointer<UInt8>] = [spsBase, ppsBase]
-                let paramSizes: [Int] = [spsData.count, ppsData.count]
-
-                paramPtrs.withUnsafeBufferPointer { ptrs in
-                    paramSizes.withUnsafeBufferPointer { sizes in
-                        _ = CMVideoFormatDescriptionCreateFromH264ParameterSets(
-                            allocator: kCFAllocatorDefault,
-                            parameterSetCount: 2,
-                            parameterSetPointers: ptrs.baseAddress!,
-                            parameterSetSizes: sizes.baseAddress!,
-                            nalUnitHeaderLength: 4,
-                            formatDescriptionOut: &desc
-                        )
-                    }
+    /// Recursively bind each NAL unit's bytes to a stable pointer, then invoke `body` with
+    /// parallel pointer/size buffers valid for the call. Nesting keeps every base address live.
+    private func withNALPointers(
+        _ sets: [Data],
+        _ body: (UnsafeBufferPointer<UnsafePointer<UInt8>>, UnsafeBufferPointer<Int>) -> Void
+    ) {
+        var pointers: [UnsafePointer<UInt8>] = []
+        var sizes: [Int] = []
+        func bind(_ index: Int) {
+            if index == sets.count {
+                pointers.withUnsafeBufferPointer { ptrs in
+                    sizes.withUnsafeBufferPointer { szs in body(ptrs, szs) }
                 }
+                return
+            }
+            sets[index].withUnsafeBytes { raw in
+                guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                pointers.append(base)
+                sizes.append(sets[index].count)
+                bind(index + 1)
             }
         }
+        bind(0)
     }
 
     // MARK: - Audio

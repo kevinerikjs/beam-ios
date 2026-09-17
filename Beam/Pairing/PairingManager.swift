@@ -68,7 +68,8 @@ extension PairingManager: PairingConnectionDelegate {
             code: nil,
             sharedSecret: nil,
             error: nil,
-            supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs()
+            supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs(),
+            supportedVideoCodecs: BeamVideoCodec.clientAdvertisedCodecs()
         )
         connection.send(hello)
         logger.info("Sent hello to Mac")
