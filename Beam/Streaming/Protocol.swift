@@ -406,6 +406,7 @@ enum BeamControlMessageType: String, Codable {
     case audioFormatChanged = "audio_format_changed" // macOS → iOS: active audio sample rate/channels
     case videoPause         = "video_pause"    // iOS → macOS: hold video, keep audio flowing
     case videoResume        = "video_resume"   // iOS → macOS: resume video
+    case audioEnableRequest = "audio_enable_request" // iOS → macOS: start/stop sending audio to this client (BEAM-34)
 }
 
 struct BeamControlMessage: Codable {
@@ -420,6 +421,7 @@ enum BeamControlPayload: Codable {
     case qualityChanged(BeamQualityPayload)
     case viewportLock(BeamViewportLockPayload)
     case audioFormat(BeamAudioFormatPayload)
+    case audioEnable(BeamAudioEnablePayload)
     case empty
 
     init(from decoder: Decoder) throws {
@@ -429,6 +431,7 @@ enum BeamControlPayload: Codable {
         if let v = try? container.decode(BeamQualityFeedbackPayload.self) { self = .qualityFeedback(v); return }
         if let v = try? container.decode(BeamViewportLockPayload.self)    { self = .viewportLock(v); return }
         if let v = try? container.decode(BeamAudioFormatPayload.self)     { self = .audioFormat(v); return }
+        if let v = try? container.decode(BeamAudioEnablePayload.self)     { self = .audioEnable(v); return }
         self = .empty
     }
 
@@ -441,6 +444,7 @@ enum BeamControlPayload: Codable {
         case .qualityChanged(let v):  try container.encode(v)
         case .viewportLock(let v):    try container.encode(v)
         case .audioFormat(let v):     try container.encode(v)
+        case .audioEnable(let v):     try container.encode(v)
         case .empty:                  try container.encodeNil()
         }
     }
@@ -481,6 +485,14 @@ struct BeamViewportLockPayload: Codable {
 struct BeamAudioFormatPayload: Codable {
     let sampleRate: Double
     let channels: Int
+}
+
+/// iOS → macOS (BEAM-34). Whether this client wants audio packets at all. When false the host
+/// stops encoding and sending audio for this session — it is not a mute, the bytes never leave
+/// the Mac. A host that predates this message logs a decode failure and keeps streaming audio,
+/// which the client then mutes locally. Same intent, less bandwidth saved.
+struct BeamAudioEnablePayload: Codable {
+    let enabled: Bool
 }
 
 // MARK: - Pairing Messages
@@ -578,6 +590,17 @@ struct BeamPairingMessage: Codable {
     /// `authSuccess`. Diagnostic only — the authority for how to decode video is always the
     /// .spsPps packet's BeamPacketHeader.flags. `nil` = host predates negotiation = H.264.
     var selectedVideoCodec: String? = nil
+
+    /// iOS → macOS (BEAM-34). False means "do not send me audio for this session". Sent on
+    /// `authRequest` so the host never encodes a single audio packet for a client that has
+    /// audio switched off. Absence means true — an older client always wants audio.
+    /// Keep in sync with the other Protocol.swift.
+    var wantsAudio: Bool? = nil
+
+    /// macOS → iOS (BEAM-34). True on hosts that honour `wantsAudio` and `audio_enable_request`.
+    /// Absence means the host will stream audio regardless, so the client must mute locally
+    /// instead and can tell the user a Beacon update would save bandwidth.
+    var supportsAudioToggle: Bool? = nil
 }
 
 // MARK: - Helpers

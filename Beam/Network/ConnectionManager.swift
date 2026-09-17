@@ -82,6 +82,20 @@ final class ConnectionManager {
     /// authSuccess message; false for hosts that predate the fix, which never recover the
     /// picture once video has been held.
     private var hostSupportsVideoHold = false
+
+    /// UserDefaults key for the "Stream audio" preference (BEAM-34). Absent = on.
+    static let streamAudioDefaultsKey = "beam.streamAudio"
+    static var streamAudioPreference: Bool {
+        UserDefaults.standard.object(forKey: streamAudioDefaultsKey) as? Bool ?? true
+    }
+
+    /// Whether this session wants audio. Seeded from the preference at connect; flipped by
+    /// `setAudioEnabled`. When false, incoming audio packets are dropped before the player
+    /// regardless of what the host does, so an old Beacon that keeps sending is still silent.
+    private(set) var isAudioEnabled = ConnectionManager.streamAudioPreference
+    /// True once the host confirmed it honours `wantsAudio` (BEAM-34). On an older Beacon the
+    /// toggle still mutes, it just can't save the bandwidth.
+    private(set) var hostSupportsAudioToggle = false
     private var warmupStartedAt: Date?
     private var warmupTimer: DispatchSourceTimer?
 
@@ -189,11 +203,12 @@ final class ConnectionManager {
             // hardware is actually running at right now, which is the number that matters.
             preferredAudioSampleRate: AVAudioSession.sharedInstance().sampleRate,
             supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs(),
-            supportedVideoCodecs: BeamVideoCodec.clientAdvertisedCodecs()
+            supportedVideoCodecs: BeamVideoCodec.clientAdvertisedCodecs(),
+            wantsAudio: isAudioEnabled
         )
         guard let data = try? JSONEncoder().encode(auth) else { return }
         sendTCP(data.lengthPrefixed())
-        logger.info("Sent auth request to \(self.host.name)")
+        logger.info("Sent auth request to \(self.host.name) (audio \(self.isAudioEnabled ? "on" : "off"))")
     }
 
     // MARK: - Send Control Commands
@@ -209,6 +224,24 @@ final class ConnectionManager {
 
     func sendStreamStop() {
         let msg = BeamControlMessage(type: .streamStop, payload: nil)
+        guard let data = try? JSONEncoder().encode(msg) else { return }
+        sendTCP(data.lengthPrefixed())
+    }
+
+    /// Turns audio on or off for the live session (BEAM-34). Always takes effect locally; the
+    /// host is told as well so a Beacon that understands the message stops encoding entirely.
+    func setAudioEnabled(_ enabled: Bool) {
+        guard enabled != isAudioEnabled else { return }
+        isAudioEnabled = enabled
+        if !enabled { audioPlayer.resetSync() }
+        DiagnosticLogger.shared.log(
+            "Audio \(enabled ? "enabled" : "disabled") (host \(hostSupportsAudioToggle ? "honours" : "ignores") the request)",
+            category: "Audio"
+        )
+        let msg = BeamControlMessage(
+            type: .audioEnableRequest,
+            payload: .audioEnable(BeamAudioEnablePayload(enabled: enabled))
+        )
         guard let data = try? JSONEncoder().encode(msg) else { return }
         sendTCP(data.lengthPrefixed())
     }
@@ -362,6 +395,9 @@ final class ConnectionManager {
 
         case .audio:
             lastMediaPacketReceivedAt = Date()
+            // Audio off: drop here, above the arrival stamp, so the player's watchdog sees
+            // "nothing arriving" rather than "arriving but never rendered" (BEAM-34).
+            guard isAudioEnabled else { return }
             // Stamp arrival BEFORE anything downstream can decline the packet — unknown codec,
             // reorder guard, missing format, a nil decoder, a mismatched buffer format, a dead
             // engine. This is the only signal AudioPlayer's last-resort watchdog trusts to mean
@@ -554,6 +590,10 @@ final class ConnectionManager {
             // Read synchronously: beginWarmupIfRemote() below decides whether to hold video
             // based on this, so it cannot wait on a hop to the main actor.
             hostSupportsVideoHold = msg.supportsVideoHold ?? false
+            hostSupportsAudioToggle = msg.supportsAudioToggle ?? false
+            if !isAudioEnabled, !hostSupportsAudioToggle {
+                DiagnosticLogger.shared.log("Audio off but host predates the audio toggle — muting locally only", category: "Audio")
+            }
             // Refresh the host's remote (Tailscale) addresses on every successful auth, not
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works

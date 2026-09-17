@@ -9,6 +9,7 @@ struct SettingsView: View {
     @ObservedObject private var store = StoreManager.shared
     @ObservedObject private var session = SessionManager.shared
     @AppStorage("beam.keepViewportLock") private var keepViewportLock = true
+    @AppStorage(ConnectionManager.streamAudioDefaultsKey) private var streamAudio = true
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
     @State private var showPaywall = false
@@ -84,6 +85,24 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
+
+                cardDivider
+
+                Toggle(isOn: $streamAudio) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Stream Audio")
+                            .foregroundStyle(.white)
+                        Text("Off keeps the Mac from sending sound at all")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.orange)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .onChange(of: streamAudio) { enabled in
+                    appState.connectionManager?.setAudioEnabled(enabled)
+                }
 
                 cardDivider
 
