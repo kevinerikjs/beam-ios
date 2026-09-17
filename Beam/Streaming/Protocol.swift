@@ -407,6 +407,10 @@ enum BeamControlMessageType: String, Codable {
     case videoPause         = "video_pause"    // iOS → macOS: hold video, keep audio flowing
     case videoResume        = "video_resume"   // iOS → macOS: resume video
     case audioEnableRequest = "audio_enable_request" // iOS → macOS: start/stop sending audio to this client (BEAM-34)
+    case windowListRequest  = "window_list_request"  // iOS → macOS: send me the Mac's capturable windows (BEAM-35)
+    case windowList         = "window_list"          // macOS → iOS: reply to the above
+    case windowSelectRequest = "window_select_request" // iOS → macOS: lock capture to this window (0 = full display)
+    case captureModeChanged = "capture_mode_changed" // macOS → iOS: what the host is capturing now
 }
 
 struct BeamControlMessage: Codable {
@@ -422,6 +426,9 @@ enum BeamControlPayload: Codable {
     case viewportLock(BeamViewportLockPayload)
     case audioFormat(BeamAudioFormatPayload)
     case audioEnable(BeamAudioEnablePayload)
+    case windowList(BeamWindowListPayload)
+    case windowSelect(BeamWindowSelectPayload)
+    case captureMode(BeamCaptureModePayload)
     case empty
 
     init(from decoder: Decoder) throws {
@@ -432,6 +439,9 @@ enum BeamControlPayload: Codable {
         if let v = try? container.decode(BeamViewportLockPayload.self)    { self = .viewportLock(v); return }
         if let v = try? container.decode(BeamAudioFormatPayload.self)     { self = .audioFormat(v); return }
         if let v = try? container.decode(BeamAudioEnablePayload.self)     { self = .audioEnable(v); return }
+        if let v = try? container.decode(BeamWindowListPayload.self)      { self = .windowList(v); return }
+        if let v = try? container.decode(BeamCaptureModePayload.self)     { self = .captureMode(v); return }
+        if let v = try? container.decode(BeamWindowSelectPayload.self)    { self = .windowSelect(v); return }
         self = .empty
     }
 
@@ -445,6 +455,9 @@ enum BeamControlPayload: Codable {
         case .viewportLock(let v):    try container.encode(v)
         case .audioFormat(let v):     try container.encode(v)
         case .audioEnable(let v):     try container.encode(v)
+        case .windowList(let v):      try container.encode(v)
+        case .windowSelect(let v):    try container.encode(v)
+        case .captureMode(let v):     try container.encode(v)
         case .empty:                  try container.encodeNil()
         }
     }
@@ -493,6 +506,38 @@ struct BeamAudioFormatPayload: Codable {
 /// which the client then mutes locally. Same intent, less bandwidth saved.
 struct BeamAudioEnablePayload: Codable {
     let enabled: Bool
+}
+
+/// One capturable window on the Mac (BEAM-35). `id` is the CGWindowID, which is only stable
+/// for the life of that window — the client must refresh the list rather than remember ids.
+/// No thumbnails: titles and app names are enough to pick from and keep the message tiny.
+struct BeamWindowInfo: Codable, Identifiable, Equatable {
+    let id: UInt32
+    let title: String
+    let app: String
+}
+
+/// macOS → iOS (BEAM-35). Only ever sent inside an authenticated session — window titles are
+/// as private as the picture itself and must never cross the pairing channel.
+struct BeamWindowListPayload: Codable {
+    let windows: [BeamWindowInfo]
+}
+
+/// iOS → macOS (BEAM-35). `windowID` 0 means "clear the window lock, capture the full display".
+/// Required (not optional) on purpose: an all-optional payload would decode from ANY object and
+/// hijack every other message in the shape-based payload decoder.
+struct BeamWindowSelectPayload: Codable {
+    let windowID: UInt32
+}
+
+/// macOS → iOS (BEAM-35). Broadcast to every client whenever the host switches between full
+/// display and a window, from either end, and sent once right after authSuccess so a fresh
+/// client starts in sync with the Mac's menu bar.
+struct BeamCaptureModePayload: Codable {
+    let windowMode: Bool
+    let windowID: UInt32?
+    let title: String?
+    let app: String?
 }
 
 // MARK: - Pairing Messages
@@ -601,6 +646,10 @@ struct BeamPairingMessage: Codable {
     /// Absence means the host will stream audio regardless, so the client must mute locally
     /// instead and can tell the user a Beacon update would save bandwidth.
     var supportsAudioToggle: Bool? = nil
+
+    /// macOS → iOS (BEAM-35). True on hosts that answer `window_list_request` and honour
+    /// `window_select_request`. Absence hides the window picker on the phone entirely.
+    var supportsWindowSelection: Bool? = nil
 }
 
 // MARK: - Helpers

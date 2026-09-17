@@ -96,6 +96,7 @@ final class ConnectionManager {
     /// True once the host confirmed it honours `wantsAudio` (BEAM-34). On an older Beacon the
     /// toggle still mutes, it just can't save the bandwidth.
     private(set) var hostSupportsAudioToggle = false
+    private(set) var hostSupportsWindowSelection = false
     private var warmupStartedAt: Date?
     private var warmupTimer: DispatchSourceTimer?
 
@@ -564,9 +565,46 @@ final class ConnectionManager {
             }
         case .qualityRequest:
             break  // iOS doesn't receive quality requests from host
+        case .windowList:
+            if case .windowList(let payload) = msg.payload {
+                Task { @MainActor in
+                    self.appState?.hostWindows = payload.windows
+                    self.appState?.isLoadingHostWindows = false
+                }
+            }
+        case .captureModeChanged:
+            if case .captureMode(let payload) = msg.payload {
+                DiagnosticLogger.shared.log(
+                    payload.windowMode ? "Host capturing window: \(payload.app ?? "") — \(payload.title ?? "")" : "Host capturing full display",
+                    category: "Capture"
+                )
+                Task { @MainActor in
+                    self.appState?.hostCaptureMode = payload
+                }
+            }
         default:
             break
         }
+    }
+
+    // MARK: - Host window selection (BEAM-35)
+
+    /// Ask the host for its current window list. The reply lands in `appState.hostWindows`.
+    func requestWindowList() {
+        guard hostSupportsWindowSelection else { return }
+        Task { @MainActor in appState?.isLoadingHostWindows = true }
+        let msg = BeamControlMessage(type: .windowListRequest, payload: nil)
+        guard let data = try? JSONEncoder().encode(msg) else { return }
+        sendTCP(data.lengthPrefixed())
+    }
+
+    /// Lock the host's capture to a window, or pass 0 to return to the full display. The host
+    /// confirms with `capture_mode_changed`; nothing changes locally until it does.
+    func selectHostWindow(_ windowID: UInt32) {
+        guard hostSupportsWindowSelection else { return }
+        let msg = BeamControlMessage(type: .windowSelectRequest, payload: .windowSelect(BeamWindowSelectPayload(windowID: windowID)))
+        guard let data = try? JSONEncoder().encode(msg) else { return }
+        sendTCP(data.lengthPrefixed())
     }
 
     private func handlePairingMessage(_ msg: BeamPairingMessage) {
@@ -591,6 +629,10 @@ final class ConnectionManager {
             // based on this, so it cannot wait on a hop to the main actor.
             hostSupportsVideoHold = msg.supportsVideoHold ?? false
             hostSupportsAudioToggle = msg.supportsAudioToggle ?? false
+            hostSupportsWindowSelection = msg.supportsWindowSelection ?? false
+            Task { @MainActor in
+                appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection
+            }
             if !isAudioEnabled, !hostSupportsAudioToggle {
                 DiagnosticLogger.shared.log("Audio off but host predates the audio toggle — muting locally only", category: "Audio")
             }

@@ -89,6 +89,15 @@ enum ShotMode {
             // Seeded rather than mocked, so the capture shows the actual feature.
             UserDefaults.standard.set(true, forKey: "beam.flipHorizontal")
 
+        case "stream-window-picker":
+            appState.hostSupportsWindowSelection = true
+            appState.hostWindows = [
+                BeamWindowInfo(id: 11, title: "Cats — Season 2, Episode 4", app: "Safari"),
+                BeamWindowInfo(id: 12, title: "Untitled", app: "Final Cut Pro"),
+                BeamWindowInfo(id: 13, title: "Beam — iOS", app: "Xcode"),
+            ]
+            appState.hostCaptureMode = BeamCaptureModePayload(windowMode: true, windowID: 11, title: "Cats — Season 2, Episode 4", app: "Safari")
+
         case "stream-remote":
             // The remote link badge only appears on a Tailscale session. `linkRTT` under 0.25s
             // is what the app itself calls a direct connection, so this captures the green
@@ -120,7 +129,7 @@ enum ShotMode {
                 entries: WhatsNewManager.versionEntries,
                 subtitle: "Version \(WhatsNewManager.appVersion)"
             ) {}
-        case "stream", "stream-teleprompter", "stream-remote", "stream-viewport-lock": StreamView()
+        case "stream", "stream-teleprompter", "stream-remote", "stream-viewport-lock", "stream-window-picker": StreamView()
         default:           HomeView()
         }
     }

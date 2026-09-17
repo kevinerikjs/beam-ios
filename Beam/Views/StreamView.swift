@@ -13,6 +13,7 @@ struct StreamView: View {
     @State private var paywallTriggeredByExpiry = false
     @State private var showQualityPicker = false
     @State private var showStreamSettings = false
+    @State private var showWindowPicker = false
 
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
@@ -249,6 +250,11 @@ struct StreamView: View {
                         showOverlay = true
                         showStreamSettings = true
                     },
+                    onOpenWindowPicker: {
+                        guard !isSelectingViewportLock else { return }
+                        showOverlay = true
+                        showWindowPicker = true
+                    },
                     onUpgrade: { paywallTriggeredByExpiry = false; showPaywall = true },
                     onDisconnect: { appState.stopStream() }
                 )
@@ -271,6 +277,9 @@ struct StreamView: View {
                 if ShotMode.screen == "stream-viewport-lock" {
                     startViewportLockSelection()
                 }
+                if ShotMode.screen == "stream-window-picker" {
+                    showWindowPicker = true
+                }
                 return
             }
             setupStreaming()
@@ -289,6 +298,14 @@ struct StreamView: View {
         .sheet(isPresented: $showQualityPicker) {
             QualityPickerSheet(appState: appState)
                 .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .onDisappear {
+                    scheduleOverlayHide()
+                }
+        }
+        .sheet(isPresented: $showWindowPicker) {
+            HostWindowPickerSheet(appState: appState)
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .onDisappear {
                     scheduleOverlayHide()
@@ -675,7 +692,7 @@ struct StreamView: View {
         // in-stream UI can be captured without racing the 3s auto-hide. Not in Release.
         if UserDefaults.standard.bool(forKey: "beam.debug.pinOverlay") { return }
         #endif
-        guard !showQualityPicker, !showStreamSettings, !isSelectingViewportLock, !isAutoDetecting else { return }
+        guard !showQualityPicker, !showStreamSettings, !showWindowPicker, !isSelectingViewportLock, !isAutoDetecting else { return }
         overlayHideTask?.cancel()
         overlayHideTask = Task {
             try? await Task.sleep(for: .seconds(3))

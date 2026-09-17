@@ -38,6 +38,19 @@ final class BeamAppState: ObservableObject {
     /// The quality preset currently active on the host (set from .qualityChanged messages).
     @Published var currentQualityPreset: StreamQualityPreset = .p1080_30
 
+    // MARK: - Host window selection (BEAM-35)
+
+    /// True once the connected Beacon said it can list windows and lock capture to one.
+    /// Reset on every stream stop so a picker never shows against an older host.
+    @Published var hostSupportsWindowSelection = false
+    /// Windows the host offered in its last `window_list` reply. Ids are only valid until the
+    /// next refresh, so the picker requests a fresh list every time it opens.
+    @Published var hostWindows: [BeamWindowInfo] = []
+    @Published var isLoadingHostWindows = false
+    /// What the host is capturing right now: nil = full display.
+    @Published var hostCaptureMode: BeamCaptureModePayload? = nil
+    var isHostInWindowMode: Bool { hostCaptureMode?.windowMode == true }
+
     /// Quality used when the Mac is reached over a remote (Tailscale) path, kept separate
     /// from the LAN preference. Remote links are far more variable than a home network, so a
     /// setting that is right at home is usually wrong away from it — and having one control
@@ -558,6 +571,10 @@ final class BeamAppState: ObservableObject {
         connectionManager?.disconnect()
         connectionManager = nil
         isStreaming = false
+        hostSupportsWindowSelection = false
+        hostWindows = []
+        isLoadingHostWindows = false
+        hostCaptureMode = nil
         let keepLock = UserDefaults.standard.object(forKey: "beam.keepViewportLock") as? Bool ?? true
         if !keepLock { lockedViewportRect = nil }
     }

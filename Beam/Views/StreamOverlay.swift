@@ -17,6 +17,7 @@ struct StreamOverlay: View {
     let onUnlockViewport: () -> Void
     let onOpenQualityPicker: () -> Void
     let onOpenStreamSettings: () -> Void
+    let onOpenWindowPicker: () -> Void
     let onUpgrade: () -> Void
     let onDisconnect: () -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -64,14 +65,23 @@ struct StreamOverlay: View {
 
             Spacer()
 
-            audioToggleButton
+            // In narrow portrait these two live in the bottom bar instead; there is no room
+            // up here next to the free-tier timer.
+            if !isNarrowPortrait {
+                if appState.hostSupportsWindowSelection {
+                    windowPickerButton
+                }
+                audioToggleButton
+            }
 
             // Quality indicator button
             Button {
                 onOpenQualityPicker()
             } label: {
-                Text(appState.currentQualityPreset.displayName)
+                Text(isNarrowPortrait ? compactQualityName : appState.currentQualityPreset.displayName)
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize()
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -90,6 +100,23 @@ struct StreamOverlay: View {
 
             disconnectButton
         }
+    }
+
+    // MARK: - Window Picker (BEAM-35)
+
+    /// Only offered when the host said it can do this; an older Beacon never shows it.
+    @ViewBuilder
+    private var windowPickerButton: some View {
+        Button {
+            onOpenWindowPicker()
+        } label: {
+            Image(systemName: appState.isHostInWindowMode ? "macwindow.on.rectangle" : "macwindow")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(appState.isHostInWindowMode ? Color.orange : .white)
+                .frame(width: 32, height: 32)
+                .beamGlass()
+        }
+        .accessibilityLabel(appState.isHostInWindowMode ? "Change Captured Window" : "Capture a Window")
     }
 
     // MARK: - Audio Toggle (BEAM-34)
@@ -114,6 +141,12 @@ struct StreamOverlay: View {
         .accessibilityLabel(streamAudio ? "Mute Stream Audio" : "Unmute Stream Audio")
     }
 
+    /// "1080p · 30 fps" → "1080p"; the fps half doesn't fit an iPhone in portrait.
+    private var compactQualityName: String {
+        let name = appState.currentQualityPreset.displayName
+        return String(name.split(separator: " ").first ?? Substring(name))
+    }
+
     // MARK: - Bottom Bar
 
     @ViewBuilder
@@ -121,6 +154,10 @@ struct StreamOverlay: View {
         if isNarrowPortrait {
             VStack(spacing: 12) {
                 HStack(spacing: 10) {
+                    if appState.hostSupportsWindowSelection {
+                        windowPickerButton
+                    }
+                    audioToggleButton
                     Spacer()
                     lockViewportControls
                     pipButton
@@ -427,6 +464,96 @@ struct QualityPickerSheet: View {
                 appState.preferredQualityPreset = preset
             }
             dismiss()
+        }
+    }
+}
+
+// MARK: - Host Window Picker Sheet (BEAM-35)
+
+struct HostWindowPickerSheet: View {
+    @ObservedObject var appState: BeamAppState
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        appState.connectionManager?.selectHostWindow(0)
+                        dismiss()
+                    } label: {
+                        row(title: "Full Display", subtitle: "Everything on the Mac's screen",
+                            systemImage: "display", selected: !appState.isHostInWindowMode)
+                    }
+                }
+
+                Section {
+                    if appState.isLoadingHostWindows && appState.hostWindows.isEmpty {
+                        HStack {
+                            Spacer()
+                            ProgressView().tint(.white)
+                            Spacer()
+                        }
+                    } else if appState.hostWindows.isEmpty {
+                        Text("No windows to show. Open something on the Mac and pull to refresh.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(appState.hostWindows) { window in
+                            Button {
+                                appState.connectionManager?.selectHostWindow(window.id)
+                                dismiss()
+                            } label: {
+                                row(title: window.title.isEmpty ? window.app : window.title,
+                                    subtitle: window.title.isEmpty ? "" : window.app,
+                                    systemImage: "macwindow",
+                                    selected: appState.hostCaptureMode?.windowID == window.id)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Windows")
+                } footer: {
+                    Text("Locks the stream to one window, even when it is behind others on the Mac.")
+                }
+            }
+            .tint(.orange)
+            .refreshable { appState.connectionManager?.requestWindowList() }
+            .navigationTitle("Capture")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear { appState.connectionManager?.requestWindowList() }
+    }
+
+    @ViewBuilder
+    private func row(title: String, subtitle: String, systemImage: String, selected: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .foregroundStyle(selected ? Color.orange : .secondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            if selected {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(.orange)
+            }
         }
     }
 }
