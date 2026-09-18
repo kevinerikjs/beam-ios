@@ -3,7 +3,6 @@
 
 import SwiftUI
 import Phoros
-import Phoros
 import Network
 
 final class BeamAppState: ObservableObject {
@@ -61,15 +60,9 @@ final class BeamAppState: ObservableObject {
     /// Folded into the next live keystroke, then cleared.
     @Published var armedModifiers: [String: UInt32] = [:]
 
-    /// Carbon mask for a host modifier name. Values mirror Carbon's cmdKey etc.
+    /// Wire mask for a host modifier name (`KeyModifiers` carries the Carbon values).
     static func carbonMask(forModifier name: String) -> UInt32 {
-        switch name {
-        case "cmd": return 1 << 8
-        case "shift": return 1 << 9
-        case "alt": return 1 << 11
-        case "ctrl": return 1 << 12
-        default: return 0
-        }
+        KeyModifiers(wireName: name)?.rawValue ?? 0
     }
 
     enum ActiveControlMode: Equatable {

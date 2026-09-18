@@ -4,7 +4,6 @@
 
 import SwiftUI
 import Phoros
-import Phoros
 
 struct StreamOverlay: View {
     @ObservedObject var appState: BeamAppState
