@@ -23,7 +23,15 @@ struct ChangeEntry: Identifiable {
 }
 
 /// Ships with the release. Must NOT mention any feature that is still behind a flag.
+/// Controller passthrough is no longer behind one: the flag went global with Beacon 1.5.0, and
+/// 3.1 also arms on the host's own capability, so it heads this list. The 3.0 entries stay
+/// because most people update straight from 2.x.
 private let versionChangelog: [ChangeEntry] = [
+    ChangeEntry(
+        icon: "gamecontroller.fill",
+        title: "Play Mac Games With a Controller",
+        detail: "Pair a controller with your iPhone or iPad and your Mac sees a real gamepad: both sticks, analog triggers, every button. Needs Beacon 1.5.0 on the Mac, which updates itself."
+    ),
     ChangeEntry(
         icon: "ipad.landscape",
         title: "Beam on iPad",
@@ -58,6 +66,11 @@ private let versionChangelog: [ChangeEntry] = [
         icon: "rectangle.dashed",
         title: "Fixes",
         detail: "The viewport lock streams exactly the region you chose. Hold-to-detect finds the video edges precisely. The lock hint no longer hides under the notch. The on-screen controls fit every iPhone."
+    ),
+    ChangeEntry(
+        icon: "shippingbox",
+        title: "Built on Phoros",
+        detail: "Beam now runs on Phoros, the open protocol and plumbing it shares with Beacon. Nothing changes on the wire, so every Beacon keeps working."
     ),
 ]
 
