@@ -25,12 +25,15 @@ the features people find while looking all run the other way:
 So: no cables, no cloud, no account, and on your own WiFi nothing leaves your network.
 
 Beam is viewer-first with light control: tap to click, type with the iPhone keyboard, or use up to
-eight custom controls configured in Beacon. It is not a full remote desktop: there is no pointer,
-dragging, file transfer, or clipboard sync.
+eight custom controls configured in Beacon. A game controller paired with the iPhone or iPad is
+forwarded to the Mac, where Beacon 1.5.0 or later presents it as an Xbox Wireless Controller, so
+Mac games play from the couch. It is not a full remote desktop: there is no pointer, dragging,
+file transfer, or clipboard sync.
 
 More detail: [can you AirPlay Mac to iPhone?](https://beamscreen.app/guide/airplay-mac-to-iphone) ·
 [using an iPhone as a Mac monitor](https://beamscreen.app/guide/iphone-as-mac-monitor) ·
-[streaming from away from home](https://beamscreen.app/guide/remote-streaming-tailscale)
+[streaming from away from home](https://beamscreen.app/guide/remote-streaming-tailscale) ·
+[Mac games with a controller](https://beamscreen.app/guide/controller-passthrough)
 
 > **Why the source is here.** Beam is on the other end of a link that carries your Mac's screen and
 > audio. Publishing the code means you do not have to take our word for what it does with that.
@@ -47,6 +50,7 @@ More detail: [can you AirPlay Mac to iPhone?](https://beamscreen.app/guide/airpl
 | **Transport** | Network.framework over TCP on your LAN or Tailscale network |
 | **Video** | `AVSampleBufferDisplayLayer` for low-latency rendering, which also drives PiP |
 | **Audio** | `AVAudioEngine`, Float32 PCM, A/V sync via host clock comparison |
+| **Controller** | GameController framework, sampled at 60 Hz, sent as 14-byte `.input` packets (`PhorosInput`) |
 | **Pairing** | Device keys held in the iOS Keychain |
 | **Purchases** | StoreKit 2 |
 
