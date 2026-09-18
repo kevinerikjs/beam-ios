@@ -58,15 +58,17 @@ There is no server between your phone and your Mac. Beam talks to Beacon directl
 
 ## Dependencies and what gets collected
 
-Beam has two dependencies, both MIT licensed and both compatible with the AGPL:
+Beam has three dependencies, all MIT licensed and all compatible with the AGPL:
 
 | Package | Why |
 | --- | --- |
+| [Phoros](https://github.com/kevinerikjs/phoros) | The wire protocol and plumbing Beam shares with Beacon: framing, handshake, session logic, the framed connection, decoders and controller sampling. Pinned to an exact version, because two apps on different release schedules must not float on a shared protocol. |
 | [posthog-ios](https://github.com/PostHog/posthog-ios) | Anonymous product analytics |
 | [PLCrashReporter](https://github.com/microsoft/plcrashreporter) | Pulled in transitively by PostHog for crash reports |
 
-Everything in the streaming path is Apple frameworks. There are no third-party networking, video,
-or audio libraries.
+Under Phoros, everything in the streaming path is Apple frameworks (Network.framework,
+VideoToolbox, AudioToolbox, AVFoundation). There are no third-party networking, video or audio
+libraries.
 
 The entire analytics surface is one small file, [`Beam/Analytics.swift`](./Beam/Analytics.swift),
 readable in a minute. What it does:
@@ -173,8 +175,10 @@ package (`Streaming/Protocol.swift`).
 
 Issues and pull requests are welcome. Before you start:
 
-- Apple frameworks for anything in the streaming path. No third-party networking, video, or audio
-  libraries. The dependencies below are the complete list and the bar for adding another is high.
+- Apple frameworks for anything in the streaming path, reached through Phoros. No third-party
+  networking, video, or audio libraries. The dependencies above are the complete list and the bar
+  for adding another is high. A wire change starts in Phoros, with a pinned fixture test, and lands
+  here as a version bump.
 - Swift concurrency (`async`/`await`, actors) for asynchronous work.
 - Test on a real device with a real Beacon host. A PR that only compiles has not been tested.
 - User-facing strings should be localizable (`String(localized:)`) from the start.
