@@ -2,6 +2,7 @@
 // Full-screen streaming view. Shows the Mac's screen with an auto-hiding overlay.
 
 import SwiftUI
+import Phoros
 import AVFoundation
 
 struct StreamView: View {
@@ -15,7 +16,7 @@ struct StreamView: View {
     @State private var showStreamSettings = false
     @State private var showWindowPicker = false
     /// The "keyboard" layout button awaiting text (BEAM-39); non-nil shows the input sheet.
-    @State private var textPromptControl: BeamPhoneControl? = nil
+    @State private var textPromptControl: ControlButton? = nil
     @State private var clickHaptic = false
 
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
@@ -620,7 +621,7 @@ struct StreamView: View {
         guard (0...1).contains(x), (0...1).contains(y) else { return }
         appState.connectionManager?.sendMediaKey(
             .playPause, controlID: id,
-            click: BeamClickPayload(x: x, y: y, button: appState.clickModeRight ? "right" : "left")
+            click: Click(x: x, y: y, button: appState.clickModeRight ? "right" : "left")
         )
         clickHaptic.toggle()
     }
@@ -1176,14 +1177,12 @@ private extension Comparable {
 }
 
 
-// MARK: - Text prompt (BEAM-39)
-
-extension BeamPhoneControl: Identifiable {}
+// MARK: - Text prompt
 
 /// Input box for a layout button that types on the Mac. Multi-line so a whole prompt fits;
 /// Send types it (the host appends Return when the button is configured to).
 struct TextPromptSheet: View {
-    let control: BeamPhoneControl
+    let control: ControlButton
     let onSend: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss

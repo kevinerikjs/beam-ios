@@ -49,9 +49,9 @@ beam-ios/
 │   ├── Streaming/
 │   │   ├── VideoRenderer.swift      # AVSampleBufferDisplayLayer wrapper
 │   │   ├── AudioPlayer.swift        # AVAudioEngine playback
-│   │   ├── StreamReceiver.swift     # Network.framework UDP receive + reassembly
+│   │   ├── StreamReceiver.swift     # Hands PhorosSession/PhorosMedia output to the renderer and player
 │   │   ├── PiPController.swift      # PiP setup and management
-│   │   └── Protocol.swift           # Shared message definitions (keep in sync with macOS!)
+│   │   └── Protocol.swift           # Beam policy on top of the Phoros wire contract
 │   ├── Network/
 │   │   ├── BonjourBrowser.swift     # Discover _beam._tcp services
 │   │   ├── ConnectionManager.swift  # Manage connection lifecycle

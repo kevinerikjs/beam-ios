@@ -3,6 +3,10 @@
 // Handles authentication, receives stream packets, and dispatches to StreamReceiver.
 
 import Network
+import Phoros
+import PhorosNetwork
+import PhorosSession
+import Phoros
 import OSLog
 import AVFoundation
 import UIKit
@@ -15,7 +19,7 @@ final class ConnectionManager {
     let pairedMac: PairedMac
     private weak var appState: BeamAppState?
 
-    private var connection: NWConnection?
+    private var link: PhorosConnection?
     private var isDisconnecting = false
 
     // Stream components
@@ -55,7 +59,7 @@ final class ConnectionManager {
     // and upgrades in the background, so the first seconds of a remote session are the bad
     // case even when the good one is moments away. The app can't query Tailscale, but RTT
     // separates the two cleanly, and the host already answers .ping with .pong.
-    private var pingSentAt: Date?
+    private var probe = RoundTripProbe()
     private var smoothedRTT: TimeInterval?
 
     // MARK: - Connection warmup (BEAM-33)
@@ -129,17 +133,33 @@ final class ConnectionManager {
         lastMediaPacketReceivedAt = Date()
         streamReceiver.reset()
         DiagnosticLogger.shared.log("Connecting to \(host.name)", category: "Connection")
-        let conn = NWConnection(to: host.endpoint, using: .tcp)
-        self.connection = conn
-
-        conn.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor in
-                self?.handleConnectionState(state)
+        let link = PhorosConnection(to: host.endpoint, queue: .global(qos: .userInteractive))
+        self.link = link
+        link.onReady = { [weak self] in
+            Task { @MainActor in self?.handleConnectionState(.ready) }
+        }
+        link.onWaiting = { [weak self] error in
+            Task { @MainActor in self?.handleConnectionState(.waiting(error)) }
+        }
+        link.onFrame = { [weak self] frame in self?.handleFrame(frame) }
+        link.onEnd = { [weak self] reason in
+            guard let self else { return }
+            switch reason {
+            case .transportFailed(let error):
+                logger.error("Connection failed: \(error)")
+                DiagnosticLogger.shared.log("Connection failed: \(error)", category: "Connection")
+                self.triggerUnexpectedDisconnect()
+            case .closedByPeer:
+                DiagnosticLogger.shared.log("Connection closed by remote", category: "Connection")
+                self.triggerUnexpectedDisconnect()
+            case .protocolViolation(let violation):
+                DiagnosticLogger.shared.log("Protocol violation from host: \(String(describing: violation))", category: "Connection")
+                self.triggerUnexpectedDisconnect()
+            case .cancelled:
+                Task { @MainActor in self.appState?.isStreaming = false }
             }
         }
-
-        conn.start(queue: .global(qos: .userInteractive))
-        receiveNextPacket()
+        link.start()
         startQualityMonitor()
         startPathMonitor()
     }
@@ -167,14 +187,8 @@ final class ConnectionManager {
             } else {
                 scheduleWaitingRecheck()
             }
-        case .failed(let error):
-            logger.error("Connection failed: \(error)")
-            DiagnosticLogger.shared.log("Connection failed: \(error)", category: "Connection")
-            triggerUnexpectedDisconnect()
-        case .cancelled:
-            Task { @MainActor in appState?.isStreaming = false }
         default:
-            break
+            break  // failures and cancellation arrive through link.onEnd
         }
     }
 
@@ -194,47 +208,47 @@ final class ConnectionManager {
     // MARK: - Authentication
 
     private func sendAuthRequest() {
-        let secretHex = pairedMac.sharedSecret.map { String(format: "%02x", $0) }.joined()
-        let auth = BeamPairingMessage(
-            type: .authRequest,
+        guard let secret = SharedSecret(bytes: pairedMac.sharedSecret) else {
+            DiagnosticLogger.shared.log("Stored secret is malformed; re-pair this Mac", category: "Connection")
+            disconnect()
+            return
+        }
+        let auth = clientCapabilities().authRequest(secret: secret)
+        guard let data = try? JSONEncoder().encode(auth) else { return }
+        sendTCP(data)
+        logger.info("Sent auth request to \(self.host.name) (audio \(self.isAudioEnabled ? "on" : "off"))")
+    }
+
+    /// What this phone tells the host it can do. Shared with PairingManager so hello and
+    /// authRequest never disagree.
+    private func clientCapabilities() -> ClientCapabilities {
+        ClientCapabilities(
             deviceName: UIDevice.current.name,
             deviceID: KeyStore.shared.stableDeviceID, // must match the ID sent during pairing
-            code: nil,
-            sharedSecret: secretHex,
-            error: nil,
+            audioCodecs: AudioCodecID.clientAdvertisedCodecs().compactMap(AudioCodecID.init(wireName:)),
+            videoCodecs: VideoCodecID.clientAdvertisedCodecs().compactMap(VideoCodecID.init(wireName:)),
             // State our hardware rate up front so the host encodes to it and the format never
             // has to change mid-session (BEAM-29). AVAudioSession.sampleRate is the rate the
             // hardware is actually running at right now, which is the number that matters.
             preferredAudioSampleRate: AVAudioSession.sharedInstance().sampleRate,
-            supportedAudioCodecs: BeamAudioCodec.clientAdvertisedCodecs(),
-            supportedVideoCodecs: BeamVideoCodec.clientAdvertisedCodecs(),
             wantsAudio: isAudioEnabled
         )
-        guard let data = try? JSONEncoder().encode(auth) else { return }
-        sendTCP(data.lengthPrefixed())
-        logger.info("Sent auth request to \(self.host.name) (audio \(self.isAudioEnabled ? "on" : "off"))")
     }
 
     // MARK: - Send Control Commands
 
     /// `controlID` names a button of the host's advertised layout (BEAM-39); `key` is what an
     /// older host acts on and is only meaningful for the built-in layout.
-    func sendMediaKey(_ key: BeamMediaKeyPayload.Key, controlID: String? = nil, text: String? = nil,
-                      keystroke: String? = nil, keystrokeModifiers: UInt32? = nil, click: BeamClickPayload? = nil) {
-        let msg = BeamControlMessage(
-            type: .mediaKey,
-            payload: .mediaKey(BeamMediaKeyPayload(key: key, controlID: controlID, text: text,
-                                                   keystroke: keystroke, keystrokeModifiers: keystrokeModifiers,
-                                                   click: click))
-        )
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+    func sendMediaKey(_ key: MediaKeyCommand.Key, controlID: String? = nil, text: String? = nil,
+                      keystroke: String? = nil, keystrokeModifiers: UInt32? = nil, click: Click? = nil) {
+        sendControl(.mediaKey(MediaKeyCommand(
+            key: key, controlID: controlID, text: text,
+            keystroke: keystroke, keystrokeModifiers: keystrokeModifiers, click: click
+        )))
     }
 
     func sendStreamStop() {
-        let msg = BeamControlMessage(type: .streamStop, payload: nil)
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+        sendControl(.streamStop)
     }
 
     /// Turns audio on or off for the live session (BEAM-34). Always takes effect locally; the
@@ -247,27 +261,15 @@ final class ConnectionManager {
             "Audio \(enabled ? "enabled" : "disabled") (host \(hostSupportsAudioToggle ? "honours" : "ignores") the request)",
             category: "Audio"
         )
-        let msg = BeamControlMessage(
-            type: .audioEnableRequest,
-            payload: .audioEnable(BeamAudioEnablePayload(enabled: enabled))
-        )
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+        sendControl(.audioEnableRequest(enabled: enabled))
     }
 
     /// Sends a binary controller state report (packet type .input).
-    /// Unlike JSON control messages, these are framed with a BeamPacketHeader so the
+    /// Unlike JSON control messages, these are framed with a PacketHeader so the
     /// host can cheaply distinguish them from JSON without attempting a decode.
-    func sendControllerState(_ state: BeamControllerState, connected: Bool) {
-        let payload = state.serialized()
-        let header = BeamPacketHeader(
-            type: .input,
-            flags: connected ? BeamControllerState.connectedFlag : 0,
-            payloadLength: UInt32(payload.count)
-        )
-        var packet = header.serialized()
-        packet.append(payload)
-        sendTCP(packet.lengthPrefixed())
+    func sendControllerState(_ state: ControllerReport, connected: Bool) {
+        let flags: UInt8 = connected ? ControllerReport.connectedFlag : 0
+        sendTCP(Packet.encode(.input, flags: flags, payload: state.serialized()))
     }
 
     // MARK: - Disconnect
@@ -301,8 +303,8 @@ final class ConnectionManager {
         DiagnosticLogger.shared.log("Disconnected from \(host.name)", category: "Connection")
         SessionManager.shared.stopSession()
         sendStreamStop()
-        connection?.cancel()
-        connection = nil
+        link?.cancel()
+        link = nil
         streamReceiver.reset()
         audioPlayer.stop()
         let holdOpen = keepStreamViewOpen
@@ -340,67 +342,38 @@ final class ConnectionManager {
         Task { @MainActor in callback() }
     }
 
-    // MARK: - Receive Loop
+    // MARK: - Receive
 
-    private func receiveNextPacket() {
-        connection?.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            if let error {
-                logger.error("Receive error: \(error)")
-                DiagnosticLogger.shared.log("Receive error: \(error)", category: "Connection")
-                self.triggerUnexpectedDisconnect()
-                return
-            }
-            if isComplete {
-                DiagnosticLogger.shared.log("Connection closed by remote (isComplete)", category: "Connection")
-                self.triggerUnexpectedDisconnect()
-                return
-            }
-            guard let data, data.count == 4 else { return }
-
-            let length = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
-            guard length > 0, length < 10_000_000 else {  // sanity check
-                self.receiveNextPacket()
-                return
-            }
-
-            self.connection?.receive(
-                minimumIncompleteLength: Int(length),
-                maximumLength: Int(length)
-            ) { [weak self] payload, _, isComplete, error in
-                guard let self else { return }
-                if let error {
-                    logger.error("Payload receive error: \(error)")
-                    DiagnosticLogger.shared.log("Payload receive error: \(error)", category: "Connection")
-                    self.triggerUnexpectedDisconnect()
-                    return
-                }
-                if isComplete {
-                    DiagnosticLogger.shared.log("Connection closed by remote during payload read", category: "Connection")
-                    self.triggerUnexpectedDisconnect()
-                    return
-                }
-                guard let payload else { return }
-                self.handleIncomingPacket(payload)
-                self.receiveNextPacket()
-            }
+    private func handleFrame(_ frame: Frame) {
+        switch frame {
+        case .packet(let packet):
+            handleIncomingPacket(packet)
+        case .message(let json):
+            // Hosts wrap everything in a packet; a bare message is a foreign peer. Ignore it.
+            DiagnosticLogger.shared.log("Ignoring bare message from host (\(json.count) B)", category: "Connection")
         }
     }
 
-    private func handleIncomingPacket(_ data: Data) {
+    private func handleIncomingPacket(_ packet: DecodedPacket) {
         lastPacketReceivedAt = Date()
-        guard let header = BeamPacketHeader.parse(from: data) else { return }
-        let payload = data.dropFirst(BeamPacketHeader.size)
+        let header = packet.header
+        let payload = packet.payload
 
         switch header.type {
-        case .video, .videoIDR:
+        case .video, .videoKeyframe:
             lastMediaPacketReceivedAt = Date()
-            streamReceiver.receive(videoPayload: Data(payload), isKeyframe: header.type == .videoIDR)
+            streamReceiver.receive(videoPayload: Data(payload), isKeyframe: header.type == .videoKeyframe)
 
-        case .spsPps:
+        case .parameterSets:
             // The codec (H.264 vs HEVC) is carried in the packet's flags nibble; a legacy host
             // sends 0 = H.264. This decides which format-description builder the receiver uses.
-            streamReceiver.receiveParameterSets(Data(payload), codec: BeamVideoCodec(packetFlags: header.flags))
+            guard let codec = VideoCodecID(packetFlags: header.flags) else {
+                // A codec this build does not know. Drop rather than guess: building an H.264
+                // format description from foreign parameter sets never yields a picture.
+                DiagnosticLogger.shared.log("Unknown video codec id \(header.flags & VideoCodecID.flagsMask) in parameter sets, dropped", category: "Video")
+                return
+            }
+            streamReceiver.receiveParameterSets(Data(payload), codec: codec)
 
         case .audio:
             lastMediaPacketReceivedAt = Date()
@@ -416,18 +389,21 @@ final class ConnectionManager {
             streamReceiver.receive(audioPayload: Data(payload), flags: header.flags, player: audioPlayer)
 
         case .control:
-            if let msg = try? JSONDecoder().decode(BeamPairingMessage.self, from: payload) {
+            if let msg = try? JSONDecoder().decode(PairingMessage.self, from: payload) {
                 handlePairingMessage(msg)
-            } else if let msg = try? JSONDecoder().decode(BeamControlMessage.self, from: payload) {
-                handleControlMessage(msg)
+                return
+            }
+            do {
+                handleControlMessage(try JSONDecoder().decode(ControlMessage.self, from: payload))
+            } catch ControlMessageError.unknownType(let name) {
+                // A newer host. Ignoring is the contract; see Phoros docs/compatibility.md.
+                DiagnosticLogger.shared.log("Ignoring unknown control message '\(name)' from a newer host", category: "Connection")
+            } catch {
+                DiagnosticLogger.shared.log("Undecodable control message: \(error)", category: "Connection")
             }
 
         case .heartbeat:
-            // Send pong back
-            let pong = BeamControlMessage(type: .pong, payload: nil)
-            if let pongData = try? JSONEncoder().encode(pong) {
-                sendTCP(pongData.lengthPrefixed())
-            }
+            sendControl(.pong)
 
         case .input:
             break  // outbound-only (iOS → macOS); the host never sends input packets
@@ -516,31 +492,22 @@ final class ConnectionManager {
         DiagnosticLogger.shared.log("Warmup complete: \(reason)", category: "Connection")
     }
 
-    private func sendControl(_ type: BeamControlMessageType) {
-        let msg = BeamControlMessage(type: type, payload: nil)
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+    /// Client control messages go bare, with no packet header. The host classifies each
+    /// frame by the packet magic and treats anything else as JSON.
+    private func sendControl(_ message: ControlMessage) {
+        guard let data = try? JSONEncoder().encode(message) else { return }
+        sendTCP(data)
     }
 
-    /// Sends a .ping and starts the RTT clock. Skipped while one is outstanding so a stalled
-    /// reply can't be mistaken for a fast one.
+    /// Sends a .ping and starts the RTT clock. RoundTripProbe abandons a probe whose reply
+    /// never came, so one lost pong can never stop RTT from being measured again.
     private func sendLinkPing() {
-        // A lost or unanswered pong must never permanently stop probing. Without this, one
-        // dropped reply leaves pingSentAt set forever and RTT is never measured again.
-        if let sentAt = pingSentAt {
-            guard Date().timeIntervalSince(sentAt) > 10 else { return }
-            pingSentAt = nil   // abandon the stale probe and start a fresh one
-        }
-        pingSentAt = Date()
-        let msg = BeamControlMessage(type: .ping, payload: nil)
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+        guard probe.shouldSend() else { return }
+        sendControl(.ping)
     }
 
     private func handlePong() {
-        guard let sentAt = pingSentAt else { return }
-        pingSentAt = nil
-        let sample = Date().timeIntervalSince(sentAt)
+        guard let sample = probe.receivedPong() else { return }
         // Light smoothing: a single spike shouldn't flip the badge, but a genuine path
         // upgrade should show up within a few samples.
         smoothedRTT = smoothedRTT.map { $0 * 0.7 + sample * 0.3 } ?? sample
@@ -548,49 +515,36 @@ final class ConnectionManager {
         Task { @MainActor in self.appState?.linkRTT = rtt }
     }
 
-    private func handleControlMessage(_ msg: BeamControlMessage) {
-        switch msg.type {
+    private func handleControlMessage(_ message: ControlMessage) {
+        switch message {
         case .pong:
             handlePong()
-        case .qualityChanged:
-            if case .qualityChanged(let payload) = msg.payload {
-                Task { @MainActor in
-                    self.appState?.currentQualityPreset = payload.preset
-                }
-            } else if case .qualityRequest(let payload) = msg.payload {
-                // BeamControlPayload decoding is shape-based; qualityChanged currently decodes
-                // to .qualityRequest because both carry BeamQualityPayload.
-                Task { @MainActor in
-                    self.appState?.currentQualityPreset = payload.preset
-                }
+        case .qualityChanged(let preset):
+            Task { @MainActor in
+                self.appState?.currentQualityPreset = preset
             }
-        case .audioFormatChanged:
-            if case .audioFormat(let payload) = msg.payload {
-                audioPlayer.updateRemoteFormat(sampleRate: payload.sampleRate, channels: payload.channels)
-                // The AAC decoder's format must equal the engine's; discard it so the next
-                // AAC packet rebuilds it against the new rate/channel count.
-                streamReceiver.resetAudioDecoder()
+        case .audioFormatChanged(let format):
+            audioPlayer.updateRemoteFormat(sampleRate: format.sampleRate, channels: format.channels)
+            // The AAC decoder's format must equal the engine's; discard it so the next
+            // AAC packet rebuilds it against the new rate/channel count.
+            streamReceiver.resetAudioDecoder()
+        case .windowList(let windows):
+            Task { @MainActor in
+                self.appState?.hostWindows = windows
+                self.appState?.isLoadingHostWindows = false
             }
-        case .qualityRequest:
-            break  // iOS doesn't receive quality requests from host
-        case .windowList:
-            if case .windowList(let payload) = msg.payload {
-                Task { @MainActor in
-                    self.appState?.hostWindows = payload.windows
-                    self.appState?.isLoadingHostWindows = false
-                }
+        case .captureModeChanged(let mode):
+            DiagnosticLogger.shared.log(
+                mode.windowMode ? "Host capturing window: \(mode.app ?? "") — \(mode.title ?? "")" : "Host capturing full display",
+                category: "Capture"
+            )
+            Task { @MainActor in
+                self.appState?.hostCaptureMode = mode
             }
-        case .captureModeChanged:
-            if case .captureMode(let payload) = msg.payload {
-                DiagnosticLogger.shared.log(
-                    payload.windowMode ? "Host capturing window: \(payload.app ?? "") — \(payload.title ?? "")" : "Host capturing full display",
-                    category: "Capture"
-                )
-                Task { @MainActor in
-                    self.appState?.hostCaptureMode = payload
-                }
-            }
-        default:
+        case .ping, .streamRequest, .streamStop, .qualityFeedback, .qualityRequest,
+             .viewportLockRequest, .videoPause, .videoResume, .audioEnableRequest,
+             .windowListRequest, .windowSelectRequest, .mediaKey:
+            // Client-to-host messages; a host never sends these.
             break
         }
     }
@@ -601,32 +555,28 @@ final class ConnectionManager {
     func requestWindowList() {
         guard hostSupportsWindowSelection else { return }
         Task { @MainActor in appState?.isLoadingHostWindows = true }
-        let msg = BeamControlMessage(type: .windowListRequest, payload: nil)
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+        sendControl(.windowListRequest)
     }
 
     /// Lock the host's capture to a window, or pass 0 to return to the full display. The host
     /// confirms with `capture_mode_changed`; nothing changes locally until it does.
     func selectHostWindow(_ windowID: UInt32) {
         guard hostSupportsWindowSelection else { return }
-        let msg = BeamControlMessage(type: .windowSelectRequest, payload: .windowSelect(BeamWindowSelectPayload(windowID: windowID)))
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+        sendControl(.windowSelectRequest(windowID: windowID))
     }
 
-    private func handlePairingMessage(_ msg: BeamPairingMessage) {
+    private func handlePairingMessage(_ msg: PairingMessage) {
         switch msg.type {
         case .authSuccess:
             logger.info("Authenticated with \(self.host.name), stream starting")
             DiagnosticLogger.shared.log("Auth success, stream starting", category: "Connection")
             // Diagnostic only — the authority for how to decode any given audio packet is
-            // always that packet's BeamPacketHeader.flags, never this field.
+            // always that packet's PacketHeader.flags, never this field.
             DiagnosticLogger.shared.log(
                 "Host audio codec: \(msg.selectedAudioCodec ?? "pcm (legacy host)")",
                 category: "Audio"
             )
-            // Diagnostic only — the authority for how to decode video is the .spsPps packet's
+            // Diagnostic only — the authority for how to decode video is the .parameterSets packet's
             // flags, never this field. A legacy host omits it and streams H.264.
             DiagnosticLogger.shared.log(
                 "Host video codec: \(msg.selectedVideoCodec ?? "h264 (legacy host)")",
@@ -635,10 +585,11 @@ final class ConnectionManager {
             streamStartedAt = Date()
             // Read synchronously: beginWarmupIfRemote() below decides whether to hold video
             // based on this, so it cannot wait on a hop to the main actor.
-            hostSupportsVideoHold = msg.supportsVideoHold ?? false
-            hostSupportsAudioToggle = msg.supportsAudioToggle ?? false
-            hostSupportsWindowSelection = msg.supportsWindowSelection ?? false
-            let controls = Array((msg.phoneControls ?? []).prefix(8))
+            let peer = PeerCapabilities(msg)
+            hostSupportsVideoHold = peer.supportsVideoHold
+            hostSupportsAudioToggle = peer.supportsAudioToggle
+            hostSupportsWindowSelection = peer.supportsWindowSelection
+            let controls = Array(peer.controls.prefix(8))
             Task { @MainActor in
                 appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection
                 appState?.hostPhoneControls = controls
@@ -651,7 +602,7 @@ final class ConnectionManager {
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works
             // later without the user configuring anything.
             Task { @MainActor in
-                appState?.updateRemoteHosts(msg.tailscaleHosts, hostSupportsRemote: msg.supportsRemoteAccess)
+                appState?.updateRemoteHosts(msg.remoteHosts, hostSupportsRemote: msg.supportsRemoteAccess)
                 // Reconnected: close the hold window and let the overlay fade.
                 if appState?.isReconnecting == true { appState?.endReconnect(resumed: true) }
             }
@@ -692,7 +643,7 @@ final class ConnectionManager {
             // one. 1080p60 is a fine default at home and a reliable way to stall a cellular
             // or relayed tailnet, and the two links are different enough that one setting
             // can't serve both.
-            var preferred: StreamQualityPreset
+            var preferred: QualityPreset
             if appState?.usingRemoteHost == true {
                 // Route-specific setting; see BeamAppState.activeQualityPreset.
                 preferred = appState?.remoteQualityPreset ?? .p720_30
@@ -812,7 +763,7 @@ final class ConnectionManager {
     // when it doesn't. A direct connection walks up to its ceiling within ~20s; a relayed or
     // congested cellular one settles low and stays there.
 
-    private static let ladder: [StreamQualityPreset] = [.p360_30, .p480_30, .p720_30, .p1080_30, .p1080_60]
+    private static let ladder: [QualityPreset] = [.p360_30, .p480_30, .p720_30, .p1080_30, .p1080_60]
     private var ladderIndex: Int?
     private var goodTicks = 0
 
@@ -833,7 +784,7 @@ final class ConnectionManager {
             // Respect the remote ceiling on the way UP too. It was previously applied only to
             // the opening guess, so a link scoring well (which it always does — the score is
             // derived from packet arrival gaps, not from latency) climbed to 1080p60 in ~24s.
-            let ceiling = Self.ladder.firstIndex(of: StreamQualityPreset.remoteCap) ?? (Self.ladder.count - 1)
+            let ceiling = Self.ladder.firstIndex(of: QualityPreset.remoteCap) ?? (Self.ladder.count - 1)
             guard goodTicks >= Self.ticksPerStepUp, index < min(ceiling, Self.ladder.count - 1) else { return }
             goodTicks = 0
             index += 1
@@ -877,12 +828,7 @@ final class ConnectionManager {
     // MARK: - Quality
 
     func sendQualityFeedback(_ quality: Double) {
-        let msg = BeamControlMessage(
-            type: .qualityFeedback,
-            payload: .qualityFeedback(BeamQualityFeedbackPayload(quality: quality))
-        )
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+        sendControl(.qualityFeedback(quality: quality))
     }
 
     /// Called when app returns to foreground; drops a stale stream view immediately
@@ -896,19 +842,14 @@ final class ConnectionManager {
         }
     }
 
-    func sendQualityRequest(_ preset: StreamQualityPreset) {
-        let msg = BeamControlMessage(
-            type: .qualityRequest,
-            payload: .qualityRequest(BeamQualityPayload(preset: preset))
-        )
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+    func sendQualityRequest(_ preset: QualityPreset) {
+        sendControl(.qualityRequest(preset))
     }
 
     func sendViewportLock(_ normalizedRect: CGRect?) {
-        let payload: BeamViewportLockPayload
+        let lock: ViewportLock
         if let normalizedRect {
-            payload = BeamViewportLockPayload(
+            lock = ViewportLock(
                 locked: true,
                 x: normalizedRect.origin.x,
                 y: normalizedRect.origin.y,
@@ -916,25 +857,20 @@ final class ConnectionManager {
                 height: normalizedRect.height
             )
         } else {
-            payload = BeamViewportLockPayload(locked: false, x: 0, y: 0, width: 1, height: 1)
+            lock = .unlocked
         }
-
-        let msg = BeamControlMessage(
-            type: .viewportLockRequest,
-            payload: .viewportLock(payload)
-        )
-        guard let data = try? JSONEncoder().encode(msg) else { return }
-        sendTCP(data.lengthPrefixed())
+        sendControl(.viewportLockRequest(lock))
     }
 
     // MARK: - TCP Send
 
+    /// Sends one frame. The length prefix is added by the connection.
     private func sendTCP(_ data: Data) {
-        connection?.send(content: data, completion: .contentProcessed { [weak self] error in
+        link?.send(data) { [weak self] error in
             if let error {
                 logger.error("Send error: \(error)")
                 self?.disconnect()
             }
-        })
+        }
     }
 }

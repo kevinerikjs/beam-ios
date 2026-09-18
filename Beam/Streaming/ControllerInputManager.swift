@@ -4,6 +4,7 @@
 // The host replays these into a virtual HID gamepad so Mac games see a real controller.
 
 import Foundation
+import Phoros
 import GameController
 import OSLog
 
@@ -20,7 +21,7 @@ final class ControllerInputManager {
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "com.beam.ios.controller-input", qos: .userInteractive)
 
-    private var lastSent: BeamControllerState?
+    private var lastSent: ControllerReport?
     private var lastSentAt: Date = .distantPast
     private let sendInterval: TimeInterval = 1.0 / 60.0
     private let keepaliveInterval: TimeInterval = 1.0
@@ -113,16 +114,16 @@ final class ControllerInputManager {
         connectionManager?.sendControllerState(state, connected: true)
     }
 
-    private func snapshot(_ pad: GCExtendedGamepad) -> BeamControllerState {
-        var buttons: BeamControllerState.Buttons = []
+    private func snapshot(_ pad: GCExtendedGamepad) -> ControllerReport {
+        var buttons: ControllerReport.Buttons = []
         if pad.buttonA.isPressed { buttons.insert(.a) }
         if pad.buttonB.isPressed { buttons.insert(.b) }
         if pad.buttonX.isPressed { buttons.insert(.x) }
         if pad.buttonY.isPressed { buttons.insert(.y) }
         if pad.leftShoulder.isPressed { buttons.insert(.leftShoulder) }
         if pad.rightShoulder.isPressed { buttons.insert(.rightShoulder) }
-        if pad.leftThumbstickButton?.isPressed == true { buttons.insert(.leftThumb) }
-        if pad.rightThumbstickButton?.isPressed == true { buttons.insert(.rightThumb) }
+        if pad.leftThumbstickButton?.isPressed == true { buttons.insert(.leftThumbstick) }
+        if pad.rightThumbstickButton?.isPressed == true { buttons.insert(.rightThumbstick) }
         if pad.dpad.up.isPressed { buttons.insert(.dpadUp) }
         if pad.dpad.down.isPressed { buttons.insert(.dpadDown) }
         if pad.dpad.left.isPressed { buttons.insert(.dpadLeft) }
@@ -131,7 +132,7 @@ final class ControllerInputManager {
         if pad.buttonOptions?.isPressed == true { buttons.insert(.options) }
         if pad.buttonHome?.isPressed == true { buttons.insert(.home) }
 
-        return BeamControllerState(
+        return ControllerReport(
             buttons: buttons,
             leftX: Self.axisValue(pad.leftThumbstick.xAxis.value),
             leftY: Self.axisValue(pad.leftThumbstick.yAxis.value),

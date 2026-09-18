@@ -33,7 +33,6 @@
 		8D59715E934447A35F0995E3 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6532D3B9FE36DBFA3E19A7E /* HomeView.swift */; };
 		8DEC1C6F7735685AD952CD71 /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD6B3B0D6DF0466B56B1FD1A /* VideoRenderer.swift */; };
 		989ADF5A9A63C04AD682D821 /* StreamReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9322E337B5373CB064616592 /* StreamReceiver.swift */; };
-		AACD0000000000000000AAC2 /* AACDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACD0000000000000000AAC1 /* AACDecoder.swift */; };
 		BEA0C0DECAFE00000000I002 /* ControllerInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000I001 /* ControllerInputManager.swift */; };
 		BEA0C0DECAFE00000000F002 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */; };
 		BEA0C0DECAFE00000000P002 /* PromoConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000P001 /* PromoConfig.swift */; };
@@ -55,6 +54,10 @@
 		F5B1A2C42F73000100CC3333 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F5B1A2C32F73000100CC3333 /* LaunchScreen.storyboard */; };
 		FCD578E835F5374DBE2FC942 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1557FB665B475A9C150718B /* AudioPlayer.swift */; };
 		PH0000000000000000000001 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = PH0000000000000000000002 /* PostHog */; };
+		BEEA00000000000000000003 /* Phoros in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA00000000000000000002 /* Phoros */; };
+		BEEA00000000000000000009 /* PhorosNetwork in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA00000000000000000008 /* PhorosNetwork */; };
+		BEEA00000000000000000007 /* PhorosMedia in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA00000000000000000006 /* PhorosMedia */; };
+		BEEA00000000000000000005 /* PhorosSession in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA00000000000000000004 /* PhorosSession */; };
 		PH0000000000000000000008 /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = PH0000000000000000000009 /* Analytics.swift */; };
 		PH000000000000000000000A /* WhatsNewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PH000000000000000000000B /* WhatsNewView.swift */; };
 		PH000000000000000000000C /* ReviewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PH000000000000000000000D /* ReviewManager.swift */; };
@@ -104,7 +107,6 @@
 		9103D00A2163CA9E73231F09 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		928BF22CC7D2A1A02E05FDF7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Beam/Info.plist; sourceTree = SOURCE_ROOT; };
 		9322E337B5373CB064616592 /* StreamReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamReceiver.swift; path = Beam/Streaming/StreamReceiver.swift; sourceTree = SOURCE_ROOT; };
-		AACD0000000000000000AAC1 /* AACDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AACDecoder.swift; path = Beam/Streaming/AACDecoder.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000I001 /* ControllerInputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ControllerInputManager.swift; path = Beam/Streaming/ControllerInputManager.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FeatureFlags.swift; path = Beam/Config/FeatureFlags.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000P001 /* PromoConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PromoConfig.swift; path = Beam/Config/PromoConfig.swift; sourceTree = SOURCE_ROOT; };
@@ -176,6 +178,10 @@
 				B915726FD9B91F7789F98319 /* UIKit.framework in Frameworks */,
 				0A37CAD8BA0B45C4BA8DF6B2 /* Foundation.framework in Frameworks */,
 				PH0000000000000000000001 /* PostHog in Frameworks */,
+				BEEA00000000000000000003 /* Phoros in Frameworks */,
+				BEEA00000000000000000009 /* PhorosNetwork in Frameworks */,
+				BEEA00000000000000000007 /* PhorosMedia in Frameworks */,
+				BEEA00000000000000000005 /* PhorosSession in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -215,7 +221,6 @@
 			children = (
 				E6F04197677A8BDC5A22D7EB /* Protocol.swift */,
 				9322E337B5373CB064616592 /* StreamReceiver.swift */,
-				AACD0000000000000000AAC1 /* AACDecoder.swift */,
 				AD6B3B0D6DF0466B56B1FD1A /* VideoRenderer.swift */,
 				B8D4E7920AF163C59E33F801 /* VideoMotionDetector.swift */,
 				C1557FB665B475A9C150718B /* AudioPlayer.swift */,
@@ -356,6 +361,10 @@
 			name = Beam;
 			packageProductDependencies = (
 				PH0000000000000000000002 /* PostHog */,
+				BEEA00000000000000000002 /* Phoros */,
+				BEEA00000000000000000008 /* PhorosNetwork */,
+				BEEA00000000000000000006 /* PhorosMedia */,
+				BEEA00000000000000000004 /* PhorosSession */,
 			);
 			productName = Beam;
 			productReference = 4D6BB1EF093953767FBF7E35 /* Beam.app */;
@@ -390,6 +399,7 @@
 			mainGroup = 1684F76082E172427ACD0607;
 			packageReferences = (
 				PH0000000000000000000003 /* XCRemoteSwiftPackageReference "posthog-ios" */,
+				BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */,
 			);
 			productRefGroup = 9ADC05CF3F61A78B58295B6B /* Products */;
 			projectDirPath = "";
@@ -445,7 +455,6 @@
 				BEA0C0DECAFE00000000C002 /* ConnectionRacer.swift in Sources */,
 				D9AADD4C2136A9B3E9FBE69B /* Protocol.swift in Sources */,
 				989ADF5A9A63C04AD682D821 /* StreamReceiver.swift in Sources */,
-				AACD0000000000000000AAC2 /* AACDecoder.swift in Sources */,
 				BEA0C0DECAFE00000000I002 /* ControllerInputManager.swift in Sources */,
 				8DEC1C6F7735685AD952CD71 /* VideoRenderer.swift in Sources */,
 				CF3A2E1B7D94F05B8C112DA4 /* VideoMotionDetector.swift in Sources */,
@@ -764,6 +773,14 @@
 				minimumVersion = 3.0.0;
 			};
 		};
+		BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kevinerikjs/phoros.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -771,6 +788,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = PH0000000000000000000003 /* XCRemoteSwiftPackageReference "posthog-ios" */;
 			productName = PostHog;
+		};
+		BEEA00000000000000000002 /* Phoros */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */;
+			productName = Phoros;
+		};
+		BEEA00000000000000000004 /* PhorosSession */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */;
+			productName = PhorosSession;
+		};
+		BEEA00000000000000000006 /* PhorosMedia */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */;
+			productName = PhorosMedia;
+		};
+		BEEA00000000000000000008 /* PhorosNetwork */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */;
+			productName = PhorosNetwork;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -2,6 +2,8 @@
 // Central observable state for the iOS Beam client app.
 
 import SwiftUI
+import Phoros
+import Phoros
 import Network
 
 final class BeamAppState: ObservableObject {
@@ -36,7 +38,7 @@ final class BeamAppState: ObservableObject {
     @Published var isControllerConnected: Bool = false
 
     /// The quality preset currently active on the host (set from .qualityChanged messages).
-    @Published var currentQualityPreset: StreamQualityPreset = .p1080_30
+    @Published var currentQualityPreset: QualityPreset = .p1080_30
 
     /// Aspect of the frames the host is sending (width / height). 16:9 on a full display; a
     /// window's own aspect in window mode (BEAM-38). Drives every overlay geometry calculation.
@@ -49,7 +51,7 @@ final class BeamAppState: ObservableObject {
     @Published var hostSupportsWindowSelection = false
     /// The host's active phone-control layout (BEAM-39), left to right, up to 7 buttons.
     /// Empty until an authSuccess carries one; the overlay then shows the built-in five.
-    @Published var hostPhoneControls: [BeamPhoneControl] = []
+    @Published var hostPhoneControls: [ControlButton] = []
     /// A toggled phone-control mode (BEAM-40): live keyboard or click passthrough, by button id.
     /// The overlay stays up while one is active.
     @Published var activeControlMode: ActiveControlMode? = nil
@@ -85,10 +87,10 @@ final class BeamAppState: ObservableObject {
     }
     /// Windows the host offered in its last `window_list` reply. Ids are only valid until the
     /// next refresh, so the picker requests a fresh list every time it opens.
-    @Published var hostWindows: [BeamWindowInfo] = []
+    @Published var hostWindows: [WindowInfo] = []
     @Published var isLoadingHostWindows = false
     /// What the host is capturing right now: nil = full display.
-    @Published var hostCaptureMode: BeamCaptureModePayload? = nil
+    @Published var hostCaptureMode: CaptureMode? = nil
     var isHostInWindowMode: Bool { hostCaptureMode?.windowMode == true }
 
     /// Quality used when the Mac is reached over a remote (Tailscale) path, kept separate
@@ -96,10 +98,10 @@ final class BeamAppState: ObservableObject {
     /// setting that is right at home is usually wrong away from it — and having one control
     /// serve both meant every trip changed the value you came home to.
     /// Defaults to 720p30, which is a realistic ceiling for cellular and relayed tailnets.
-    var remoteQualityPreset: StreamQualityPreset {
+    var remoteQualityPreset: QualityPreset {
         get {
             let raw = UserDefaults.standard.string(forKey: "remoteQualityPreset") ?? ""
-            return StreamQualityPreset(rawValue: raw) ?? .p720_30
+            return QualityPreset(rawValue: raw) ?? .p720_30
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "remoteQualityPreset")
@@ -115,7 +117,7 @@ final class BeamAppState: ObservableObject {
     /// session therefore has to switch the preset too, otherwise a failover carries a 6 Mbps
     /// LAN choice onto a cellular link, which is exactly the condition that made audio fall
     /// behind. Each route uses its own default unless the user has overridden that route.
-    var activeQualityPreset: StreamQualityPreset {
+    var activeQualityPreset: QualityPreset {
         usingRemoteHost ? remoteQualityPreset : preferredQualityPreset
     }
 
@@ -149,10 +151,10 @@ final class BeamAppState: ObservableObject {
     }
 
     /// The user's preferred quality preset on the local network (persisted, sent on connect).
-    var preferredQualityPreset: StreamQualityPreset {
+    var preferredQualityPreset: QualityPreset {
         get {
             let raw = UserDefaults.standard.string(forKey: "preferredQualityPreset") ?? ""
-            return StreamQualityPreset(rawValue: raw) ?? .auto
+            return QualityPreset(rawValue: raw) ?? .auto
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "preferredQualityPreset")
@@ -194,10 +196,9 @@ final class BeamAppState: ObservableObject {
 
     let bonjourBrowser = BonjourBrowser()
 
-    // MARK: - Remote (Tailscale) fallback — BEAM-19
+    // MARK: - Remote fallback
 
-    /// Beacon's listening port is fixed, so a remote endpoint needs no discovery.
-    /// Keep in sync with beam-macos `StreamServer.listeningPort`.
+    /// Beacon listens on this port for direct connections.
     static let remotePort: UInt16 = 7979
 
     /// How long Bonjour gets before we try a stored remote address. Long enough that a
