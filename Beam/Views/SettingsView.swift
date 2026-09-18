@@ -2,6 +2,7 @@
 // App settings — accessible from HomeView at any time, no active stream required.
 
 import SwiftUI
+import Phoros
 
 struct SettingsView: View {
     @EnvironmentObject var appState: BeamAppState
@@ -78,7 +79,7 @@ struct SettingsView: View {
                         get: { appState.preferredQualityPreset },
                         set: { appState.preferredQualityPreset = $0 }
                     )) {
-                        ForEach(StreamQualityPreset.allCases) { preset in
+                        ForEach(QualityPreset.allCases) { preset in
                             Text(preset.displayName).tag(preset)
                         }
                     }
@@ -326,7 +327,7 @@ struct SettingsView: View {
                                 get: { appState.remoteQualityPreset },
                                 set: { appState.remoteQualityPreset = $0 }
                             )) {
-                                ForEach(StreamQualityPreset.allCases) { preset in
+                                ForEach(QualityPreset.allCases) { preset in
                                     Text(preset.displayName).tag(preset)
                                 }
                             }

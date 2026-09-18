@@ -3,6 +3,7 @@
 // Uses Liquid Glass (iOS 26+) with ultraThinMaterial fallback.
 
 import SwiftUI
+import Phoros
 
 struct StreamOverlay: View {
     @ObservedObject var appState: BeamAppState
@@ -18,7 +19,7 @@ struct StreamOverlay: View {
     let onOpenQualityPicker: () -> Void
     let onOpenStreamSettings: () -> Void
     /// A layout button that asks for text first (BEAM-39): the owner presents the input box.
-    let onPromptText: (BeamPhoneControl) -> Void
+    let onPromptText: (ControlButton) -> Void
     let onOpenWindowPicker: () -> Void
     let onUpgrade: () -> Void
     let onDisconnect: () -> Void
@@ -473,7 +474,7 @@ struct QualityPickerSheet: View {
                     .listRowBackground(Color.clear)
                 }
 
-                ForEach(StreamQualityPreset.allCases) { preset in
+                ForEach(QualityPreset.allCases) { preset in
                     qualityRow(preset)
                 }
             }
@@ -492,7 +493,7 @@ struct QualityPickerSheet: View {
     }
 
     @ViewBuilder
-    private func qualityRow(_ preset: StreamQualityPreset) -> some View {
+    private func qualityRow(_ preset: QualityPreset) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(preset.displayName)
@@ -651,7 +652,7 @@ struct StreamSettingsSheet: View {
                         get: { appState.preferredQualityPreset },
                         set: { appState.preferredQualityPreset = $0 }
                     )) {
-                        ForEach(StreamQualityPreset.allCases) { preset in
+                        ForEach(QualityPreset.allCases) { preset in
                             Text(preset.displayName).tag(preset)
                         }
                     }

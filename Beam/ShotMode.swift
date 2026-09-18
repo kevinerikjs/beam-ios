@@ -20,6 +20,7 @@
 // site is behind that check.
 
 import SwiftUI
+import Phoros
 import UIKit
 import Network
 
@@ -94,11 +95,11 @@ enum ShotMode {
         case "stream-window-picker":
             appState.hostSupportsWindowSelection = true
             appState.hostWindows = [
-                BeamWindowInfo(id: 11, title: "Cats — Season 2, Episode 4", app: "Safari"),
-                BeamWindowInfo(id: 12, title: "Untitled", app: "Final Cut Pro"),
-                BeamWindowInfo(id: 13, title: "Beam — iOS", app: "Xcode"),
+                WindowInfo(id: 11, title: "Cats — Season 2, Episode 4", app: "Safari"),
+                WindowInfo(id: 12, title: "Untitled", app: "Final Cut Pro"),
+                WindowInfo(id: 13, title: "Beam — iOS", app: "Xcode"),
             ]
-            appState.hostCaptureMode = BeamCaptureModePayload(windowMode: true, windowID: 11, title: "Cats — Season 2, Episode 4", app: "Safari")
+            appState.hostCaptureMode = CaptureMode(windowMode: true, windowID: 11, title: "Cats — Season 2, Episode 4", app: "Safari")
 
         case "stream-remote":
             // The remote link badge only appears on a Tailscale session. `linkRTT` under 0.25s

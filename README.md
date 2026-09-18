@@ -147,7 +147,7 @@ Beam/
 │   ├── StreamReceiver.swift      # Packet reassembly + video/audio dispatch
 │   ├── VideoMotionDetector.swift # Auto video region detection
 │   ├── PiPController.swift       # Picture-in-Picture management
-│   └── Protocol.swift            # iOS-only protocol adapters and controller state
+│   └── Protocol.swift            # Beam policy on top of the Phoros wire contract
 ├── Network/
 │   ├── BonjourBrowser.swift    # Discover _beam._tcp
 │   └── ConnectionManager.swift # TCP connection lifecycle + auth
@@ -159,8 +159,11 @@ Beam/
     └── SessionManager.swift    # Free tier timer
 ```
 
-The app imports [BeamProtocol](https://github.com/kevinerikjs/beam-protocol) for its shared wire
-contract. `Streaming/Protocol.swift` contains iOS-only behavior.
+Beam is built on [Phoros](https://github.com/kevinerikjs/phoros): the wire contract it shares
+with Beacon, plus frame reassembly, audio sequencing, the framed TCP connection, the pairing
+client, and the format-description and AAC decoding. What lives in this repo is Beam itself:
+the views, the audio player, the renderer, PiP, the Keychain, and the policy on top of the
+package (`Streaming/Protocol.swift`).
 
 ## Contributing
 

@@ -12,6 +12,9 @@
 // advertises, disconnect. No stream is started and no session is consumed.
 
 import Foundation
+import Phoros
+import PhorosNetwork
+import PhorosSession
 import Network
 import UIKit
 import OSLog
@@ -46,11 +49,11 @@ enum RemoteSetupProbe {
     /// Throws `hostHasNoTailscale` when the Mac answers but has no tailnet address, which is a
     /// genuinely different problem from a failed connection and deserves its own message.
     static func fetchRemoteHosts(from host: DiscoveredHost, pairedMac: PairedMac) async throws -> [String] {
-        let connection = NWConnection(to: host.endpoint, using: .tcp)
+        let link = PhorosConnection(to: host.endpoint, queue: .global(qos: .userInitiated))
 
         return try await withThrowingTaskGroup(of: [String].self) { group in
             group.addTask {
-                try await run(connection: connection, pairedMac: pairedMac)
+                try await run(link: link, pairedMac: pairedMac)
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
@@ -58,17 +61,20 @@ enum RemoteSetupProbe {
             }
             guard let result = try await group.next() else { throw Failure.timedOut }
             group.cancelAll()
-            connection.cancel()
+            link.cancel()
             return result
         }
     }
 
     // MARK: - Exchange
 
-    private static func run(connection: NWConnection, pairedMac: PairedMac) async throws -> [String] {
-        try await withCheckedThrowingContinuation { continuation in
+    private static func run(link: PhorosConnection, pairedMac: PairedMac) async throws -> [String] {
+        guard let secret = SharedSecret(bytes: pairedMac.sharedSecret) else {
+            throw Failure.rejected("The stored pairing is damaged. Pair this iPhone again.")
+        }
+        return try await withCheckedThrowingContinuation { continuation in
             let finished = OSAllocatedUnfairLock(initialState: false)
-            /// The continuation must be resumed exactly once; NWConnection can deliver a
+            /// The continuation must be resumed exactly once; the connection can deliver a
             /// failure state and a receive error for the same underlying problem.
             func finish(_ result: Result<[String], Error>) {
                 let alreadyDone = finished.withLock { done -> Bool in
@@ -77,88 +83,43 @@ enum RemoteSetupProbe {
                     return false
                 }
                 guard !alreadyDone else { return }
-                connection.cancel()
+                link.cancel()
                 continuation.resume(with: result)
             }
 
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    sendAuth(on: connection, pairedMac: pairedMac)
-                    receiveHeader(on: connection, finish: finish)
-                case .failed(let error):
-                    finish(.failure(error))
-                case .cancelled:
-                    finish(.failure(Failure.timedOut))
-                default:
+            link.onReady = {
+                let auth = ClientCapabilities(
+                    deviceName: UIDevice.current.name,
+                    deviceID: KeyStore.shared.stableDeviceID
+                ).authRequest(secret: secret)
+                guard let data = try? JSONEncoder().encode(auth) else { return }
+                link.send(data)
+            }
+            link.onFrame = { frame in
+                // The auth reply is a .control packet. Anything else (media, if the host
+                // starts streaming before we cancel) is skipped while we wait for it.
+                guard case .packet(let packet) = frame, packet.type == .control,
+                      let message = try? JSONDecoder().decode(PairingMessage.self, from: packet.payload)
+                else { return }
+                switch PairingClient.interpret(message) {
+                case .authenticated(let host, _, _, _):
+                    logger.info("Remote setup probe got \(host.remoteHosts.count) address(es)")
+                    finish(host.remoteHosts.isEmpty ? .failure(Failure.hostHasNoTailscale) : .success(host.remoteHosts))
+                case .failed(let reason):
+                    finish(.failure(Failure.rejected(reason)))
+                case .unpaired:
+                    finish(.failure(Failure.rejected("This iPhone is no longer paired with your Mac.")))
+                case .codeRequested, .paired, .unexpected:
                     break
                 }
             }
-            connection.start(queue: .global(qos: .userInitiated))
-        }
-    }
-
-    private static func sendAuth(on connection: NWConnection, pairedMac: PairedMac) {
-        let secretHex = pairedMac.sharedSecret.map { String(format: "%02x", $0) }.joined()
-        let auth = BeamPairingMessage(
-            type: .authRequest,
-            deviceName: UIDevice.current.name,
-            deviceID: KeyStore.shared.stableDeviceID,
-            code: nil,
-            sharedSecret: secretHex,
-            error: nil
-        )
-        guard let data = try? JSONEncoder().encode(auth) else { return }
-        connection.send(content: data.lengthPrefixed(), completion: .idempotent)
-    }
-
-    /// Host replies are BeamPacketHeader-framed: 10-byte header, then payload.
-    private static func receiveHeader(
-        on connection: NWConnection,
-        finish: @escaping (Result<[String], Error>) -> Void
-    ) {
-        connection.receive(
-            minimumIncompleteLength: BeamPacketHeader.size,
-            maximumLength: BeamPacketHeader.size
-        ) { data, _, _, error in
-            if let error { return finish(.failure(error)) }
-            guard let data, let header = BeamPacketHeader.parse(from: data) else {
-                return finish(.failure(Failure.timedOut))
+            link.onEnd = { reason in
+                switch reason {
+                case .transportFailed(let error): finish(.failure(error))
+                case .closedByPeer, .protocolViolation, .cancelled: finish(.failure(Failure.timedOut))
+                }
             }
-            receivePayload(on: connection, header: header, finish: finish)
-        }
-    }
-
-    private static func receivePayload(
-        on connection: NWConnection,
-        header: BeamPacketHeader,
-        finish: @escaping (Result<[String], Error>) -> Void
-    ) {
-        let length = Int(header.payloadLength)
-        guard length > 0, length < 1_000_000 else { return finish(.failure(Failure.timedOut)) }
-
-        connection.receive(minimumIncompleteLength: length, maximumLength: length) { data, _, _, error in
-            if let error { return finish(.failure(error)) }
-            guard let data else { return finish(.failure(Failure.timedOut)) }
-
-            guard header.type == .control,
-                  let message = try? JSONDecoder().decode(BeamPairingMessage.self, from: data) else {
-                // Some other packet type arrived first; keep waiting for the auth reply.
-                return receiveHeader(on: connection, finish: finish)
-            }
-
-            switch message.type {
-            case .authSuccess:
-                let hosts = message.tailscaleHosts ?? []
-                logger.info("Remote setup probe got \(hosts.count) address(es)")
-                finish(hosts.isEmpty ? .failure(Failure.hostHasNoTailscale) : .success(hosts))
-            case .authFailed:
-                finish(.failure(Failure.rejected(message.error ?? "Your Mac rejected the connection.")))
-            case .unpaired:
-                finish(.failure(Failure.rejected("This iPhone is no longer paired with your Mac.")))
-            default:
-                receiveHeader(on: connection, finish: finish)
-            }
+            link.start()
         }
     }
 }
