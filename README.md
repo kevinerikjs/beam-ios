@@ -1,10 +1,11 @@
 # Beam
 
-**Watch your Mac's screen on your iPhone.**
+**See and lightly control your Mac from your iPhone.**
 
 Beam connects to a Mac running [Beacon](https://github.com/kevinerikjs/beacon-macos) and plays its
-screen and audio, over your local network. It supports Picture-in-Picture, media controls, viewport
-locking, and quality selection. No cables, no cloud, no account, and nothing leaves your network.
+screen and audio, over your local network or your own Tailscale network. It supports
+Picture-in-Picture, tap-to-click, live keyboard input with sticky modifiers, media controls, custom
+buttons, viewport locking, and quality selection. No cables, no Beam account, and no Beam relay.
 
 ### [Get Beam on the App Store](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962)
 
@@ -23,8 +24,9 @@ the features people find while looking all run the other way:
 
 So: no cables, no cloud, no account, and on your own WiFi nothing leaves your network.
 
-One honest limitation — Beam is a **viewer, not a remote control**. You watch your Mac, you don't
-drive it. For clicking and typing on a Mac remotely, a remote desktop app is the right category.
+Beam is viewer-first with light control: tap to click, type with the iPhone keyboard, or use up to
+eight custom controls configured in Beacon. It is not a full remote desktop: there is no pointer,
+dragging, file transfer, or clipboard sync.
 
 More detail: [can you AirPlay Mac to iPhone?](https://beamscreen.app/guide/airplay-mac-to-iphone) ·
 [using an iPhone as a Mac monitor](https://beamscreen.app/guide/iphone-as-mac-monitor) ·
@@ -42,7 +44,7 @@ More detail: [can you AirPlay Mac to iPhone?](https://beamscreen.app/guide/airpl
 | | |
 | --- | --- |
 | **Discovery** | Bonjour, browsing for `_beam._tcp` on the local network |
-| **Transport** | Network.framework over TCP, LAN only |
+| **Transport** | Network.framework over TCP on your LAN or Tailscale network |
 | **Video** | `AVSampleBufferDisplayLayer` for low-latency rendering, which also drives PiP |
 | **Audio** | `AVAudioEngine`, Float32 PCM, A/V sync via host clock comparison |
 | **Pairing** | Device keys held in the iOS Keychain |
@@ -76,15 +78,17 @@ readable in a minute. What it does:
 ## Requirements
 
 - iOS 16.0 or later (the optional home screen widget needs a newer iOS)
-- A Mac on the same network running [Beacon](https://github.com/kevinerikjs/beacon-macos)
+- A Mac running [Beacon](https://github.com/kevinerikjs/beacon-macos) on the same network, or with
+  Tailscale configured for remote access
 - Xcode 15 or later, if you are building rather than installing
 
 ## Free tier and unlocking
 
-Beam is free to use for 30 minutes per session, with a 24 hour cooldown between sessions. A
-one-time in-app purchase (`com.beam.ios.unlimited`) removes the limit permanently. It is a purchase
-rather than a subscription, so you pay once and that is the end of it. Current pricing is on the
-[App Store listing](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962).
+Beam includes a three-day trial with no limits. After the trial, free use is up to 30 minutes total
+in each 24-hour window; time adds up across streams. A one-time in-app purchase
+(`com.beam.ios.unlimited`) removes the allowance and window restriction permanently. It is a
+purchase rather than a subscription, so you pay once and that is the end of it. Current pricing is
+on the [App Store listing](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962).
 
 Session timing is stored in the Keychain so that it survives a reinstall. That code is in
 `Store/SessionManager.swift` and, like everything else here, you can read exactly what it does.
@@ -143,7 +147,7 @@ Beam/
 │   ├── StreamReceiver.swift      # Packet reassembly + video/audio dispatch
 │   ├── VideoMotionDetector.swift # Auto video region detection
 │   ├── PiPController.swift       # Picture-in-Picture management
-│   └── Protocol.swift            # Wire protocol, kept in sync with beam-macos
+│   └── Protocol.swift            # iOS-only protocol adapters and controller state
 ├── Network/
 │   ├── BonjourBrowser.swift    # Discover _beam._tcp
 │   └── ConnectionManager.swift # TCP connection lifecycle + auth
@@ -155,9 +159,8 @@ Beam/
     └── SessionManager.swift    # Free tier timer
 ```
 
-`Streaming/Protocol.swift` must stay in sync with its counterpart in
-[beam-macos](https://github.com/kevinerikjs/beacon-macos). Changing one side alone breaks streaming,
-so protocol changes need to land in both repos together.
+The app imports [BeamProtocol](https://github.com/kevinerikjs/beam-protocol) for its shared wire
+contract. `Streaming/Protocol.swift` contains iOS-only behavior.
 
 ## Contributing
 
