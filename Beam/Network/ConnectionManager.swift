@@ -4,9 +4,9 @@
 
 import Network
 import Phoros
+import PhorosInput
 import PhorosNetwork
 import PhorosSession
-import Phoros
 import OSLog
 import AVFoundation
 import UIKit
@@ -25,7 +25,8 @@ final class ConnectionManager {
     // Stream components
     let streamReceiver = StreamReceiver()
     let audioPlayer = AudioPlayer()
-    let controllerInput = ControllerInputManager()
+    /// Samples the iPhone-paired game controller into `.input` packets (PhorosInput).
+    let controllerInput = ControllerSampler()
 
     private var receiveBuffer = Data()
 
@@ -101,6 +102,8 @@ final class ConnectionManager {
     /// toggle still mutes, it just can't save the bandwidth.
     private(set) var hostSupportsAudioToggle = false
     private(set) var hostSupportsWindowSelection = false
+    /// True when the host said it replays controller input into a virtual gamepad (Beacon 1.5+).
+    private(set) var hostSupportsControllerInput = false
     private var warmupStartedAt: Date?
     private var warmupTimer: DispatchSourceTimer?
 
@@ -589,6 +592,7 @@ final class ConnectionManager {
             hostSupportsVideoHold = peer.supportsVideoHold
             hostSupportsAudioToggle = peer.supportsAudioToggle
             hostSupportsWindowSelection = peer.supportsWindowSelection
+            hostSupportsControllerInput = peer.supportsControllerInput
             let controls = Array(peer.controls.prefix(8))
             Task { @MainActor in
                 appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection
@@ -621,16 +625,25 @@ final class ConnectionManager {
             }
             audioPlayer.start()
             // Start forwarding game controller input (no-op until a controller connects).
-            // Gated on the remote feature flag (BEAM-18): while locked we never attach to
-            // GCController and never emit .input packets, so the feature is fully inert in
-            // builds that ship before the Mac half is live.
-            if FeatureFlags.isUnlocked(.controllerPassthrough) {
-                controllerInput.onConnectionChange = { [weak self] connected in
+            // The host's word is the gate: Beacon 1.5+ advertises supportsControllerInput and
+            // can replay the packets. The remote flag (BEAM-18) stays as the gate for hosts
+            // that predate the capability, where it is the only signal a phone has. While
+            // neither says yes we never attach to GCController and never emit .input packets.
+            if hostSupportsControllerInput || FeatureFlags.isUnlocked(.controllerPassthrough) {
+                DiagnosticLogger.shared.log(
+                    "Controller forwarding armed (host \(hostSupportsControllerInput ? "advertises" : "predates") the capability)",
+                    category: "Controller"
+                )
+                controllerInput.onAttachmentChange = { [weak self] attached in
+                    DiagnosticLogger.shared.log("Controller \(attached ? "attached" : "detached")", category: "Controller")
                     Task { @MainActor in
-                        self?.appState?.isControllerConnected = connected
+                        self?.appState?.isControllerConnected = attached
                     }
                 }
-                controllerInput.start(connectionManager: self)
+                controllerInput.onReport = { [weak self] report, connected in
+                    self?.sendControllerState(report, connected: connected)
+                }
+                controllerInput.start()
             }
             // Send our quality preference to the host immediately after auth.
             //
