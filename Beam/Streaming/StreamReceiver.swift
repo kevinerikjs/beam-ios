@@ -101,6 +101,17 @@ final class StreamReceiver {
     /// refresh on top.
     var onFrameAge: ((TimeInterval) -> Void)?
 
+    /// Smoothest pacing: the hold is the recent p95 arrival age plus one 120 Hz frame, so
+    /// nearly every frame lands on its slot and the slot moves only as the link does.
+    private var arrivalAges: [Double] = []
+    private func pacingHold(arrivalAge: Double) -> Double {
+        arrivalAges.append(arrivalAge)
+        if arrivalAges.count > 120 { arrivalAges.removeFirst(arrivalAges.count - 120) }
+        let sorted = arrivalAges.sorted()
+        let p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * 0.95))]
+        return min(0.150, p95 + 1.0 / 120)
+    }
+
     private func deliver(_ frame: AssembledFrame) {
         guard let renderer = videoRenderer, let description = cachedFormatDesc else { return }
 
@@ -112,9 +123,17 @@ final class StreamReceiver {
             onFrameAge?(Double(now - captured) / 1_000_000)
         }
 
-        // Stamp with the local host time so AVSampleBufferDisplayLayer renders immediately.
-        // The Mac's PTS is on the Mac's clock; scheduling against it displays nothing.
-        let localPTS = CMClockGetTime(CMClockGetHostTimeClock())
+        // Lowest latency: stamp with the local host time so AVSampleBufferDisplayLayer renders
+        // immediately (the Mac's PTS is on the Mac's clock; scheduling against it displays
+        // nothing). Smoothest: stamp with the frame's capture time plus a hold that tracks the
+        // arrival jitter, so frames come out on the capture cadence; a frame later than the
+        // hold still shows at once.
+        var localPTS = CMClockGetTime(CMClockGetHostTimeClock())
+        if AdvancedSettings.framePacing == .smoothest, let capturedAtLocal {
+            let hold = pacingHold(arrivalAge: Double(Int64(Double(localPTS.value) * 1_000_000 / Double(localPTS.timescale)) - capturedAtLocal) / 1_000_000)
+            let scheduled = CMTime(value: capturedAtLocal + Int64(hold * 1_000_000), timescale: 1_000_000)
+            if CMTimeCompare(scheduled, localPTS) > 0 { localPTS = scheduled }
+        }
         guard let sampleBuffer = VideoFormat.makeSampleBuffer(annexB: frame.bitstream, formatDescription: description, presentationTime: localPTS) else {
             logger.error("Failed to build sample buffer for frame \(frame.frameNumber)")
             DiagnosticLogger.shared.log(

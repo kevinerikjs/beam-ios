@@ -388,6 +388,11 @@ final class ConnectionManager {
 
     /// Turns audio on or off for the live session (BEAM-34). Always takes effect locally; the
     /// host is told as well so a Beacon that understands the message stops encoding entirely.
+    /// The Advanced bitrate cap changed while connected; hosts before Phoros 1.4.1 ignore it.
+    func applyBitrateCap() {
+        sendControl(.bitrateCapRequest(bitsPerSecond: AdvancedSettings.bitrateCap))
+    }
+
     func setAudioEnabled(_ enabled: Bool) {
         guard enabled != isAudioEnabled else { return }
         isAudioEnabled = enabled
@@ -675,7 +680,7 @@ final class ConnectionManager {
             }
         case .ping, .streamRequest, .streamStop, .qualityFeedback, .qualityRequest,
              .viewportLockRequest, .videoPause, .videoResume, .audioEnableRequest,
-             .windowListRequest, .windowSelectRequest, .mediaKey, .clockProbe:
+             .windowListRequest, .windowSelectRequest, .mediaKey, .clockProbe, .bitrateCapRequest:
             // Client-to-host messages; a host never sends these.
             break
         }
@@ -732,6 +737,7 @@ final class ConnectionManager {
             if !isAudioEnabled, !hostSupportsAudioToggle {
                 DiagnosticLogger.shared.log("Audio off but host predates the audio toggle — muting locally only", category: "Audio")
             }
+            if let cap = AdvancedSettings.bitrateCap { sendControl(.bitrateCapRequest(bitsPerSecond: cap)) }
             // Refresh the host's remote (Tailscale) addresses on every successful auth, not
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works

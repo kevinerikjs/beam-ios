@@ -18,10 +18,15 @@ struct SettingsView: View {
     @State private var showFeedback = false
     @State private var showWhatsNew = false
     @State private var manualRemoteHost = ""
+    @AppStorage(AdvancedSettings.latencyMeterKey) private var showLatencyMeter = false
+    @AppStorage(AdvancedSettings.enqueueOnMainKey) private var enqueueOnMain = false
+    @AppStorage(AdvancedSettings.framePacingKey) private var framePacing = 0
+    @AppStorage(AdvancedSettings.bitrateCapMbpsKey) private var bitrateCapMbps = 0.0
+    @AppStorage(AdvancedSettings.keepScreenAwakeKey) private var keepScreenAwake = true
+    @AppStorage(AdvancedSettings.forceH264Key) private var forceH264 = false
+    @AppStorage("beam.settings.advancedExpanded") private var advancedExpanded = false
     #if DEBUG
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
-    @AppStorage("beam.debug.showLatency") private var showLatencyMeter = false
-    @AppStorage("beam.debug.enqueueOffMain") private var enqueueOffMain = false
     @AppStorage(ConnectionManager.rtcDefaultsKey) private var rtc2 = false
     #endif
     @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
@@ -33,17 +38,15 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 32) {
                         streamCard
-                        teleprompterCard
-                        // Away From Home lives under Subscription because it IS a
+                        displayCard
+                        // Away From Home lives under Beam Unlimited because it IS a
                         // subscription feature; grouping it with Stream implied it was
                         // available to everyone.
                         subscriptionCard
                         remoteAccessCard
+                        advancedCard
                         supportCard
                         aboutCard
-                        #if DEBUG
-                        debugCard
-                        #endif
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 24)
@@ -125,9 +128,20 @@ struct SettingsView: View {
                 .tint(.orange)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
+            }
+            .background(Color.white.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
 
-                cardDivider
+    // MARK: - Display card
 
+    /// How the picture sits on this screen: the crop, and the mirroring a teleprompter
+    /// glass needs.
+    private var displayCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Display")
+            VStack(spacing: 0) {
                 Toggle(isOn: $keepViewportLock) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Keep Viewport Lock")
@@ -140,23 +154,14 @@ struct SettingsView: View {
                 .tint(.orange)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-            }
-            .background(Color.white.opacity(0.07))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-        }
-    }
 
-    // MARK: - Teleprompter card
+                cardDivider
 
-    private var teleprompterCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Teleprompter Mode")
-            VStack(spacing: 0) {
                 Toggle(isOn: $flipHorizontal) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Flip Horizontal")
                             .foregroundStyle(.white)
-                        Text("Mirror left↔right for reflective glass setups")
+                        Text("Teleprompter: mirror left↔right for reflective glass")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -171,7 +176,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Flip Vertical")
                             .foregroundStyle(.white)
-                        Text("Mirror top↔bottom")
+                        Text("Teleprompter: mirror top↔bottom")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -189,7 +194,7 @@ struct SettingsView: View {
 
     private var subscriptionCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Subscription")
+            sectionHeader("Beam Unlimited")
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -231,97 +236,211 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Debug card
+    // MARK: - Advanced card
 
-    #if DEBUG
-    private var debugCard: some View {
+    /// Knobs most people never need, collapsed by default: diagnostics and the escape
+    /// hatches for the defaults the stream engine picks. Development-only items sit at the
+    /// bottom in Debug builds.
+    private var advancedCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Development")
-            VStack(spacing: 0) {
-                Button {
-                    Task { await StoreManager.shared.restore() }
-                } label: {
-                    HStack {
-                        Text("Reset Purchase State")
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { advancedExpanded.toggle() }
+            } label: {
+                HStack {
+                    sectionHeader("Advanced")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(advancedExpanded ? 90 : 0))
+                }
+            }
+            .buttonStyle(.plain)
+            if advancedExpanded {
+                VStack(spacing: 0) {
+                    // Frame pacing
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Frame Pacing")
                             .foregroundStyle(.white)
-                        Spacer()
-                        Image(systemName: "arrow.clockwise")
-                            .foregroundStyle(.secondary)
+                        Picker("", selection: $framePacing) {
+                            Text("Lowest Latency").tag(0)
+                            Text("Smoothest").tag(1)
+                        }
+                        .pickerStyle(.segmented)
+                        Text(framePacing == 0
+                             ? "Shows each frame the instant it arrives. Pick this for gaming and remote control."
+                             : "Holds frames briefly so they play at a steady rhythm. Pick this for watching video. Adds about 10 to 30 ms.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
-                }
 
-                cardDivider
+                    cardDivider
 
-                // BEAM-19 debug aid: forces the Tailscale path while still on WiFi. The
-                // connection genuinely routes over the tailnet, but the phone stays reachable
-                // for log capture — which it isn't when actually off-network.
-                Toggle(isOn: $forceRemoteHost) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Force Remote Host")
-                            .foregroundStyle(.white)
-                        Text("Skip Bonjour, always connect via the stored Tailscale address")
+                    // Bitrate cap
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Max Bitrate")
+                                .foregroundStyle(.white)
+                            Spacer()
+                            Text(bitrateCapMbps > 0 ? "\(Int(bitrateCapMbps)) Mbps" : "No limit")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: $bitrateCapMbps, in: 0...30, step: 1)
+                            .tint(.orange)
+                            .onChange(of: bitrateCapMbps) { _ in appState.connectionManager?.applyBitrateCap() }
+                        Text("A ceiling on video bandwidth for shared or metered Wi-Fi. It can only lower what the quality preset allows.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
-                }
-                .tint(.yellow)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
 
-                cardDivider
+                    cardDivider
 
-                Toggle(isOn: $showLatencyMeter) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Latency Meter")
-                            .foregroundStyle(.white)
-                        Text("Frame age in the overlay: Mac capture to arrival › to the display layer (p95)")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    Toggle(isOn: $forceH264) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Prefer H.264")
+                                .foregroundStyle(.white)
+                            Text("Use H.264 instead of HEVC. HEVC needs less bandwidth for the same picture. Try H.264 if video looks wrong. Applies on the next connection.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
-                .tint(.yellow)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
 
-                cardDivider
+                    cardDivider
 
-                Toggle(isOn: $enqueueOffMain) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Enqueue Off Main Thread")
-                            .foregroundStyle(.white)
-                        Text("Hand frames to the display layer from the network queue instead of the main thread")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    Toggle(isOn: $keepScreenAwake) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Keep Screen Awake")
+                                .foregroundStyle(.white)
+                            Text("Never auto-lock while streaming")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
-                .tint(.yellow)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
 
-                cardDivider
+                    cardDivider
 
-                Toggle(isOn: $rtc2) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("rtc2 Transport")
-                            .foregroundStyle(.white)
-                        Text("Accept a Beacon's UDP media transport (Phoros 2 spike). Takes effect on the next connection.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    Toggle(isOn: $showLatencyMeter) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Latency Meter")
+                                .foregroundStyle(.white)
+                            Text("Show frame age in the stream overlay: Mac capture to arrival, and to the display (p95)")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    cardDivider
+
+                    Toggle(isOn: $enqueueOnMain) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Deliver Frames on Main Thread")
+                                .foregroundStyle(.white)
+                            Text("The previous frame path. Only try this if video looks wrong. It adds judder under load.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    cardDivider
+
+                    Button {
+                        AdvancedSettings.reset()
+                    } label: {
+                        HStack {
+                            Text("Reset Advanced Settings")
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Image(systemName: "arrow.counterclockwise")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                    }
+
+                    #if DEBUG
+                    cardDivider
+
+                    HStack {
+                        Text("Development")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.yellow.opacity(0.8))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
+
+                    Button {
+                        Task { await StoreManager.shared.restore() }
+                    } label: {
+                        HStack {
+                            Text("Reset Purchase State")
+                                .foregroundStyle(.white)
+                            Spacer()
+                            Image(systemName: "arrow.clockwise")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                    }
+
+                    cardDivider
+
+                    // BEAM-19 debug aid: forces the Tailscale path while still on WiFi. The
+                    // connection genuinely routes over the tailnet, but the phone stays reachable
+                    // for log capture, which it isn't when actually off-network.
+                    Toggle(isOn: $forceRemoteHost) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Force Remote Host")
+                                .foregroundStyle(.white)
+                            Text("Skip Bonjour, always connect via the stored Tailscale address")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.yellow)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
+
+                    cardDivider
+
+                    Toggle(isOn: $rtc2) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("rtc2 Transport")
+                                .foregroundStyle(.white)
+                            Text("Accept a Beacon's UDP media transport (Phoros 2 spike). Takes effect on the next connection.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.yellow)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    #endif
                 }
-                .tint(.yellow)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .background(Color.white.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
-            .background(Color.yellow.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.yellow.opacity(0.2), lineWidth: 1))
         }
     }
-    #endif
 
     // MARK: - Remote access card (BEAM-19)
 

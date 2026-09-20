@@ -65,10 +65,11 @@ final class VideoRenderer: UIView {
     /// app can measure; decode and the refresh come after.
     var onEnqueueAge: ((TimeInterval) -> Void)?
 
-    /// Debug: hand frames to the display layer from the receiver's queue instead of hopping
-    /// to the main thread first. Read once per frame; the Latency Meter shows the difference.
+    /// Frames go to the display layer straight from the receiver's queue. The main-thread hop
+    /// they used to take clumped frames behind UI work at 120 fps (visible judder, a few ms
+    /// of age); the layer accepts frames from any thread. The debug switch brings the hop back.
     static var enqueuesOffMainThread: Bool {
-        UserDefaults.standard.bool(forKey: "beam.debug.enqueueOffMain")
+        !UserDefaults.standard.bool(forKey: "beam.debug.enqueueOnMain")
     }
 
     func enqueue(_ sampleBuffer: CMSampleBuffer, capturedAtLocal: Int64? = nil) {
