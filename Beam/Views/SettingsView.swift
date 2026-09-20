@@ -21,7 +21,7 @@ struct SettingsView: View {
     #if DEBUG
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
     @AppStorage("beam.debug.showLatency") private var showLatencyMeter = false
-    @AppStorage("beam.debug.enqueueOffMain") private var enqueueOffMain = false
+    @AppStorage("beam.debug.enqueueOnMain") private var enqueueOnMain = false
     #endif
     @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
 
@@ -287,11 +287,11 @@ struct SettingsView: View {
 
                 cardDivider
 
-                Toggle(isOn: $enqueueOffMain) {
+                Toggle(isOn: $enqueueOnMain) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Enqueue Off Main Thread")
+                        Text("Enqueue On Main Thread")
                             .foregroundStyle(.white)
-                        Text("Hand frames to the display layer from the network queue instead of the main thread")
+                        Text("The old path: hop to the main thread before handing frames to the display layer (judders under UI load)")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
