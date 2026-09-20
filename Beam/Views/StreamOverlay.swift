@@ -415,11 +415,14 @@ struct StreamOverlay: View {
 
     @AppStorage("beam.debug.showLatency") private var showLatencyMeter = false
 
-    /// Frame age at arrival, p50 and p95 in milliseconds. Decode and one screen refresh come
-    /// on top of this before the frame is light, so it reads a few milliseconds under what a
-    /// camera would see.
-    private func latencyMeter(_ age: (p50: TimeInterval, p95: TimeInterval)) -> some View {
-        Text("\(Int(age.p50 * 1000)) / \(Int(age.p95 * 1000)) ms")
+    /// Frame age in milliseconds: at arrival, then at the hand-off to the display layer, as
+    /// "p50 › p50 (p95)". Decode and one screen refresh come on top of this before the frame
+    /// is light, so it reads a few milliseconds under what a camera would see.
+    private func latencyMeter(_ age: BeamAppState.FrameAge) -> some View {
+        let arrival = Int(age.arrivalP50 * 1000)
+        let enqueue = age.enqueueP50.map { Int($0 * 1000) }
+        let p95 = Int((age.enqueueP95 ?? age.arrivalP95) * 1000)
+        return Text(enqueue.map { "\(arrival) › \($0) (\(p95)) ms" } ?? "\(arrival) (\(p95)) ms")
             .font(.system(size: 12, weight: .medium, design: .monospaced))
             .foregroundStyle(.white)
             .padding(.horizontal, 10)

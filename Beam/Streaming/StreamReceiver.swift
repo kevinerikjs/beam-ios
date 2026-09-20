@@ -108,9 +108,12 @@ final class StreamReceiver {
     private func deliver(_ frame: AssembledFrame) {
         guard let renderer = videoRenderer, let description = cachedFormatDesc else { return }
 
-        if let onFrameAge, let clock, let age = clock.age(ofPresentationTimestamp: frame.presentationTimestamp, now: {
-            let t = CMClockGetTime(CMClockGetHostTimeClock()); return Int64(Double(t.value) * 1_000_000 / Double(t.timescale)) }()) {
-            onFrameAge(Double(age) / 1_000_000)
+        var capturedAtLocal: Int64?
+        if let clock, let captured = clock.localTime(forHost: frame.presentationTimestamp) {
+            capturedAtLocal = captured
+            let t = CMClockGetTime(CMClockGetHostTimeClock())
+            let now = Int64(Double(t.value) * 1_000_000 / Double(t.timescale))
+            onFrameAge?(Double(now - captured) / 1_000_000)
         }
 
         // Stamp with the local host time so AVSampleBufferDisplayLayer renders immediately.
@@ -126,8 +129,12 @@ final class StreamReceiver {
         }
         audioPlayer?.updateVideoClock(remotePresentationTimestampUs: frame.presentationTimestamp)
 
-        DispatchQueue.main.async {
-            renderer.enqueue(sampleBuffer)
+        if VideoRenderer.enqueuesOffMainThread {
+            renderer.enqueue(sampleBuffer, capturedAtLocal: capturedAtLocal)
+        } else {
+            DispatchQueue.main.async {
+                renderer.enqueue(sampleBuffer, capturedAtLocal: capturedAtLocal)
+            }
         }
     }
 

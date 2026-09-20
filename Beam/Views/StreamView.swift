@@ -440,6 +440,7 @@ struct StreamView: View {
     private func setupStreaming() {
         guard let manager = appState.connectionManager else { return }
         manager.streamReceiver.videoRenderer = renderer
+        renderer.onEnqueueAge = { [weak manager] age in manager?.recordFrameAge(age, at: .enqueue) }
         pipController.setup(with: renderer)
 
         // Feed sample buffers to motion detector when active

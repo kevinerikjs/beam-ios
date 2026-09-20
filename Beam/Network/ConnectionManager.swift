@@ -68,18 +68,29 @@ final class ConnectionManager {
         clockTimer = timer
     }
 
-    /// Frame ages over the last second, published twice a second as p50/p95 for the meter.
-    private var frameAges: [TimeInterval] = []
+    /// Frame ages over the last half second at two points (arrival on the assembly queue,
+    /// and the hand-off to the display layer), published as p50/p95 for the meter.
+    enum FrameAgePoint { case arrival, enqueue }
+    private var frameAges: [FrameAgePoint: [TimeInterval]] = [:]
     private var frameAgesPublishedAt = Date.distantPast
-    private func recordFrameAge(_ age: TimeInterval) {
-        frameAges.append(age)
+    private let frameAgesLock = NSLock()
+    func recordFrameAge(_ age: TimeInterval, at point: FrameAgePoint) {
+        frameAgesLock.lock(); defer { frameAgesLock.unlock() }
+        frameAges[point, default: []].append(age)
         let now = Date()
-        guard now.timeIntervalSince(frameAgesPublishedAt) >= 0.5, frameAges.count >= 5 else { return }
+        guard now.timeIntervalSince(frameAgesPublishedAt) >= 0.5, (frameAges[.arrival]?.count ?? 0) >= 5 else { return }
         frameAgesPublishedAt = now
-        let sorted = frameAges.sorted()
+        func percentiles(_ values: [TimeInterval]) -> (TimeInterval, TimeInterval)? {
+            guard !values.isEmpty else { return nil }
+            let sorted = values.sorted()
+            return (sorted[sorted.count / 2], sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))])
+        }
+        let arrival = percentiles(frameAges[.arrival] ?? [])
+        let enqueue = percentiles(frameAges[.enqueue] ?? [])
         frameAges.removeAll(keepingCapacity: true)
-        let p50 = sorted[sorted.count / 2], p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
-        Task { @MainActor in self.appState?.frameAge = (p50, p95) }
+        guard let arrival else { return }
+        let age = BeamAppState.FrameAge(arrivalP50: arrival.0, arrivalP95: arrival.1, enqueueP50: enqueue?.0, enqueueP95: enqueue?.1)
+        Task { @MainActor in self.appState?.frameAge = age }
     }
 
     private func stopClockProbes() {
@@ -173,7 +184,7 @@ final class ConnectionManager {
         self.streamReceiver.onVideoDimensionsChanged = { [weak self] size in
             Task { @MainActor in self?.appState?.videoAspect = size.width / size.height }
         }
-        self.streamReceiver.onFrameAge = { [weak self] age in self?.recordFrameAge(age) }
+        self.streamReceiver.onFrameAge = { [weak self] age in self?.recordFrameAge(age, at: .arrival) }
         // When AudioPlayer's watchdog rebuilds the playback chain, the AAC decoder upstream
         // must go with it — it is one of the ways the chain can be silent while packets arrive.
         self.audioPlayer.onForceRebuild = { [weak self] in

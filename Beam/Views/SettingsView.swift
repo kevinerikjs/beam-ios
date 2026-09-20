@@ -21,6 +21,7 @@ struct SettingsView: View {
     #if DEBUG
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
     @AppStorage("beam.debug.showLatency") private var showLatencyMeter = false
+    @AppStorage("beam.debug.enqueueOffMain") private var enqueueOffMain = false
     #endif
     @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
 
@@ -275,7 +276,22 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Latency Meter")
                             .foregroundStyle(.white)
-                        Text("Show frame age (Mac capture to this phone) p50 / p95 in the stream overlay")
+                        Text("Frame age in the overlay: Mac capture to arrival › to the display layer (p95)")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.yellow)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                cardDivider
+
+                Toggle(isOn: $enqueueOffMain) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Enqueue Off Main Thread")
+                            .foregroundStyle(.white)
+                        Text("Hand frames to the display layer from the network queue instead of the main thread")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
