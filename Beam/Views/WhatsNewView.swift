@@ -24,9 +24,19 @@ struct ChangeEntry: Identifiable {
 
 /// Ships with the release. Must NOT mention any feature that is still behind a flag.
 /// Controller passthrough is no longer behind one: the flag went global with Beacon 1.5.0, and
-/// 3.1 also arms on the host's own capability, so it heads this list. The 3.0 entries stay
-/// because most people update straight from 2.x.
+/// 3.1 also arms on the host's own capability. 3.2's latency work heads the list. The 3.0
+/// entries stay because most people update straight from 2.x.
 private let versionChangelog: [ChangeEntry] = [
+    ChangeEntry(
+        icon: "bolt.fill",
+        title: "Much Lower Latency",
+        detail: "A press reaches the screen in about a third of the time it took before. The Mac sends video at the pace your Wi-Fi can carry, and frames go straight to the display. Needs Beacon 1.5.1, which updates itself."
+    ),
+    ChangeEntry(
+        icon: "gauge.with.dots.needle.67percent",
+        title: "High Frame Rate and Advanced Settings",
+        detail: "High Frame Rate streams at your screen's refresh rate, up to 120 fps, for smoother motion and lower latency. The new Advanced section has frame pacing, a bitrate cap, codec choice and a latency meter."
+    ),
     ChangeEntry(
         icon: "gamecontroller.fill",
         title: "Play Mac Games With a Controller",

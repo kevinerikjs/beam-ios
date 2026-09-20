@@ -33,6 +33,8 @@
 		8D59715E934447A35F0995E3 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6532D3B9FE36DBFA3E19A7E /* HomeView.swift */; };
 		8DEC1C6F7735685AD952CD71 /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD6B3B0D6DF0466B56B1FD1A /* VideoRenderer.swift */; };
 		989ADF5A9A63C04AD682D821 /* StreamReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9322E337B5373CB064616592 /* StreamReceiver.swift */; };
+		A1B2C3D4E5F60718293A4B5D /* AdvancedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* AdvancedSettings.swift */; };
+		BEA0000000000000000HR001 /* HarnessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0000000000000000HR002 /* HarnessRunner.swift */; };
 		BEA0C0DECAFE00000000F002 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */; };
 		BEA0C0DECAFE00000000P002 /* PromoConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000P001 /* PromoConfig.swift */; };
 		BEA0C0DECAFE00000000R002 /* RemoteSetupProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */; };
@@ -107,6 +109,8 @@
 		9103D00A2163CA9E73231F09 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		928BF22CC7D2A1A02E05FDF7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Beam/Info.plist; sourceTree = SOURCE_ROOT; };
 		9322E337B5373CB064616592 /* StreamReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamReceiver.swift; path = Beam/Streaming/StreamReceiver.swift; sourceTree = SOURCE_ROOT; };
+		A1B2C3D4E5F60718293A4B5C /* AdvancedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AdvancedSettings.swift; path = Beam/Streaming/AdvancedSettings.swift; sourceTree = SOURCE_ROOT; };
+		BEA0000000000000000HR002 /* HarnessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HarnessRunner.swift; path = Beam/Harness/HarnessRunner.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000F001 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FeatureFlags.swift; path = Beam/Config/FeatureFlags.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000P001 /* PromoConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PromoConfig.swift; path = Beam/Config/PromoConfig.swift; sourceTree = SOURCE_ROOT; };
 		BEA0C0DECAFE00000000R001 /* RemoteSetupProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteSetupProbe.swift; path = Beam/Network/RemoteSetupProbe.swift; sourceTree = SOURCE_ROOT; };
@@ -221,6 +225,8 @@
 			children = (
 				E6F04197677A8BDC5A22D7EB /* Protocol.swift */,
 				9322E337B5373CB064616592 /* StreamReceiver.swift */,
+				A1B2C3D4E5F60718293A4B5C /* AdvancedSettings.swift */,
+				BEA0000000000000000HR002 /* HarnessRunner.swift */,
 				AD6B3B0D6DF0466B56B1FD1A /* VideoRenderer.swift */,
 				B8D4E7920AF163C59E33F801 /* VideoMotionDetector.swift */,
 				C1557FB665B475A9C150718B /* AudioPlayer.swift */,
@@ -455,6 +461,8 @@
 				BEA0C0DECAFE00000000C002 /* ConnectionRacer.swift in Sources */,
 				D9AADD4C2136A9B3E9FBE69B /* Protocol.swift in Sources */,
 				989ADF5A9A63C04AD682D821 /* StreamReceiver.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5D /* AdvancedSettings.swift in Sources */,
+				BEA0000000000000000HR001 /* HarnessRunner.swift in Sources */,
 				8DEC1C6F7735685AD952CD71 /* VideoRenderer.swift in Sources */,
 				CF3A2E1B7D94F05B8C112DA4 /* VideoMotionDetector.swift in Sources */,
 				FCD578E835F5374DBE2FC942 /* AudioPlayer.swift in Sources */,
@@ -509,7 +517,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -530,7 +538,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 3.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios.BeamWidget;
@@ -563,7 +571,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -580,7 +588,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 3.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios.BeamWidget;
@@ -650,11 +658,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -717,11 +725,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 14;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -777,7 +785,7 @@
 			repositoryURL = "https://github.com/kevinerikjs/phoros.git";
 			requirement = {
 				kind = exactVersion;
-				version = 1.3.0;
+				version = "1.4.1";
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

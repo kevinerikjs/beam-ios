@@ -19,7 +19,7 @@ final class ConnectionManager {
     let pairedMac: PairedMac
     private weak var appState: BeamAppState?
 
-    private var link: PhorosConnection?
+    private var transport: PhorosLegacyTransport?
     private var isDisconnecting = false
 
     // Stream components
@@ -34,6 +34,70 @@ final class ConnectionManager {
     private var lastPacketReceivedAt: Date = Date()
     private var lastMediaPacketReceivedAt: Date = Date()
     private var qualityTimer: DispatchSourceTimer?
+
+    // MARK: Clock sync (frame age meter)
+    //
+    // The host stamps every frame with its capture time on its own clock. Four probes a
+    // second give the offset between the two clocks (PhorosSession.ClockSync keeps the one
+    // from the shortest round trip), and then each frame's age at arrival is one subtraction.
+    // That number is what "how far behind the Mac am I" means, measured on the device.
+    private var clockTimer: DispatchSourceTimer?
+    private var clock = ClockSync()
+    private let clockLock = NSLock()
+    private var hostSupportsClockSync = false
+
+    private static func nowMicros() -> Int64 {
+        let t = CMClockGetTime(CMClockGetHostTimeClock())
+        return Int64(Double(t.value) * 1_000_000 / Double(t.timescale))
+    }
+
+    private func startClockProbes() {
+        clockTimer?.cancel()
+        clockLock.lock(); clock.reset(); clockLock.unlock()
+        streamReceiver.clock = nil
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInteractive))
+        timer.schedule(deadline: .now() + 0.3, repeating: 0.25, leeway: .milliseconds(10))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.clockLock.lock()
+            let probe = self.clock.probe(now: Self.nowMicros())
+            self.clockLock.unlock()
+            self.sendControl(.clockProbe(probe))
+        }
+        timer.resume()
+        clockTimer = timer
+    }
+
+    /// Frame ages over the last half second at two points (arrival on the assembly queue,
+    /// and the hand-off to the display layer), published as p50/p95 for the meter.
+    enum FrameAgePoint { case arrival, enqueue }
+    private var frameAges: [FrameAgePoint: [TimeInterval]] = [:]
+    private var frameAgesPublishedAt = Date.distantPast
+    private let frameAgesLock = NSLock()
+    func recordFrameAge(_ age: TimeInterval, at point: FrameAgePoint) {
+        frameAgesLock.lock(); defer { frameAgesLock.unlock() }
+        frameAges[point, default: []].append(age)
+        let now = Date()
+        guard now.timeIntervalSince(frameAgesPublishedAt) >= 0.5, (frameAges[.arrival]?.count ?? 0) >= 5 else { return }
+        frameAgesPublishedAt = now
+        func percentiles(_ values: [TimeInterval]) -> (TimeInterval, TimeInterval)? {
+            guard !values.isEmpty else { return nil }
+            let sorted = values.sorted()
+            return (sorted[sorted.count / 2], sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))])
+        }
+        let arrival = percentiles(frameAges[.arrival] ?? [])
+        let enqueue = percentiles(frameAges[.enqueue] ?? [])
+        frameAges.removeAll(keepingCapacity: true)
+        guard let arrival else { return }
+        let age = BeamAppState.FrameAge(arrivalP50: arrival.0, arrivalP95: arrival.1, enqueueP50: enqueue?.0, enqueueP95: enqueue?.1)
+        Task { @MainActor in self.appState?.frameAge = age }
+    }
+
+    private func stopClockProbes() {
+        clockTimer?.cancel()
+        clockTimer = nil
+        streamReceiver.clock = nil
+    }
     private let controlInactivityTimeout: TimeInterval = 20
     private let mediaInactivityTimeoutForeground: TimeInterval = 8
     private let mediaInactivityTimeoutBackground: TimeInterval = 22
@@ -120,6 +184,7 @@ final class ConnectionManager {
         self.streamReceiver.onVideoDimensionsChanged = { [weak self] size in
             Task { @MainActor in self?.appState?.videoAspect = size.width / size.height }
         }
+        self.streamReceiver.onFrameAge = { [weak self] age in self?.recordFrameAge(age, at: .arrival) }
         // When AudioPlayer's watchdog rebuilds the playback chain, the AAC decoder upstream
         // must go with it — it is one of the ways the chain can be silent while packets arrive.
         self.audioPlayer.onForceRebuild = { [weak self] in
@@ -136,23 +201,23 @@ final class ConnectionManager {
         lastMediaPacketReceivedAt = Date()
         streamReceiver.reset()
         DiagnosticLogger.shared.log("Connecting to \(host.name)", category: "Connection")
-        let link = PhorosConnection(to: host.endpoint, queue: .global(qos: .userInteractive))
-        self.link = link
-        link.onReady = { [weak self] in
+        let transport = PhorosLegacyTransport(to: host.endpoint, queue: .global(qos: .userInteractive))
+        self.transport = transport
+        transport.onReady = { [weak self] in
             Task { @MainActor in self?.handleConnectionState(.ready) }
         }
-        link.onWaiting = { [weak self] error in
+        transport.link.onWaiting = { [weak self] error in
             Task { @MainActor in self?.handleConnectionState(.waiting(error)) }
         }
-        link.onFrame = { [weak self] frame in self?.handleFrame(frame) }
-        link.onEnd = { [weak self] reason in
+        transport.onInbound = { [weak self] inbound in self?.handleInbound(inbound) }
+        transport.onEnd = { [weak self] reason in
             guard let self else { return }
-            switch reason {
+            switch reason as? PhorosConnectionEnd {
             case .transportFailed(let error):
                 logger.error("Connection failed: \(error)")
                 DiagnosticLogger.shared.log("Connection failed: \(error)", category: "Connection")
                 self.triggerUnexpectedDisconnect()
-            case .closedByPeer:
+            case .closedByPeer, .none:
                 DiagnosticLogger.shared.log("Connection closed by remote", category: "Connection")
                 self.triggerUnexpectedDisconnect()
             case .protocolViolation(let violation):
@@ -162,7 +227,7 @@ final class ConnectionManager {
                 Task { @MainActor in self.appState?.isStreaming = false }
             }
         }
-        link.start()
+        transport.start()
         startQualityMonitor()
         startPathMonitor()
     }
@@ -191,7 +256,7 @@ final class ConnectionManager {
                 scheduleWaitingRecheck()
             }
         default:
-            break  // failures and cancellation arrive through link.onEnd
+            break  // failures and cancellation arrive through transport.onEnd
         }
     }
 
@@ -218,7 +283,7 @@ final class ConnectionManager {
         }
         let auth = clientCapabilities().authRequest(secret: secret)
         guard let data = try? JSONEncoder().encode(auth) else { return }
-        sendTCP(data)
+        transport?.sendMessage(data)
         logger.info("Sent auth request to \(self.host.name) (audio \(self.isAudioEnabled ? "on" : "off"))")
     }
 
@@ -234,8 +299,24 @@ final class ConnectionManager {
             // has to change mid-session (BEAM-29). AVAudioSession.sampleRate is the rate the
             // hardware is actually running at right now, which is the number that matters.
             preferredAudioSampleRate: AVAudioSession.sharedInstance().sampleRate,
-            wantsAudio: isAudioEnabled
+            wantsAudio: isAudioEnabled,
+            // Ask for frames at this screen's refresh rate. A Beacon that knows the field
+            // captures that fast when its own display can; one that does not keeps the preset's
+            // 60. Every frame the host adds is a fresher frame at our next refresh. Off, the
+            // field is absent and nothing changes for the host.
+            maximumFrameRate: Self.highFrameRateEnabled ? Double(Self.screenMaximumFramesPerSecond) : nil
         )
+    }
+
+    static let highFrameRateDefaultsKey = "beam.highFrameRate"
+    static var highFrameRateEnabled: Bool {
+        UserDefaults.standard.object(forKey: highFrameRateDefaultsKey) as? Bool ?? true
+    }
+
+    /// The refresh rate of the screen the app is on: 120 on ProMotion, 60 elsewhere.
+    static var screenMaximumFramesPerSecond: Int {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return max(60, scenes.first?.screen.maximumFramesPerSecond ?? 60)
     }
 
     // MARK: - Send Control Commands
@@ -256,6 +337,11 @@ final class ConnectionManager {
 
     /// Turns audio on or off for the live session (BEAM-34). Always takes effect locally; the
     /// host is told as well so a Beacon that understands the message stops encoding entirely.
+    /// The Advanced bitrate cap changed while connected; hosts before Phoros 1.4.1 ignore it.
+    func applyBitrateCap() {
+        sendControl(.bitrateCapRequest(bitsPerSecond: AdvancedSettings.bitrateCap))
+    }
+
     func setAudioEnabled(_ enabled: Bool) {
         guard enabled != isAudioEnabled else { return }
         isAudioEnabled = enabled
@@ -271,8 +357,7 @@ final class ConnectionManager {
     /// Unlike JSON control messages, these are framed with a PacketHeader so the
     /// host can cheaply distinguish them from JSON without attempting a decode.
     func sendControllerState(_ state: ControllerReport, connected: Bool) {
-        let flags: UInt8 = connected ? ControllerReport.connectedFlag : 0
-        sendTCP(Packet.encode(.input, flags: flags, payload: state.serialized()))
+        transport?.sendInput(state, connected: connected)
     }
 
     // MARK: - Disconnect
@@ -287,6 +372,8 @@ final class ConnectionManager {
 
         qualityTimer?.cancel()
         qualityTimer = nil
+        stopClockProbes()
+        Task { @MainActor in self.appState?.frameAge = nil }
         warmupTimer?.cancel()
         warmupTimer = nil
 
@@ -306,8 +393,8 @@ final class ConnectionManager {
         DiagnosticLogger.shared.log("Disconnected from \(host.name)", category: "Connection")
         SessionManager.shared.stopSession()
         sendStreamStop()
-        link?.cancel()
-        link = nil
+        transport?.cancel()
+        transport = nil
         streamReceiver.reset()
         audioPlayer.stop()
         let holdOpen = keepStreamViewOpen
@@ -347,63 +434,44 @@ final class ConnectionManager {
 
     // MARK: - Receive
 
-    private func handleFrame(_ frame: Frame) {
-        switch frame {
-        case .packet(let packet):
-            handleIncomingPacket(packet)
-        case .message(let json):
-            // Hosts wrap everything in a packet; a bare message is a foreign peer. Ignore it.
-            DiagnosticLogger.shared.log("Ignoring bare message from host (\(json.count) B)", category: "Connection")
-        }
-    }
-
-    private func handleIncomingPacket(_ packet: DecodedPacket) {
+    private func handleInbound(_ inbound: RealtimeInbound) {
         lastPacketReceivedAt = Date()
-        let header = packet.header
-        let payload = packet.payload
-
-        switch header.type {
-        case .video, .videoKeyframe:
+        switch inbound {
+        case .video(let frame):
             lastMediaPacketReceivedAt = Date()
-            streamReceiver.receive(videoPayload: Data(payload), isKeyframe: header.type == .videoKeyframe)
+            streamReceiver.receive(frame)
 
-        case .parameterSets:
-            // The codec (H.264 vs HEVC) is carried in the packet's flags nibble; a legacy host
-            // sends 0 = H.264. This decides which format-description builder the receiver uses.
-            guard let codec = VideoCodecID(packetFlags: header.flags) else {
-                // A codec this build does not know. Drop rather than guess: building an H.264
-                // format description from foreign parameter sets never yields a picture.
-                DiagnosticLogger.shared.log("Unknown video codec id \(header.flags & VideoCodecID.flagsMask) in parameter sets, dropped", category: "Video")
-                return
-            }
-            streamReceiver.receiveParameterSets(Data(payload), codec: codec)
+        case .videoParameterSets(let data, let codec):
+            // The codec (H.264 vs HEVC) came from the packet's flags nibble; a legacy host
+            // sends 0 = H.264. The transport already dropped an id this build does not know.
+            streamReceiver.receiveParameterSets(data, codec: codec)
 
-        case .audio:
+        case .audio(let header, let body, let codec):
             lastMediaPacketReceivedAt = Date()
             // Audio off: drop here, above the arrival stamp, so the player's watchdog sees
             // "nothing arriving" rather than "arriving but never rendered" (BEAM-34).
             guard isAudioEnabled else { return }
-            // Stamp arrival BEFORE anything downstream can decline the packet — unknown codec,
-            // reorder guard, missing format, a nil decoder, a mismatched buffer format, a dead
-            // engine. This is the only signal AudioPlayer's last-resort watchdog trusts to mean
-            // "audio is still coming"; every previous safety net sat below one of those guards
-            // and could therefore be starved by the very failure it existed to fix.
+            // Stamp arrival BEFORE anything downstream can decline the chunk: reorder guard,
+            // missing format, a nil decoder, a mismatched buffer format, a dead engine. This is
+            // the only signal AudioPlayer's last-resort watchdog trusts to mean "audio is still
+            // coming"; every previous safety net sat below one of those guards and could
+            // therefore be starved by the very failure it existed to fix.
             audioPlayer.noteAudioPacketArrived()
-            streamReceiver.receive(audioPayload: Data(payload), flags: header.flags, player: audioPlayer)
+            streamReceiver.receive(audioHeader: header, body: body, codec: codec, player: audioPlayer)
 
-        case .control:
-            if let msg = try? JSONDecoder().decode(PairingMessage.self, from: payload) {
+        case .message(let json):
+            if let msg = try? JSONDecoder().decode(PairingMessage.self, from: json) {
                 handlePairingMessage(msg)
-                return
+            } else {
+                DiagnosticLogger.shared.log("Undecodable message from host (\(json.count) B)", category: "Connection")
             }
-            do {
-                handleControlMessage(try JSONDecoder().decode(ControlMessage.self, from: payload))
-            } catch ControlMessageError.unknownType(let name) {
-                // A newer host. Ignoring is the contract; see Phoros docs/compatibility.md.
-                DiagnosticLogger.shared.log("Ignoring unknown control message '\(name)' from a newer host", category: "Connection")
-            } catch {
-                DiagnosticLogger.shared.log("Undecodable control message: \(error)", category: "Connection")
-            }
+
+        case .control(let message):
+            handleControlMessage(message)
+
+        case .unknownControl(let name):
+            // A newer host. Ignoring is the contract; see Phoros docs/compatibility.md.
+            DiagnosticLogger.shared.log("Ignoring unknown control message '\(name)' from a newer host", category: "Connection")
 
         case .heartbeat:
             sendControl(.pong)
@@ -498,8 +566,7 @@ final class ConnectionManager {
     /// Client control messages go bare, with no packet header. The host classifies each
     /// frame by the packet magic and treats anything else as JSON.
     private func sendControl(_ message: ControlMessage) {
-        guard let data = try? JSONEncoder().encode(message) else { return }
-        sendTCP(data)
+        transport?.sendControl(message)
     }
 
     /// Sends a .ping and starts the RTT clock. RoundTripProbe abandons a probe whose reply
@@ -522,6 +589,13 @@ final class ConnectionManager {
         switch message {
         case .pong:
             handlePong()
+        case .clockReply(let reply):
+            let now = Self.nowMicros()
+            var updated: ClockSync?
+            clockLock.lock()
+            if clock.reply(reply, now: now) != nil { updated = clock }
+            clockLock.unlock()
+            if let updated { streamReceiver.clock = updated }
         case .qualityChanged(let preset):
             Task { @MainActor in
                 self.appState?.currentQualityPreset = preset
@@ -546,7 +620,7 @@ final class ConnectionManager {
             }
         case .ping, .streamRequest, .streamStop, .qualityFeedback, .qualityRequest,
              .viewportLockRequest, .videoPause, .videoResume, .audioEnableRequest,
-             .windowListRequest, .windowSelectRequest, .mediaKey:
+             .windowListRequest, .windowSelectRequest, .mediaKey, .clockProbe, .bitrateCapRequest:
             // Client-to-host messages; a host never sends these.
             break
         }
@@ -593,6 +667,8 @@ final class ConnectionManager {
             hostSupportsAudioToggle = peer.supportsAudioToggle
             hostSupportsWindowSelection = peer.supportsWindowSelection
             hostSupportsControllerInput = peer.supportsControllerInput
+            hostSupportsClockSync = peer.supportsClockSync
+            if peer.supportsClockSync { startClockProbes() }
             let controls = Array(peer.controls.prefix(8))
             Task { @MainActor in
                 appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection
@@ -601,6 +677,7 @@ final class ConnectionManager {
             if !isAudioEnabled, !hostSupportsAudioToggle {
                 DiagnosticLogger.shared.log("Audio off but host predates the audio toggle — muting locally only", category: "Audio")
             }
+            if let cap = AdvancedSettings.bitrateCap { sendControl(.bitrateCapRequest(bitsPerSecond: cap)) }
             // Refresh the host's remote (Tailscale) addresses on every successful auth, not
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works
@@ -875,15 +952,4 @@ final class ConnectionManager {
         sendControl(.viewportLockRequest(lock))
     }
 
-    // MARK: - TCP Send
-
-    /// Sends one frame. The length prefix is added by the connection.
-    private func sendTCP(_ data: Data) {
-        link?.send(data) { [weak self] error in
-            if let error {
-                logger.error("Send error: \(error)")
-                self?.disconnect()
-            }
-        }
-    }
 }

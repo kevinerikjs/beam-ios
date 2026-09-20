@@ -27,7 +27,6 @@ final class StreamReceiver {
     private var lastVideoDimensions: CGSize = .zero
 
     // Video
-    private var assembler = FrameAssembler()
     /// Built from the most recent .parameterSets packet; reused for every frame.
     private(set) var cachedFormatDesc: CMFormatDescription?
 
@@ -50,7 +49,6 @@ final class StreamReceiver {
     func reset() {
         assemblyQueue.async { [weak self] in
             guard let self else { return }
-            assembler.reset()
             cachedFormatDesc = nil
             sequenceGuard.reset()
             lastAudioCodec = nil
@@ -84,19 +82,58 @@ final class StreamReceiver {
 
     // MARK: - Video
 
-    func receive(videoPayload: Data, isKeyframe: Bool) {
-        assemblyQueue.async { [weak self] in
-            guard let self, let frame = assembler.receive(videoPayload, isKeyframe: isKeyframe) else { return }
-            deliver(frame)
-        }
+    /// One whole frame from the transport, which owns reassembly.
+    func receive(_ frame: AssembledFrame) {
+        assemblyQueue.async { [weak self] in self?.deliver(frame) }
+    }
+
+    /// The clock offset to the host, set by ConnectionManager as probes come back. Nil until
+    /// the first reply, or for a host that does not answer probes.
+    var clock: ClockSync? {
+        get { clockLock.withLock { _clock } }
+        set { clockLock.withLock { _clock = newValue } }
+    }
+    private var _clock: ClockSync?
+    private let clockLock = NSLock()
+
+    /// Called on the assembly queue with each frame's age at arrival, in seconds: host
+    /// capture to the frame being whole on this device. The renderer adds decode and one
+    /// refresh on top.
+    var onFrameAge: ((TimeInterval) -> Void)?
+
+    /// Smoothest pacing: the hold is the recent p95 arrival age plus one 120 Hz frame, so
+    /// nearly every frame lands on its slot and the slot moves only as the link does.
+    private var arrivalAges: [Double] = []
+    private func pacingHold(arrivalAge: Double) -> Double {
+        arrivalAges.append(arrivalAge)
+        if arrivalAges.count > 120 { arrivalAges.removeFirst(arrivalAges.count - 120) }
+        let sorted = arrivalAges.sorted()
+        let p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * 0.95))]
+        return min(0.150, p95 + 1.0 / 120)
     }
 
     private func deliver(_ frame: AssembledFrame) {
         guard let renderer = videoRenderer, let description = cachedFormatDesc else { return }
 
-        // Stamp with the local host time so AVSampleBufferDisplayLayer renders immediately.
-        // The Mac's PTS is on the Mac's clock; scheduling against it displays nothing.
-        let localPTS = CMClockGetTime(CMClockGetHostTimeClock())
+        var capturedAtLocal: Int64?
+        if let clock, let captured = clock.localTime(forHost: frame.presentationTimestamp) {
+            capturedAtLocal = captured
+            let t = CMClockGetTime(CMClockGetHostTimeClock())
+            let now = Int64(Double(t.value) * 1_000_000 / Double(t.timescale))
+            onFrameAge?(Double(now - captured) / 1_000_000)
+        }
+
+        // Lowest latency: stamp with the local host time so AVSampleBufferDisplayLayer renders
+        // immediately (the Mac's PTS is on the Mac's clock; scheduling against it displays
+        // nothing). Smoothest: stamp with the frame's capture time plus a hold that tracks the
+        // arrival jitter, so frames come out on the capture cadence; a frame later than the
+        // hold still shows at once.
+        var localPTS = CMClockGetTime(CMClockGetHostTimeClock())
+        if AdvancedSettings.framePacing == .smoothest, let capturedAtLocal {
+            let hold = pacingHold(arrivalAge: Double(Int64(Double(localPTS.value) * 1_000_000 / Double(localPTS.timescale)) - capturedAtLocal) / 1_000_000)
+            let scheduled = CMTime(value: capturedAtLocal + Int64(hold * 1_000_000), timescale: 1_000_000)
+            if CMTimeCompare(scheduled, localPTS) > 0 { localPTS = scheduled }
+        }
         guard let sampleBuffer = VideoFormat.makeSampleBuffer(annexB: frame.bitstream, formatDescription: description, presentationTime: localPTS) else {
             logger.error("Failed to build sample buffer for frame \(frame.frameNumber)")
             DiagnosticLogger.shared.log(
@@ -107,8 +144,12 @@ final class StreamReceiver {
         }
         audioPlayer?.updateVideoClock(remotePresentationTimestampUs: frame.presentationTimestamp)
 
-        DispatchQueue.main.async {
-            renderer.enqueue(sampleBuffer)
+        if VideoRenderer.enqueuesOffMainThread {
+            renderer.enqueue(sampleBuffer, capturedAtLocal: capturedAtLocal)
+        } else {
+            DispatchQueue.main.async {
+                renderer.enqueue(sampleBuffer, capturedAtLocal: capturedAtLocal)
+            }
         }
     }
 
@@ -125,10 +166,7 @@ final class StreamReceiver {
     /// Handles one audio packet. `flags` is the raw `PacketHeader.flags` byte; its low
     /// nibble is the codec id. An unknown codec id is DROPPED rather than fed to the PCM path:
     /// playing compressed bytes as Float32 samples is full-scale white noise.
-    func receive(audioPayload: Data, flags: UInt8, player: AudioPlayer) {
-        guard let codec = AudioCodecID(packetFlags: flags) else { return }
-        guard let header = AudioChunkHeader.parse(from: audioPayload) else { return }
-
+    func receive(audioHeader header: AudioChunkHeader, body: Data, codec: AudioCodecID, player: AudioPlayer) {
         switch sequenceGuard.accept(header.sequenceNumber) {
         case .accept:
             break
@@ -153,8 +191,6 @@ final class StreamReceiver {
         decoderResetRequested = false
         decoderResetLock.unlock()
         if shouldResetDecoder { aacDecoder = nil }
-
-        let body = Data(audioPayload.dropFirst(AudioChunkHeader.size))
 
         switch codec {
         case .pcmFloat32:

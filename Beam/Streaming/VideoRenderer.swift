@@ -60,11 +60,29 @@ final class VideoRenderer: UIView {
 
     // MARK: - Frame Delivery
 
-    func enqueue(_ sampleBuffer: CMSampleBuffer) {
-        // AVSampleBufferDisplayLayer must receive frames on main thread
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { self.enqueue(sampleBuffer) }
+    /// Called just before a frame is handed to the display layer with its age in seconds
+    /// (host capture to here), when the receiver knows the host's clock. The last hop the
+    /// app can measure; decode and the refresh come after.
+    var onEnqueueAge: ((TimeInterval) -> Void)?
+
+    /// Frames go to the display layer straight from the receiver's queue. The main-thread hop
+    /// they used to take clumped frames behind UI work at 120 fps (visible judder, a few ms
+    /// of age); the layer accepts frames from any thread. The debug switch brings the hop back.
+    static var enqueuesOffMainThread: Bool {
+        !UserDefaults.standard.bool(forKey: "beam.debug.enqueueOnMain")
+    }
+
+    func enqueue(_ sampleBuffer: CMSampleBuffer, capturedAtLocal: Int64? = nil) {
+        // The display layer has always been fed from the main thread here. It is not
+        // documented as main-thread-only; the debug switch above lets that be measured.
+        guard Thread.isMainThread || Self.enqueuesOffMainThread else {
+            DispatchQueue.main.async { self.enqueue(sampleBuffer, capturedAtLocal: capturedAtLocal) }
             return
+        }
+        if let capturedAtLocal, let onEnqueueAge {
+            let t = CMClockGetTime(CMClockGetHostTimeClock())
+            let now = Int64(Double(t.value) * 1_000_000 / Double(t.timescale))
+            onEnqueueAge(Double(now - capturedAtLocal) / 1_000_000)
         }
 
         if displayLayer.status == .failed {
