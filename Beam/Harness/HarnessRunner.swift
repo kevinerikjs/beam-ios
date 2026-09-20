@@ -117,19 +117,35 @@ final class HarnessRunner {
             audioCodecs: [.pcmFloat32], videoCodecs: [.hevc, .h264], wantsAudio: false,
             maximumFrameRate: Double(UIScreen.main.maximumFramesPerSecond)
         )
+        connect(host: host, capabilities: capabilities, attempt: 1)
+        queue.asyncAfter(deadline: .now() + 30) { [weak self] in
+            guard let self, self.formatDescription == nil else { return }
+            log("DONE", 0, extra: "no video within 30 s")
+        }
+    }
+
+    private var connected = false
+    /// A fresh launch sometimes never completes the TCP handshake (the SYN leaves before the
+    /// phone's radio is fully up after the tunnel activity); a connection that is not ready
+    /// within 4 s is dropped and made again, three times.
+    private func connect(host: String, capabilities: ClientCapabilities, attempt: Int) {
         let link = PhorosConnection(to: .hostPort(host: NWEndpoint.Host(host), port: 7979), parameters: PhorosConnection.parameters(), queue: queue)
         self.link = link
         link.onReady = { [weak self] in
             guard let self else { return }
-            log("CONNECTED", 0)
+            connected = true
+            log("CONNECTED", attempt)
             link.send(try! JSONEncoder().encode(capabilities.authRequest(secret: secret)))
         }
         link.onEnd = { [weak self] reason in self?.log("END", 0, extra: "\(reason)") }
         link.onFrame = { [weak self] frame in self?.handle(frame) }
         link.start()
-        queue.asyncAfter(deadline: .now() + 20) { [weak self] in
-            guard let self, self.formatDescription == nil else { return }
-            log("DONE", 0, extra: "no video within 20 s")
+        queue.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self, !self.connected, attempt < 4 else { return }
+            log("RETRY", attempt)
+            link.onEnd = nil
+            link.cancel()
+            self.connect(host: host, capabilities: capabilities, attempt: attempt + 1)
         }
     }
 
