@@ -23,11 +23,12 @@ import PhorosInput
 import PhorosMedia
 import PhorosNetwork
 import PhorosSession
+import PhorosCore
 import UIKit
 import VideoToolbox
 
 final class HarnessRunner {
-    static let shared = HarnessRunner()
+    static var shared = HarnessRunner()
 
     /// Starts when the launch arguments ask for it. Safe to call on every launch.
     static func startIfRequested() {
@@ -37,6 +38,7 @@ final class HarnessRunner {
         let presses = i + 2 < args.count ? Int(args[i + 2]) ?? 60 : 60
         let interval = i + 3 < args.count ? Int(args[i + 3]) ?? 600 : 600
         let preset = i + 4 < args.count ? QualityPreset(rawValue: args[i + 4]) ?? .p1080_60 : .p1080_60
+        shared = HarnessRunner(host: host)
         shared.start(host: host, presses: presses, intervalMs: interval, preset: preset)
     }
 
@@ -57,6 +59,13 @@ final class HarnessRunner {
     private let queue = DispatchQueue(label: "beam.harness", qos: .userInteractive)
     private let logQueue = DispatchQueue(label: "beam.harness.log")
     private var logHandle: FileHandle?
+    private var rtcPeer: RealtimePeer?
+    private var rtcTransport: PhorosPeerTransport?
+    private var rtcReady = false
+    private let host: String
+
+    private init() { host = "" }
+    private init(host: String) { self.host = host }
 
     static var logURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("harness.log")
@@ -160,6 +169,7 @@ final class HarnessRunner {
             return
         }
         if let control = try? JSONDecoder().decode(ControlMessage.self, from: data) {
+            if case .transportOffer(let offer) = control, offer.kind == "rtc2" { acceptRTC(offer) }
             if case .clockReply(let reply) = control, let rtt = clock.reply(reply, now: nowMicros()) {
                 log("C", Int(rtt), extra: "\(clock.offset ?? 0),\(clock.bestRoundTrip ?? 0)")
             }
@@ -167,11 +177,51 @@ final class HarnessRunner {
         }
     }
 
+    // MARK: rtc2: accept the host's UDP transport, take video and send input on it
+
+    private func acceptRTC(_ offer: TransportOffer) {
+        // Bind on the interface that reaches the host: loopback for a host on this machine
+        // (the simulator shares the Mac's stack), else the address of our TCP side.
+        let ours = "\(host == "127.0.0.1" ? "127.0.0.1" : localAddressTowardHost()):7982"
+        guard let peer = RealtimePeer(isHost: false, localAddress: ours) else { log("RTC", 0, extra: "peer failed"); return }
+        let media = PhorosPeerTransport(peer: peer, queue: queue)
+        media.onReady = { [weak self] in self?.rtcReady = true; self?.log("RTC", 1) }
+        media.onInbound = { [weak self] inbound in
+            guard let self else { return }
+            switch inbound {
+            case .video(let assembled):
+                log("H7", Int(assembled.frameNumber), extra: "\(assembled.presentationTimestamp),\(assembled.bitstream.count)")
+                if let age = clock.age(ofPresentationTimestamp: assembled.presentationTimestamp, now: nowMicros()) { log("A", Int(assembled.frameNumber), extra: "\(age)") }
+                decode(assembled)
+            case .videoParameterSets(let sets, let codec):
+                guard let description = VideoFormat.makeDescription(parameterSets: sets, codec: codec) else { return }
+                formatDescription = description
+                makeDecoder(description)
+                log("PS", 1, extra: codec.wireName)
+            default: break
+            }
+        }
+        rtcPeer = peer
+        rtcTransport = media
+        guard peer.runOwnSocket() == 0 else { log("RTC", 0, extra: "bind failed"); return }
+        peer.setRemote(info: offer.info, address: offer.address, nowMicros: 0)
+        send(.transportAnswer(TransportOffer(kind: "rtc2", address: ours, info: peer.localInfo)))
+        log("RTC", 2, extra: ours)
+    }
+
+    private func localAddressTowardHost() -> String {
+        if let path = link?.connection.currentPath, let endpoint = path.localEndpoint, case .hostPort(let h, _) = endpoint {
+            return "\(h)".split(separator: "%").first.map(String.init) ?? "0.0.0.0"
+        }
+        return "0.0.0.0"
+    }
+
     // MARK: Input: the press is an .input packet with A down, as a paired controller would send.
 
     private func sendReport(a: Bool) {
         var report = ControllerReport()
         if a { report.buttons.insert(.a) }
+        if rtcReady, let rtcTransport { rtcTransport.sendInput(report, connected: true); return }
         link?.send(Packet.encode(.input, flags: ControllerReport.connectedFlag, payload: report.serialized()))
     }
 
