@@ -182,7 +182,9 @@ final class HarnessRunner {
                 }
                 // Attach a controller: one neutral connected report, then presses.
                 sendReport(a: false)
-                queue.asyncAfter(deadline: .now() + 3) { [weak self] in self?.press() }
+                // 8 s: the devicectl launch tunnel makes the Mac scan all Wi-Fi bands for
+                // ~3.5 s; the presses start after that blackout has passed.
+                queue.asyncAfter(deadline: .now() + 8) { [weak self] in self?.press() }
             case .failed(let reason):
                 log("DONE", 0, extra: "auth failed: \(reason)")
             default: break
