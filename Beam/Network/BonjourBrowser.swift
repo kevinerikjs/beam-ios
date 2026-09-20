@@ -47,7 +47,9 @@ final class BonjourBrowser {
         browser?.cancel()
 
         let params = NWParameters()
-        params.includePeerToPeer = true
+        // No peer-to-peer: browsing with it keeps AWDL up on the phone, and AWDL blacks out
+        // the Wi-Fi radio for ~90 ms every half second, for the whole stream (BEAM-47).
+        params.includePeerToPeer = false
 
         browser = NWBrowser(for: .bonjour(type: "_beam._tcp", domain: "local."), using: params)
 
