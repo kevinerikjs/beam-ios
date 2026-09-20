@@ -35,6 +35,9 @@ struct BeamApp: App {
     init() {
         Analytics.start()
         observeSystemEvents()
+        #if DEBUG
+        HarnessRunner.startIfRequested()
+        #endif
     }
 
     private func observeSystemEvents() {
