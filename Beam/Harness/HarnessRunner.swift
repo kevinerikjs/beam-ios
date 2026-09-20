@@ -221,6 +221,10 @@ final class HarnessRunner {
         }
         rtcPeer = peer
         rtcTransport = media
+        // -udpclass <0|3|4>: the peer socket's service class (best effort, video, voice)
+        if let i = CommandLine.arguments.firstIndex(of: "-udpclass"), i + 1 < CommandLine.arguments.count, let c = Int32(CommandLine.arguments[i + 1]) {
+            peer.setServiceClass(c); log("UDPCLASS", Int(c))
+        }
         guard peer.runOwnSocket() == 0 else { log("RTC", 0, extra: "bind failed"); return }
         peer.setRemote(info: offer.info, address: offer.address, nowMicros: 0)
         send(.transportAnswer(TransportOffer(kind: "rtc2", address: ours, info: peer.localInfo)))
@@ -278,6 +282,8 @@ final class HarnessRunner {
             guard let self else { return }
             log("P", pressID, extra: "up")   // the flash flips on down only
             sendReport(a: false)
+            // send -> wire delay of the down report, from the core (rtc2 only)
+            if let peer = self.rtcPeer, self.rtcReady { let w = peer.wireDelay(); log("WIRE", pressID, extra: "\(w.last),\(w.max)") }
         }
         let jitter = Double(Int.random(in: -150...150)) / 1000
         queue.asyncAfter(deadline: .now() + Double(intervalMs) / 1000 + jitter) { [weak self] in self?.press() }
