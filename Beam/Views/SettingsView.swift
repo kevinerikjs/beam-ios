@@ -267,8 +267,8 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.segmented)
                         Text(framePacing == 0
-                             ? "Shows each frame the instant it arrives. Best for gaming and remote control; a late frame shows as a small hitch."
-                             : "Holds frames just long enough to even out Wi-Fi jitter, then shows them at a steady rhythm. Best for watching video; adds about 10 to 30 ms.")
+                             ? "Shows each frame the instant it arrives. Pick this for gaming and remote control."
+                             : "Holds frames briefly so they play at a steady rhythm. Pick this for watching video. Adds about 10 to 30 ms.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -303,7 +303,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Prefer H.264")
                                 .foregroundStyle(.white)
-                            Text("Use H.264 instead of HEVC. HEVC needs less bandwidth for the same picture; H.264 is the safe choice if video looks wrong. Next connection.")
+                            Text("Use H.264 instead of HEVC. HEVC needs less bandwidth for the same picture. Try H.264 if video looks wrong. Applies on the next connection.")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -348,7 +348,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Deliver Frames on Main Thread")
                                 .foregroundStyle(.white)
-                            Text("The previous frame path. Only try this if video looks wrong; it adds judder under load.")
+                            Text("The previous frame path. Only try this if video looks wrong. It adds judder under load.")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
