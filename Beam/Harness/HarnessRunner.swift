@@ -82,6 +82,23 @@ final class HarnessRunner {
     private func log(_ stage: String, _ id: Int, extra: String = "") {
         let line = "\(stage),\(id),\(nowNanos())\(extra.isEmpty ? "" : "," + extra)\n"
         logQueue.async { self.logHandle?.write(line.data(using: .utf8)!) }
+        if stage == "DONE" || stage == "END" { logQueue.async { self.uploadLog() } }
+    }
+
+    /// Pushes the whole log to the runner on the Mac (port 7990) once the run ends, so the
+    /// result never depends on the developer tunnel copying files off the phone.
+    private var uploaded = false
+    private func uploadLog() {
+        guard !uploaded, let data = try? Data(contentsOf: Self.logURL) else { return }
+        uploaded = true
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: 7990, using: .tcp)
+        connection.stateUpdateHandler = { state in
+            if case .ready = state {
+                connection.send(content: data, completion: .contentProcessed { _ in connection.cancel() })
+            }
+            if case .failed = state { connection.cancel() }
+        }
+        connection.start(queue: self.logQueue)
     }
 
     private func start(host: String, presses: Int, intervalMs: Int, preset: QualityPreset) {
@@ -90,6 +107,7 @@ final class HarnessRunner {
         logHandle = try? FileHandle(forWritingTo: Self.logURL)
         log("START", 0, extra: "\(host),\(UIScreen.main.maximumFramesPerSecond)")
         UIApplication.shared.isIdleTimerDisabled = true
+        startKeepAwakeIfRequested()
 
         let capabilities = ClientCapabilities(
             deviceName: "Harness iPhone", deviceID: "harness-client",
@@ -218,9 +236,28 @@ final class HarnessRunner {
 
     // MARK: Input: the press is an .input packet with A down, as a paired controller would send.
 
+    private var lastReport = ControllerReport()
+    private var keepAwakeTimer: DispatchSourceTimer?
+    /// -keepawake <ms>: resends the current controller state every so often, an experiment
+    /// to keep the phone's radio out of power save (uplink traffic is what an AP counts).
+    private func startKeepAwakeIfRequested() {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "-keepawake"), i + 1 < args.count, let ms = Int(args[i + 1]), ms > 0 else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1, repeating: .milliseconds(ms), leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            if self.rtcReady, let t = self.rtcTransport { t.sendInput(self.lastReport, connected: true) }
+            else { self.link?.send(Packet.encode(.input, flags: ControllerReport.connectedFlag, payload: self.lastReport.serialized())) }
+        }
+        timer.resume(); keepAwakeTimer = timer
+        log("KEEPAWAKE", ms)
+    }
+
     private func sendReport(a: Bool) {
         var report = ControllerReport()
         if a { report.buttons.insert(.a) }
+        lastReport = report
         if rtcReady, let rtcTransport { rtcTransport.sendInput(report, connected: true); return }
         link?.send(Packet.encode(.input, flags: ControllerReport.connectedFlag, payload: report.serialized()))
     }
