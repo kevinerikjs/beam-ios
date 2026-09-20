@@ -290,7 +290,7 @@ struct SettingsView: View {
                         Slider(value: $bitrateCapMbps, in: 0...30, step: 1)
                             .tint(.orange)
                             .onChange(of: bitrateCapMbps) { _ in appState.connectionManager?.applyBitrateCap() }
-                        Text("A ceiling on video bandwidth for shared or metered Wi-Fi. The quality preset still sets the maximum; this only lowers it.")
+                        Text("A ceiling on video bandwidth for shared or metered Wi-Fi. It can only lower what the quality preset allows.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
