@@ -258,11 +258,20 @@ final class HarnessRunner {
         log("KEEPAWAKE", ms)
     }
 
+    /// -dualinput: every report goes on rtc2 and on the TCP link, numbered; the host takes
+    /// the first copy. The plain mode sends on rtc2 alone once it is up.
+    private lazy var dualInput = CommandLine.arguments.contains("-dualinput")
+    private var inputSequence: UInt16 = 0
+
     private func sendReport(a: Bool) {
         var report = ControllerReport()
         if a { report.buttons.insert(.a) }
+        if dualInput { inputSequence &+= 1; report.sequence = inputSequence }
         lastReport = report
-        if rtcReady, let rtcTransport { rtcTransport.sendInput(report, connected: true); return }
+        if rtcReady, let rtcTransport {
+            rtcTransport.sendInput(report, connected: true)
+            if !dualInput { return }
+        }
         link?.send(Packet.encode(.input, flags: ControllerReport.connectedFlag, payload: report.serialized()))
     }
 
