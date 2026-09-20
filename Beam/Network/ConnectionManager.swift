@@ -7,6 +7,7 @@ import Phoros
 import PhorosInput
 import PhorosNetwork
 import PhorosSession
+import PhorosCore
 import OSLog
 import AVFoundation
 import UIKit
@@ -20,6 +21,50 @@ final class ConnectionManager {
     private weak var appState: BeamAppState?
 
     private var transport: PhorosLegacyTransport?
+
+    // MARK: rtc2 (experimental, BEAM-54)
+    //
+    // A Beacon built with the Phoros 2 spike offers a second transport after auth: ICE,
+    // DTLS and RTP over UDP through PhorosCore. Accept it when the Debug toggle is on;
+    // media then arrives from the peer and controller input goes on its realtime channel,
+    // while control stays on TCP. Off, the offer is ignored and nothing changes.
+    static let rtcDefaultsKey = "beam.debug.rtc2"
+    static var rtcEnabled: Bool { UserDefaults.standard.bool(forKey: rtcDefaultsKey) }
+    private var rtcPeer: RealtimePeer?
+    private var rtcTransport: PhorosPeerTransport?
+    private var rtcReady = false
+
+    private func acceptRTC(_ offer: TransportOffer) {
+        guard Self.rtcEnabled, offer.kind == "rtc2", rtcPeer == nil else { return }
+        // Bind on the interface we reached the host on; port 0 is not usable here because the
+        // answer must name the port, so pick one the host is not using.
+        var local = "0.0.0.0"
+        if let path = transport?.link.connection.currentPath, let endpoint = path.localEndpoint, case .hostPort(let h, _) = endpoint {
+            local = "\(h)".split(separator: "%").first.map(String.init) ?? local
+        }
+        let address = "\(local):7982"
+        guard let peer = RealtimePeer(isHost: false, localAddress: address) else {
+            DiagnosticLogger.shared.log("rtc2: peer creation failed", category: "Connection"); return
+        }
+        let media = PhorosPeerTransport(peer: peer)
+        media.onReady = { [weak self] in
+            self?.rtcReady = true
+            DiagnosticLogger.shared.log("rtc2 connected: media over UDP", category: "Connection")
+        }
+        media.onInbound = { [weak self] inbound in self?.handleInbound(inbound) }
+        media.onEnd = { [weak self] _ in
+            self?.rtcReady = false
+            DiagnosticLogger.shared.log("rtc2 ended, media back on TCP", category: "Connection")
+        }
+        rtcPeer = peer
+        rtcTransport = media
+        guard peer.runOwnSocket() == 0 else {
+            DiagnosticLogger.shared.log("rtc2: bind \(address) failed", category: "Connection"); rtcPeer = nil; rtcTransport = nil; return
+        }
+        peer.setRemote(info: offer.info, address: offer.address, nowMicros: 0)
+        sendControl(.transportAnswer(TransportOffer(kind: "rtc2", address: address, info: peer.localInfo)))
+        DiagnosticLogger.shared.log("rtc2 answered \(offer.address) from \(address)", category: "Connection")
+    }
     private var isDisconnecting = false
 
     // Stream components
@@ -352,7 +397,8 @@ final class ConnectionManager {
     /// Unlike JSON control messages, these are framed with a PacketHeader so the
     /// host can cheaply distinguish them from JSON without attempting a decode.
     func sendControllerState(_ state: ControllerReport, connected: Bool) {
-        transport?.sendInput(state, connected: connected)
+        if rtcReady, let rtcTransport { rtcTransport.sendInput(state, connected: connected) }
+        else { transport?.sendInput(state, connected: connected) }
     }
 
     // MARK: - Disconnect
@@ -390,6 +436,10 @@ final class ConnectionManager {
         sendStreamStop()
         transport?.cancel()
         transport = nil
+        rtcTransport?.cancel()
+        rtcTransport = nil
+        rtcPeer = nil
+        rtcReady = false
         streamReceiver.reset()
         audioPlayer.stop()
         let holdOpen = keepStreamViewOpen
@@ -584,6 +634,10 @@ final class ConnectionManager {
         switch message {
         case .pong:
             handlePong()
+        case .transportOffer(let offer):
+            acceptRTC(offer)
+        case .transportAnswer:
+            break  // a client never receives answers
         case .clockReply(let reply):
             let now = Self.nowMicros()
             var updated: ClockSync?

@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
     @AppStorage("beam.debug.showLatency") private var showLatencyMeter = false
     @AppStorage("beam.debug.enqueueOffMain") private var enqueueOffMain = false
+    @AppStorage(ConnectionManager.rtcDefaultsKey) private var rtc2 = false
     #endif
     @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
 
@@ -292,6 +293,21 @@ struct SettingsView: View {
                         Text("Enqueue Off Main Thread")
                             .foregroundStyle(.white)
                         Text("Hand frames to the display layer from the network queue instead of the main thread")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.yellow)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                cardDivider
+
+                Toggle(isOn: $rtc2) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("rtc2 Transport")
+                            .foregroundStyle(.white)
+                        Text("Accept a Beacon's UDP media transport (Phoros 2 spike). Takes effect on the next connection.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }

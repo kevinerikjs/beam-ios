@@ -55,6 +55,7 @@
 		FCD578E835F5374DBE2FC942 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1557FB665B475A9C150718B /* AudioPlayer.swift */; };
 		PH0000000000000000000001 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = PH0000000000000000000002 /* PostHog */; };
 		BEEA00000000000000000003 /* Phoros in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA00000000000000000002 /* Phoros */; };
+		BEEA00000000000000000032 /* PhorosCore in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA00000000000000000031 /* PhorosCore */; };
 		BEEA00000000000000000009 /* PhorosNetwork in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA00000000000000000008 /* PhorosNetwork */; };
 		BEEA00000000000000000007 /* PhorosMedia in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA00000000000000000006 /* PhorosMedia */; };
 		BEEA0000000000000000000B /* PhorosInput in Frameworks */ = {isa = PBXBuildFile; productRef = BEEA0000000000000000000A /* PhorosInput */; };
@@ -180,6 +181,7 @@
 				0A37CAD8BA0B45C4BA8DF6B2 /* Foundation.framework in Frameworks */,
 				PH0000000000000000000001 /* PostHog in Frameworks */,
 				BEEA00000000000000000003 /* Phoros in Frameworks */,
+				BEEA00000000000000000032 /* PhorosCore in Frameworks */,
 				BEEA00000000000000000009 /* PhorosNetwork in Frameworks */,
 				BEEA00000000000000000007 /* PhorosMedia in Frameworks */,
 				BEEA0000000000000000000B /* PhorosInput in Frameworks */,
@@ -364,6 +366,7 @@
 			packageProductDependencies = (
 				PH0000000000000000000002 /* PostHog */,
 				BEEA00000000000000000002 /* Phoros */,
+				BEEA00000000000000000031 /* PhorosCore */,
 				BEEA00000000000000000008 /* PhorosNetwork */,
 				BEEA00000000000000000006 /* PhorosMedia */,
 				BEEA0000000000000000000A /* PhorosInput */,
@@ -403,6 +406,7 @@
 			packageReferences = (
 				PH0000000000000000000003 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */,
+				BEEA00000000000000000030 /* XCLocalSwiftPackageReference "../phoros/Core" */,
 			);
 			productRefGroup = 9ADC05CF3F61A78B58295B6B /* Products */;
 			projectDirPath = "";
@@ -776,6 +780,10 @@
 				minimumVersion = 3.0.0;
 			};
 		};
+		BEEA00000000000000000030 /* XCLocalSwiftPackageReference "../phoros/Core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../phoros/Core;
+		};
 		BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/kevinerikjs/phoros.git";
@@ -816,6 +824,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BEEA00000000000000000001 /* XCRemoteSwiftPackageReference "phoros" */;
 			productName = PhorosNetwork;
+		};
+		BEEA00000000000000000031 /* PhorosCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BEEA00000000000000000030 /* XCLocalSwiftPackageReference "../phoros/Core" */;
+			productName = PhorosCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
