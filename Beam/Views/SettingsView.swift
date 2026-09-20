@@ -18,8 +18,12 @@ struct SettingsView: View {
     @State private var showFeedback = false
     @State private var showWhatsNew = false
     @State private var manualRemoteHost = ""
-    @AppStorage("beam.debug.showLatency") private var showLatencyMeter = false
-    @AppStorage("beam.debug.enqueueOnMain") private var enqueueOnMain = false
+    @AppStorage(AdvancedSettings.latencyMeterKey) private var showLatencyMeter = false
+    @AppStorage(AdvancedSettings.enqueueOnMainKey) private var enqueueOnMain = false
+    @AppStorage(AdvancedSettings.framePacingKey) private var framePacing = 0
+    @AppStorage(AdvancedSettings.bitrateCapMbpsKey) private var bitrateCapMbps = 0.0
+    @AppStorage(AdvancedSettings.keepScreenAwakeKey) private var keepScreenAwake = true
+    @AppStorage(AdvancedSettings.forceH264Key) private var forceH264 = false
     @AppStorage("beam.settings.advancedExpanded") private var advancedExpanded = false
     #if DEBUG
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
@@ -253,6 +257,78 @@ struct SettingsView: View {
             .buttonStyle(.plain)
             if advancedExpanded {
                 VStack(spacing: 0) {
+                    // Frame pacing
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Frame Pacing")
+                            .foregroundStyle(.white)
+                        Picker("", selection: $framePacing) {
+                            Text("Lowest Latency").tag(0)
+                            Text("Smoothest").tag(1)
+                        }
+                        .pickerStyle(.segmented)
+                        Text(framePacing == 0
+                             ? "Shows each frame the instant it arrives. Best for gaming and remote control; a late frame shows as a small hitch."
+                             : "Holds frames just long enough to even out Wi-Fi jitter, then shows them at a steady rhythm. Best for watching video; adds about 10 to 30 ms.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    cardDivider
+
+                    // Bitrate cap
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Max Bitrate")
+                                .foregroundStyle(.white)
+                            Spacer()
+                            Text(bitrateCapMbps > 0 ? "\(Int(bitrateCapMbps)) Mbps" : "No limit")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: $bitrateCapMbps, in: 0...30, step: 1)
+                            .tint(.orange)
+                            .onChange(of: bitrateCapMbps) { _ in appState.connectionManager?.applyBitrateCap() }
+                        Text("A ceiling on video bandwidth for shared or metered Wi-Fi. The quality preset still sets the maximum; this only lowers it.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    cardDivider
+
+                    Toggle(isOn: $forceH264) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Prefer H.264")
+                                .foregroundStyle(.white)
+                            Text("Use H.264 instead of HEVC. HEVC needs less bandwidth for the same picture; H.264 is the safe choice if video looks wrong. Next connection.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    cardDivider
+
+                    Toggle(isOn: $keepScreenAwake) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Keep Screen Awake")
+                                .foregroundStyle(.white)
+                            Text("Never auto-lock while streaming")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    cardDivider
+
                     Toggle(isOn: $showLatencyMeter) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Latency Meter")
@@ -280,6 +356,22 @@ struct SettingsView: View {
                     .tint(.orange)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
+
+                    cardDivider
+
+                    Button {
+                        AdvancedSettings.reset()
+                    } label: {
+                        HStack {
+                            Text("Reset Advanced Settings")
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Image(systemName: "arrow.counterclockwise")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                    }
 
                     #if DEBUG
                     cardDivider

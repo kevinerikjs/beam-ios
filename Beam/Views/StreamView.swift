@@ -21,6 +21,7 @@ struct StreamView: View {
 
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
+    @AppStorage(AdvancedSettings.keepScreenAwakeKey) private var keepScreenAwake = true
 
     // Renderer and PiP are created once and persist
     @State private var renderer = VideoRenderer(frame: .zero)
@@ -312,6 +313,7 @@ struct StreamView: View {
         .statusBarHidden(true)
         .preferredColorScheme(.dark)
         .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
             // Under the harness: no host to connect to, and the controls must stay up
             // because they are the point of the capture.
             guard !ShotMode.isActive else {
@@ -333,7 +335,9 @@ struct StreamView: View {
         .onDisappear {
             // Don't tear down PiP/renderer on view disappearance because this can be triggered
             // during background transitions where PiP should continue.
+            UIApplication.shared.isIdleTimerDisabled = false
         }
+        .onChange(of: keepScreenAwake) { UIApplication.shared.isIdleTimerDisabled = $0 }
         .sheet(isPresented: $showPaywall) {
             PaywallView(triggeredByExpiry: paywallTriggeredByExpiry)
         }
