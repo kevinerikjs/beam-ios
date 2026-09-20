@@ -19,7 +19,7 @@ final class ConnectionManager {
     let pairedMac: PairedMac
     private weak var appState: BeamAppState?
 
-    private var link: PhorosConnection?
+    private var transport: PhorosLegacyTransport?
     private var isDisconnecting = false
 
     // Stream components
@@ -201,23 +201,23 @@ final class ConnectionManager {
         lastMediaPacketReceivedAt = Date()
         streamReceiver.reset()
         DiagnosticLogger.shared.log("Connecting to \(host.name)", category: "Connection")
-        let link = PhorosConnection(to: host.endpoint, queue: .global(qos: .userInteractive))
-        self.link = link
-        link.onReady = { [weak self] in
+        let transport = PhorosLegacyTransport(to: host.endpoint, queue: .global(qos: .userInteractive))
+        self.transport = transport
+        transport.onReady = { [weak self] in
             Task { @MainActor in self?.handleConnectionState(.ready) }
         }
-        link.onWaiting = { [weak self] error in
+        transport.link.onWaiting = { [weak self] error in
             Task { @MainActor in self?.handleConnectionState(.waiting(error)) }
         }
-        link.onFrame = { [weak self] frame in self?.handleFrame(frame) }
-        link.onEnd = { [weak self] reason in
+        transport.onInbound = { [weak self] inbound in self?.handleInbound(inbound) }
+        transport.onEnd = { [weak self] reason in
             guard let self else { return }
-            switch reason {
+            switch reason as? PhorosConnectionEnd {
             case .transportFailed(let error):
                 logger.error("Connection failed: \(error)")
                 DiagnosticLogger.shared.log("Connection failed: \(error)", category: "Connection")
                 self.triggerUnexpectedDisconnect()
-            case .closedByPeer:
+            case .closedByPeer, .none:
                 DiagnosticLogger.shared.log("Connection closed by remote", category: "Connection")
                 self.triggerUnexpectedDisconnect()
             case .protocolViolation(let violation):
@@ -227,7 +227,7 @@ final class ConnectionManager {
                 Task { @MainActor in self.appState?.isStreaming = false }
             }
         }
-        link.start()
+        transport.start()
         startQualityMonitor()
         startPathMonitor()
     }
@@ -256,7 +256,7 @@ final class ConnectionManager {
                 scheduleWaitingRecheck()
             }
         default:
-            break  // failures and cancellation arrive through link.onEnd
+            break  // failures and cancellation arrive through transport.onEnd
         }
     }
 
@@ -283,7 +283,7 @@ final class ConnectionManager {
         }
         let auth = clientCapabilities().authRequest(secret: secret)
         guard let data = try? JSONEncoder().encode(auth) else { return }
-        sendTCP(data)
+        transport?.sendMessage(data)
         logger.info("Sent auth request to \(self.host.name) (audio \(self.isAudioEnabled ? "on" : "off"))")
     }
 
@@ -352,8 +352,7 @@ final class ConnectionManager {
     /// Unlike JSON control messages, these are framed with a PacketHeader so the
     /// host can cheaply distinguish them from JSON without attempting a decode.
     func sendControllerState(_ state: ControllerReport, connected: Bool) {
-        let flags: UInt8 = connected ? ControllerReport.connectedFlag : 0
-        sendTCP(Packet.encode(.input, flags: flags, payload: state.serialized()))
+        transport?.sendInput(state, connected: connected)
     }
 
     // MARK: - Disconnect
@@ -389,8 +388,8 @@ final class ConnectionManager {
         DiagnosticLogger.shared.log("Disconnected from \(host.name)", category: "Connection")
         SessionManager.shared.stopSession()
         sendStreamStop()
-        link?.cancel()
-        link = nil
+        transport?.cancel()
+        transport = nil
         streamReceiver.reset()
         audioPlayer.stop()
         let holdOpen = keepStreamViewOpen
@@ -430,63 +429,44 @@ final class ConnectionManager {
 
     // MARK: - Receive
 
-    private func handleFrame(_ frame: Frame) {
-        switch frame {
-        case .packet(let packet):
-            handleIncomingPacket(packet)
-        case .message(let json):
-            // Hosts wrap everything in a packet; a bare message is a foreign peer. Ignore it.
-            DiagnosticLogger.shared.log("Ignoring bare message from host (\(json.count) B)", category: "Connection")
-        }
-    }
-
-    private func handleIncomingPacket(_ packet: DecodedPacket) {
+    private func handleInbound(_ inbound: RealtimeInbound) {
         lastPacketReceivedAt = Date()
-        let header = packet.header
-        let payload = packet.payload
-
-        switch header.type {
-        case .video, .videoKeyframe:
+        switch inbound {
+        case .video(let frame):
             lastMediaPacketReceivedAt = Date()
-            streamReceiver.receive(videoPayload: Data(payload), isKeyframe: header.type == .videoKeyframe)
+            streamReceiver.receive(frame)
 
-        case .parameterSets:
-            // The codec (H.264 vs HEVC) is carried in the packet's flags nibble; a legacy host
-            // sends 0 = H.264. This decides which format-description builder the receiver uses.
-            guard let codec = VideoCodecID(packetFlags: header.flags) else {
-                // A codec this build does not know. Drop rather than guess: building an H.264
-                // format description from foreign parameter sets never yields a picture.
-                DiagnosticLogger.shared.log("Unknown video codec id \(header.flags & VideoCodecID.flagsMask) in parameter sets, dropped", category: "Video")
-                return
-            }
-            streamReceiver.receiveParameterSets(Data(payload), codec: codec)
+        case .videoParameterSets(let data, let codec):
+            // The codec (H.264 vs HEVC) came from the packet's flags nibble; a legacy host
+            // sends 0 = H.264. The transport already dropped an id this build does not know.
+            streamReceiver.receiveParameterSets(data, codec: codec)
 
-        case .audio:
+        case .audio(let header, let body, let codec):
             lastMediaPacketReceivedAt = Date()
             // Audio off: drop here, above the arrival stamp, so the player's watchdog sees
             // "nothing arriving" rather than "arriving but never rendered" (BEAM-34).
             guard isAudioEnabled else { return }
-            // Stamp arrival BEFORE anything downstream can decline the packet — unknown codec,
-            // reorder guard, missing format, a nil decoder, a mismatched buffer format, a dead
-            // engine. This is the only signal AudioPlayer's last-resort watchdog trusts to mean
-            // "audio is still coming"; every previous safety net sat below one of those guards
-            // and could therefore be starved by the very failure it existed to fix.
+            // Stamp arrival BEFORE anything downstream can decline the chunk: reorder guard,
+            // missing format, a nil decoder, a mismatched buffer format, a dead engine. This is
+            // the only signal AudioPlayer's last-resort watchdog trusts to mean "audio is still
+            // coming"; every previous safety net sat below one of those guards and could
+            // therefore be starved by the very failure it existed to fix.
             audioPlayer.noteAudioPacketArrived()
-            streamReceiver.receive(audioPayload: Data(payload), flags: header.flags, player: audioPlayer)
+            streamReceiver.receive(audioHeader: header, body: body, codec: codec, player: audioPlayer)
 
-        case .control:
-            if let msg = try? JSONDecoder().decode(PairingMessage.self, from: payload) {
+        case .message(let json):
+            if let msg = try? JSONDecoder().decode(PairingMessage.self, from: json) {
                 handlePairingMessage(msg)
-                return
+            } else {
+                DiagnosticLogger.shared.log("Undecodable message from host (\(json.count) B)", category: "Connection")
             }
-            do {
-                handleControlMessage(try JSONDecoder().decode(ControlMessage.self, from: payload))
-            } catch ControlMessageError.unknownType(let name) {
-                // A newer host. Ignoring is the contract; see Phoros docs/compatibility.md.
-                DiagnosticLogger.shared.log("Ignoring unknown control message '\(name)' from a newer host", category: "Connection")
-            } catch {
-                DiagnosticLogger.shared.log("Undecodable control message: \(error)", category: "Connection")
-            }
+
+        case .control(let message):
+            handleControlMessage(message)
+
+        case .unknownControl(let name):
+            // A newer host. Ignoring is the contract; see Phoros docs/compatibility.md.
+            DiagnosticLogger.shared.log("Ignoring unknown control message '\(name)' from a newer host", category: "Connection")
 
         case .heartbeat:
             sendControl(.pong)
@@ -581,8 +561,7 @@ final class ConnectionManager {
     /// Client control messages go bare, with no packet header. The host classifies each
     /// frame by the packet magic and treats anything else as JSON.
     private func sendControl(_ message: ControlMessage) {
-        guard let data = try? JSONEncoder().encode(message) else { return }
-        sendTCP(data)
+        transport?.sendControl(message)
     }
 
     /// Sends a .ping and starts the RTT clock. RoundTripProbe abandons a probe whose reply
@@ -967,15 +946,4 @@ final class ConnectionManager {
         sendControl(.viewportLockRequest(lock))
     }
 
-    // MARK: - TCP Send
-
-    /// Sends one frame. The length prefix is added by the connection.
-    private func sendTCP(_ data: Data) {
-        link?.send(data) { [weak self] error in
-            if let error {
-                logger.error("Send error: \(error)")
-                self?.disconnect()
-            }
-        }
-    }
 }

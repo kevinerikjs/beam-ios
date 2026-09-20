@@ -27,7 +27,6 @@ final class StreamReceiver {
     private var lastVideoDimensions: CGSize = .zero
 
     // Video
-    private var assembler = FrameAssembler()
     /// Built from the most recent .parameterSets packet; reused for every frame.
     private(set) var cachedFormatDesc: CMFormatDescription?
 
@@ -50,7 +49,6 @@ final class StreamReceiver {
     func reset() {
         assemblyQueue.async { [weak self] in
             guard let self else { return }
-            assembler.reset()
             cachedFormatDesc = nil
             sequenceGuard.reset()
             lastAudioCodec = nil
@@ -84,11 +82,9 @@ final class StreamReceiver {
 
     // MARK: - Video
 
-    func receive(videoPayload: Data, isKeyframe: Bool) {
-        assemblyQueue.async { [weak self] in
-            guard let self, let frame = assembler.receive(videoPayload, isKeyframe: isKeyframe) else { return }
-            deliver(frame)
-        }
+    /// One whole frame from the transport, which owns reassembly.
+    func receive(_ frame: AssembledFrame) {
+        assemblyQueue.async { [weak self] in self?.deliver(frame) }
     }
 
     /// The clock offset to the host, set by ConnectionManager as probes come back. Nil until
@@ -151,10 +147,7 @@ final class StreamReceiver {
     /// Handles one audio packet. `flags` is the raw `PacketHeader.flags` byte; its low
     /// nibble is the codec id. An unknown codec id is DROPPED rather than fed to the PCM path:
     /// playing compressed bytes as Float32 samples is full-scale white noise.
-    func receive(audioPayload: Data, flags: UInt8, player: AudioPlayer) {
-        guard let codec = AudioCodecID(packetFlags: flags) else { return }
-        guard let header = AudioChunkHeader.parse(from: audioPayload) else { return }
-
+    func receive(audioHeader header: AudioChunkHeader, body: Data, codec: AudioCodecID, player: AudioPlayer) {
         switch sequenceGuard.accept(header.sequenceNumber) {
         case .accept:
             break
@@ -179,8 +172,6 @@ final class StreamReceiver {
         decoderResetRequested = false
         decoderResetLock.unlock()
         if shouldResetDecoder { aacDecoder = nil }
-
-        let body = Data(audioPayload.dropFirst(AudioChunkHeader.size))
 
         switch codec {
         case .pcmFloat32:
