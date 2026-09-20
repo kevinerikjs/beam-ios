@@ -34,6 +34,59 @@ final class ConnectionManager {
     private var lastPacketReceivedAt: Date = Date()
     private var lastMediaPacketReceivedAt: Date = Date()
     private var qualityTimer: DispatchSourceTimer?
+
+    // MARK: Clock sync (frame age meter)
+    //
+    // The host stamps every frame with its capture time on its own clock. Four probes a
+    // second give the offset between the two clocks (PhorosSession.ClockSync keeps the one
+    // from the shortest round trip), and then each frame's age at arrival is one subtraction.
+    // That number is what "how far behind the Mac am I" means, measured on the device.
+    private var clockTimer: DispatchSourceTimer?
+    private var clock = ClockSync()
+    private let clockLock = NSLock()
+    private var hostSupportsClockSync = false
+
+    private static func nowMicros() -> Int64 {
+        let t = CMClockGetTime(CMClockGetHostTimeClock())
+        return Int64(Double(t.value) * 1_000_000 / Double(t.timescale))
+    }
+
+    private func startClockProbes() {
+        clockTimer?.cancel()
+        clockLock.lock(); clock.reset(); clockLock.unlock()
+        streamReceiver.clock = nil
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInteractive))
+        timer.schedule(deadline: .now() + 0.3, repeating: 0.25, leeway: .milliseconds(10))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.clockLock.lock()
+            let probe = self.clock.probe(now: Self.nowMicros())
+            self.clockLock.unlock()
+            self.sendControl(.clockProbe(probe))
+        }
+        timer.resume()
+        clockTimer = timer
+    }
+
+    /// Frame ages over the last second, published twice a second as p50/p95 for the meter.
+    private var frameAges: [TimeInterval] = []
+    private var frameAgesPublishedAt = Date.distantPast
+    private func recordFrameAge(_ age: TimeInterval) {
+        frameAges.append(age)
+        let now = Date()
+        guard now.timeIntervalSince(frameAgesPublishedAt) >= 0.5, frameAges.count >= 5 else { return }
+        frameAgesPublishedAt = now
+        let sorted = frameAges.sorted()
+        frameAges.removeAll(keepingCapacity: true)
+        let p50 = sorted[sorted.count / 2], p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
+        Task { @MainActor in self.appState?.frameAge = (p50, p95) }
+    }
+
+    private func stopClockProbes() {
+        clockTimer?.cancel()
+        clockTimer = nil
+        streamReceiver.clock = nil
+    }
     private let controlInactivityTimeout: TimeInterval = 20
     private let mediaInactivityTimeoutForeground: TimeInterval = 8
     private let mediaInactivityTimeoutBackground: TimeInterval = 22
@@ -120,6 +173,7 @@ final class ConnectionManager {
         self.streamReceiver.onVideoDimensionsChanged = { [weak self] size in
             Task { @MainActor in self?.appState?.videoAspect = size.width / size.height }
         }
+        self.streamReceiver.onFrameAge = { [weak self] age in self?.recordFrameAge(age) }
         // When AudioPlayer's watchdog rebuilds the playback chain, the AAC decoder upstream
         // must go with it — it is one of the ways the chain can be silent while packets arrive.
         self.audioPlayer.onForceRebuild = { [weak self] in
@@ -234,8 +288,24 @@ final class ConnectionManager {
             // has to change mid-session (BEAM-29). AVAudioSession.sampleRate is the rate the
             // hardware is actually running at right now, which is the number that matters.
             preferredAudioSampleRate: AVAudioSession.sharedInstance().sampleRate,
-            wantsAudio: isAudioEnabled
+            wantsAudio: isAudioEnabled,
+            // Ask for frames at this screen's refresh rate. A Beacon that knows the field
+            // captures that fast when its own display can; one that does not keeps the preset's
+            // 60. Every frame the host adds is a fresher frame at our next refresh. Off, the
+            // field is absent and nothing changes for the host.
+            maximumFrameRate: Self.highFrameRateEnabled ? Double(Self.screenMaximumFramesPerSecond) : nil
         )
+    }
+
+    static let highFrameRateDefaultsKey = "beam.highFrameRate"
+    static var highFrameRateEnabled: Bool {
+        UserDefaults.standard.object(forKey: highFrameRateDefaultsKey) as? Bool ?? true
+    }
+
+    /// The refresh rate of the screen the app is on: 120 on ProMotion, 60 elsewhere.
+    static var screenMaximumFramesPerSecond: Int {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return max(60, scenes.first?.screen.maximumFramesPerSecond ?? 60)
     }
 
     // MARK: - Send Control Commands
@@ -287,6 +357,8 @@ final class ConnectionManager {
 
         qualityTimer?.cancel()
         qualityTimer = nil
+        stopClockProbes()
+        Task { @MainActor in self.appState?.frameAge = nil }
         warmupTimer?.cancel()
         warmupTimer = nil
 
@@ -522,6 +594,13 @@ final class ConnectionManager {
         switch message {
         case .pong:
             handlePong()
+        case .clockReply(let reply):
+            let now = Self.nowMicros()
+            var updated: ClockSync?
+            clockLock.lock()
+            if clock.reply(reply, now: now) != nil { updated = clock }
+            clockLock.unlock()
+            if let updated { streamReceiver.clock = updated }
         case .qualityChanged(let preset):
             Task { @MainActor in
                 self.appState?.currentQualityPreset = preset
@@ -546,7 +625,7 @@ final class ConnectionManager {
             }
         case .ping, .streamRequest, .streamStop, .qualityFeedback, .qualityRequest,
              .viewportLockRequest, .videoPause, .videoResume, .audioEnableRequest,
-             .windowListRequest, .windowSelectRequest, .mediaKey:
+             .windowListRequest, .windowSelectRequest, .mediaKey, .clockProbe:
             // Client-to-host messages; a host never sends these.
             break
         }
@@ -593,6 +672,8 @@ final class ConnectionManager {
             hostSupportsAudioToggle = peer.supportsAudioToggle
             hostSupportsWindowSelection = peer.supportsWindowSelection
             hostSupportsControllerInput = peer.supportsControllerInput
+            hostSupportsClockSync = peer.supportsClockSync
+            if peer.supportsClockSync { startClockProbes() }
             let controls = Array(peer.controls.prefix(8))
             Task { @MainActor in
                 appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection

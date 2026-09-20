@@ -20,7 +20,9 @@ struct SettingsView: View {
     @State private var manualRemoteHost = ""
     #if DEBUG
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
+    @AppStorage("beam.debug.showLatency") private var showLatencyMeter = false
     #endif
+    @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
 
     var body: some View {
         NavigationStack {
@@ -106,6 +108,21 @@ struct SettingsView: View {
                 .onChange(of: streamAudio) { enabled in
                     appState.connectionManager?.setAudioEnabled(enabled)
                 }
+
+                cardDivider
+
+                Toggle(isOn: $highFrameRate) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("High Frame Rate")
+                            .foregroundStyle(.white)
+                        Text("Ask the Mac for frames at this screen's refresh rate (\(ConnectionManager.screenMaximumFramesPerSecond) Hz). Takes effect on the next connection.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.orange)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
 
                 cardDivider
 
@@ -251,6 +268,21 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
                 .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
+
+                cardDivider
+
+                Toggle(isOn: $showLatencyMeter) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Latency Meter")
+                            .foregroundStyle(.white)
+                        Text("Show frame age (Mac capture to this phone) p50 / p95 in the stream overlay")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.yellow)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
             }
             .background(Color.yellow.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 14))

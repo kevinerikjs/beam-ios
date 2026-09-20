@@ -91,8 +91,27 @@ final class StreamReceiver {
         }
     }
 
+    /// The clock offset to the host, set by ConnectionManager as probes come back. Nil until
+    /// the first reply, or for a host that does not answer probes.
+    var clock: ClockSync? {
+        get { clockLock.withLock { _clock } }
+        set { clockLock.withLock { _clock = newValue } }
+    }
+    private var _clock: ClockSync?
+    private let clockLock = NSLock()
+
+    /// Called on the assembly queue with each frame's age at arrival, in seconds: host
+    /// capture to the frame being whole on this device. The renderer adds decode and one
+    /// refresh on top.
+    var onFrameAge: ((TimeInterval) -> Void)?
+
     private func deliver(_ frame: AssembledFrame) {
         guard let renderer = videoRenderer, let description = cachedFormatDesc else { return }
+
+        if let onFrameAge, let clock, let age = clock.age(ofPresentationTimestamp: frame.presentationTimestamp, now: {
+            let t = CMClockGetTime(CMClockGetHostTimeClock()); return Int64(Double(t.value) * 1_000_000 / Double(t.timescale)) }()) {
+            onFrameAge(Double(age) / 1_000_000)
+        }
 
         // Stamp with the local host time so AVSampleBufferDisplayLayer renders immediately.
         // The Mac's PTS is on the Mac's clock; scheduling against it displays nothing.

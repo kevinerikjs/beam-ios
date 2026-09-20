@@ -205,6 +205,11 @@ final class BeamAppState: ObservableObject {
     /// Smoothed round-trip time on the control channel, nil until the first pong.
     @Published var linkRTT: TimeInterval?
 
+    /// Age of arriving frames (host capture to whole on this device), p50 and p95 over the
+    /// last half second. Nil until the host's clock is known, or for a host without clock
+    /// sync. Shown by the latency meter.
+    @Published var frameAge: (p50: TimeInterval, p95: TimeInterval)?
+
     // MARK: - Reconnect overlay (BEAM-24)
     //
     // A dropped stream used to dump the user straight back to the home screen, which is a
