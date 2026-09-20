@@ -18,10 +18,11 @@ struct SettingsView: View {
     @State private var showFeedback = false
     @State private var showWhatsNew = false
     @State private var manualRemoteHost = ""
-    #if DEBUG
-    @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
     @AppStorage("beam.debug.showLatency") private var showLatencyMeter = false
     @AppStorage("beam.debug.enqueueOnMain") private var enqueueOnMain = false
+    @AppStorage("beam.settings.advancedExpanded") private var advancedExpanded = false
+    #if DEBUG
+    @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
     #endif
     @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
 
@@ -32,17 +33,15 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 32) {
                         streamCard
-                        teleprompterCard
-                        // Away From Home lives under Subscription because it IS a
+                        displayCard
+                        // Away From Home lives under Beam Unlimited because it IS a
                         // subscription feature; grouping it with Stream implied it was
                         // available to everyone.
                         subscriptionCard
                         remoteAccessCard
+                        advancedCard
                         supportCard
                         aboutCard
-                        #if DEBUG
-                        debugCard
-                        #endif
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 24)
@@ -124,9 +123,20 @@ struct SettingsView: View {
                 .tint(.orange)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
+            }
+            .background(Color.white.opacity(0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
 
-                cardDivider
+    // MARK: - Display card
 
+    /// How the picture sits on this screen: the crop, and the mirroring a teleprompter
+    /// glass needs.
+    private var displayCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Display")
+            VStack(spacing: 0) {
                 Toggle(isOn: $keepViewportLock) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Keep Viewport Lock")
@@ -139,23 +149,14 @@ struct SettingsView: View {
                 .tint(.orange)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-            }
-            .background(Color.white.opacity(0.07))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-        }
-    }
 
-    // MARK: - Teleprompter card
+                cardDivider
 
-    private var teleprompterCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Teleprompter Mode")
-            VStack(spacing: 0) {
                 Toggle(isOn: $flipHorizontal) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Flip Horizontal")
                             .foregroundStyle(.white)
-                        Text("Mirror left↔right for reflective glass setups")
+                        Text("Teleprompter: mirror left↔right for reflective glass")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -170,7 +171,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Flip Vertical")
                             .foregroundStyle(.white)
-                        Text("Mirror top↔bottom")
+                        Text("Teleprompter: mirror top↔bottom")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -188,7 +189,7 @@ struct SettingsView: View {
 
     private var subscriptionCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Subscription")
+            sectionHeader("Beam Unlimited")
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -230,82 +231,108 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Debug card
+    // MARK: - Advanced card
 
-    #if DEBUG
-    private var debugCard: some View {
+    /// Knobs most people never need, collapsed by default: diagnostics and the escape
+    /// hatches for the defaults the stream engine picks. Development-only items sit at the
+    /// bottom in Debug builds.
+    private var advancedCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Development")
-            VStack(spacing: 0) {
-                Button {
-                    Task { await StoreManager.shared.restore() }
-                } label: {
-                    HStack {
-                        Text("Reset Purchase State")
-                            .foregroundStyle(.white)
-                        Spacer()
-                        Image(systemName: "arrow.clockwise")
-                            .foregroundStyle(.secondary)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { advancedExpanded.toggle() }
+            } label: {
+                HStack {
+                    sectionHeader("Advanced")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(advancedExpanded ? 90 : 0))
+                }
+            }
+            .buttonStyle(.plain)
+            if advancedExpanded {
+                VStack(spacing: 0) {
+                    Toggle(isOn: $showLatencyMeter) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Latency Meter")
+                                .foregroundStyle(.white)
+                            Text("Show frame age in the stream overlay: Mac capture to arrival, and to the display (p95)")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
+                    .tint(.orange)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
-                }
 
-                cardDivider
+                    cardDivider
 
-                // BEAM-19 debug aid: forces the Tailscale path while still on WiFi. The
-                // connection genuinely routes over the tailnet, but the phone stays reachable
-                // for log capture — which it isn't when actually off-network.
-                Toggle(isOn: $forceRemoteHost) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Force Remote Host")
-                            .foregroundStyle(.white)
-                        Text("Skip Bonjour, always connect via the stored Tailscale address")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    Toggle(isOn: $enqueueOnMain) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Deliver Frames on Main Thread")
+                                .foregroundStyle(.white)
+                            Text("The previous frame path. Only try this if video looks wrong; it adds judder under load.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
-                .tint(.yellow)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
 
-                cardDivider
+                    #if DEBUG
+                    cardDivider
 
-                Toggle(isOn: $showLatencyMeter) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Latency Meter")
-                            .foregroundStyle(.white)
-                        Text("Frame age in the overlay: Mac capture to arrival › to the display layer (p95)")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    HStack {
+                        Text("Development")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.yellow.opacity(0.8))
+                        Spacer()
                     }
-                }
-                .tint(.yellow)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
 
-                cardDivider
-
-                Toggle(isOn: $enqueueOnMain) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Enqueue On Main Thread")
-                            .foregroundStyle(.white)
-                        Text("The old path: hop to the main thread before handing frames to the display layer (judders under UI load)")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    Button {
+                        Task { await StoreManager.shared.restore() }
+                    } label: {
+                        HStack {
+                            Text("Reset Purchase State")
+                                .foregroundStyle(.white)
+                            Spacer()
+                            Image(systemName: "arrow.clockwise")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
                     }
+
+                    cardDivider
+
+                    // BEAM-19 debug aid: forces the Tailscale path while still on WiFi. The
+                    // connection genuinely routes over the tailnet, but the phone stays reachable
+                    // for log capture, which it isn't when actually off-network.
+                    Toggle(isOn: $forceRemoteHost) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Force Remote Host")
+                                .foregroundStyle(.white)
+                            Text("Skip Bonjour, always connect via the stored Tailscale address")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.yellow)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
+                    #endif
                 }
-                .tint(.yellow)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .background(Color.white.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
-            .background(Color.yellow.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.yellow.opacity(0.2), lineWidth: 1))
         }
     }
-    #endif
 
     // MARK: - Remote access card (BEAM-19)
 
