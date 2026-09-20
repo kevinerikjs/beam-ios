@@ -56,6 +56,12 @@ final class ConnectionManager {
             self?.rtcReady = false
             DiagnosticLogger.shared.log("rtc2 ended, media back on TCP", category: "Connection")
         }
+        // Through a radio stall the peer stays alive and reconnects; input rides TCP meanwhile.
+        media.onLinkStateChange = { [weak self] up in
+            guard let self, self.rtcReady != up else { return }
+            self.rtcReady = up
+            DiagnosticLogger.shared.log(up ? "rtc2 link up" : "rtc2 link down, input on TCP", category: "Connection")
+        }
         rtcPeer = peer
         rtcTransport = media
         guard peer.runOwnSocket() == 0 else {

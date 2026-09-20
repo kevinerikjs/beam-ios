@@ -29,6 +29,8 @@ import VideoToolbox
 
 final class HarnessRunner {
     static var shared = HarnessRunner()
+    /// True once a harness run was requested on the command line.
+    static private(set) var isActive = false
 
     /// Starts when the launch arguments ask for it. Safe to call on every launch.
     static func startIfRequested() {
@@ -38,6 +40,7 @@ final class HarnessRunner {
         let presses = i + 2 < args.count ? Int(args[i + 2]) ?? 60 : 60
         let interval = i + 3 < args.count ? Int(args[i + 3]) ?? 600 : 600
         let preset = i + 4 < args.count ? QualityPreset(rawValue: args[i + 4]) ?? .p1080_60 : .p1080_60
+        isActive = true
         shared = HarnessRunner(host: host)
         shared.start(host: host, presses: presses, intervalMs: interval, preset: preset)
     }

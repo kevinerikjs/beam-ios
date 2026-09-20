@@ -596,6 +596,11 @@ final class BeamAppState: ObservableObject {
 
     @MainActor
     func startStream() async {
+        #if DEBUG
+        // The latency harness owns the connection; the app's own auto-start would
+        // authenticate as the same device and Beacon would drop the harness session.
+        if HarnessRunner.isActive { return }
+        #endif
         guard var host = discoveredHost, let mac = pairedMac else { return }
         guard isPurchased || sessionManager.isInTrial || !sessionManager.isInCooldown else { return }
 
