@@ -117,7 +117,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("High Frame Rate")
                             .foregroundStyle(.white)
-                        Text("Ask the Mac for frames at this screen's refresh rate (\(ConnectionManager.screenMaximumFramesPerSecond) Hz). Takes effect on the next connection.")
+                        Text("Smoother motion and lower input latency: the Mac sends frames at this screen's refresh rate (\(ConnectionManager.screenMaximumFramesPerSecond) Hz). Takes effect on the next connection.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
