@@ -111,6 +111,7 @@ final class HarnessRunner {
         log("START", 0, extra: "\(host),\(UIScreen.main.maximumFramesPerSecond)")
         UIApplication.shared.isIdleTimerDisabled = true
         startKeepAwakeIfRequested()
+        startTCPSinkIfRequested(host: host)
 
         let capabilities = ClientCapabilities(
             deviceName: "Harness iPhone", deviceID: "harness-client",
@@ -263,6 +264,25 @@ final class HarnessRunner {
     }
 
     // MARK: Input: the press is an .input packet with A down, as a paired controller would send.
+
+    /// -tcpsink <port>: opens a TCP connection to the host and discards everything it sends,
+    /// a second bulk TCP flow next to the video (experiment: is the uplink tax about UDP or
+    /// about downlink rate).
+    private var sink: NWConnection?
+    private func startTCPSinkIfRequested(host: String) {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "-tcpsink"), i + 1 < args.count, let port = UInt16(args[i + 1]) else { return }
+        let c = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        sink = c
+        func drain() {
+            c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { _, _, done, error in
+                if done || error != nil { return }
+                drain()
+            }
+        }
+        c.stateUpdateHandler = { [weak self] state in if case .ready = state { self?.log("SINK", Int(port)); drain() } }
+        c.start(queue: queue)
+    }
 
     private var lastReport = ControllerReport()
     private var keepAwakeTimer: DispatchSourceTimer?
