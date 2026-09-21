@@ -390,8 +390,11 @@ final class ConnectionManager {
     /// host is told as well so a Beacon that understands the message stops encoding entirely.
     /// The Advanced bitrate cap changed while connected; hosts before Phoros 1.4.1 ignore it.
     func applyBitrateCap() {
-        sendControl(.bitrateCapRequest(bitsPerSecond: AdvancedSettings.bitrateCap))
+        sendControl(.bitrateCapRequest(bitsPerSecond: AdvancedSettings.effectiveBitrateCap(controllerAttached: controllerAttached)))
     }
+
+    /// Whether a controller is attached right now; the interactive bitrate cap follows it.
+    private var controllerAttached = false
 
     func setAudioEnabled(_ enabled: Bool) {
         guard enabled != isAudioEnabled else { return }
@@ -737,7 +740,7 @@ final class ConnectionManager {
             if !isAudioEnabled, !hostSupportsAudioToggle {
                 DiagnosticLogger.shared.log("Audio off but host predates the audio toggle — muting locally only", category: "Audio")
             }
-            if let cap = AdvancedSettings.bitrateCap { sendControl(.bitrateCapRequest(bitsPerSecond: cap)) }
+            if let cap = AdvancedSettings.effectiveBitrateCap(controllerAttached: controllerAttached) { sendControl(.bitrateCapRequest(bitsPerSecond: cap)) }
             // Refresh the host's remote (Tailscale) addresses on every successful auth, not
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works
@@ -773,6 +776,8 @@ final class ConnectionManager {
                 )
                 controllerInput.onAttachmentChange = { [weak self] attached in
                     DiagnosticLogger.shared.log("Controller \(attached ? "attached" : "detached")", category: "Controller")
+                    self?.controllerAttached = attached
+                    self?.applyBitrateCap()
                     Task { @MainActor in
                         self?.appState?.isControllerConnected = attached
                     }

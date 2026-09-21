@@ -21,10 +21,21 @@ enum AdvancedSettings {
         FramePacing(rawValue: UserDefaults.standard.integer(forKey: framePacingKey)) ?? .lowestLatency
     }
 
-    /// Bits per second, or nil for no cap.
+    /// Bits per second the user set, or nil for no cap.
     static var bitrateCap: Int? {
         let mbps = UserDefaults.standard.double(forKey: bitrateCapMbpsKey)
         return mbps > 0 ? Int(mbps * 1_000_000) : nil
+    }
+
+    /// The cap in effect: the user's, or with a controller attached the interactive default.
+    /// An iPhone taxes every packet it sends by ~7 ms while sustained downlink exceeds
+    /// roughly 7 Mbps, on any transport; at 6 Mbps a press reaches the screen in 24/27 ms
+    /// (p50/p95) over Wi-Fi against 36/62 at the preset's ~10 Mbps. Watching video pays
+    /// nothing for the tax, so it keeps the full rate.
+    static let interactiveCap = 6_000_000
+    static func effectiveBitrateCap(controllerAttached: Bool) -> Int? {
+        if let cap = bitrateCap { return cap }
+        return controllerAttached ? interactiveCap : nil
     }
 
     static var keepScreenAwake: Bool {
