@@ -7,6 +7,7 @@ import Phoros
 import PhorosInput
 import PhorosNetwork
 import PhorosSession
+import PhorosCore
 import OSLog
 import AVFoundation
 import UIKit
@@ -20,6 +21,64 @@ final class ConnectionManager {
     private weak var appState: BeamAppState?
 
     private var transport: PhorosLegacyTransport?
+
+    // MARK: rtc2 (experimental, BEAM-54)
+    //
+    // A Beacon built with the Phoros 2 spike offers a second transport after auth: ICE,
+    // DTLS and RTP over UDP through PhorosCore. Accept it when the Debug toggle is on;
+    // media then arrives from the peer and controller input goes on its realtime channel,
+    // while control stays on TCP. Off, the offer is ignored and nothing changes.
+    /// Media over UDP (Phoros 2) is accepted whenever a Beacon offers it. "Legacy transport"
+    /// in Advanced keeps everything on TCP.
+    static let legacyTransportKey = "beam.settings.legacyTransport"
+    static var rtcEnabled: Bool { !UserDefaults.standard.bool(forKey: legacyTransportKey) }
+    private static var rtcPortOffset = 0
+    private var rtcPeer: RealtimePeer?
+    private var rtcTransport: PhorosPeerTransport?
+    private var rtcReady = false
+
+    private func acceptRTC(_ offer: TransportOffer) {
+        guard Self.rtcEnabled, offer.kind == "rtc2", rtcPeer == nil else { return }
+        // Bind on the interface we reached the host on; port 0 is not usable here because the
+        // answer must name the port, so pick one the host is not using.
+        var local = "0.0.0.0"
+        if let path = transport?.link.connection.currentPath, let endpoint = path.localEndpoint, case .hostPort(let h, _) = endpoint {
+            local = "\(h)".split(separator: "%").first.map(String.init) ?? local
+        }
+        // a fresh port per attempt: the previous session's socket can still be held
+        Self.rtcPortOffset = (Self.rtcPortOffset + 1) % 40
+        let address = "\(local):\(7982 + Self.rtcPortOffset)"
+        guard let peer = RealtimePeer(isHost: false, localAddress: address) else {
+            DiagnosticLogger.shared.log("rtc2: peer creation failed", category: "Connection"); return
+        }
+        let media = PhorosPeerTransport(peer: peer)
+        media.onReady = { [weak self] in
+            self?.rtcReady = true
+            DiagnosticLogger.shared.log("rtc2 connected: media over UDP", category: "Connection")
+        }
+        media.onInbound = { [weak self] inbound in self?.handleInbound(inbound) }
+        media.onEnd = { [weak self] _ in
+            guard let self else { return }
+            self.rtcReady = false
+            self.sendControl(.transportFallback)
+            DiagnosticLogger.shared.log("rtc2 ended, media back on TCP", category: "Connection")
+        }
+        // Through a radio stall the peer stays alive and reconnects; input rides TCP meanwhile.
+        media.onLinkStateChange = { [weak self] up in
+            guard let self, self.rtcReady != up else { return }
+            self.rtcReady = up
+            DiagnosticLogger.shared.log(up ? "rtc2 link up" : "rtc2 link down, input on TCP", category: "Connection")
+        }
+        media.hostTimeReference = offer.hostMicros
+        rtcPeer = peer
+        rtcTransport = media
+        guard peer.runOwnSocket() == 0 else {
+            DiagnosticLogger.shared.log("rtc2: bind \(address) failed, staying on TCP", category: "Connection"); rtcPeer = nil; rtcTransport = nil; return
+        }
+        peer.setRemote(info: offer.info, address: offer.address, nowMicros: 0)
+        sendControl(.transportAnswer(TransportOffer(kind: "rtc2", address: address, info: peer.localInfo)))
+        DiagnosticLogger.shared.log("rtc2 answered \(offer.address) from \(address)", category: "Connection")
+    }
     private var isDisconnecting = false
 
     // Stream components
@@ -339,8 +398,23 @@ final class ConnectionManager {
     /// host is told as well so a Beacon that understands the message stops encoding entirely.
     /// The Advanced bitrate cap changed while connected; hosts before Phoros 1.4.1 ignore it.
     func applyBitrateCap() {
-        sendControl(.bitrateCapRequest(bitsPerSecond: AdvancedSettings.bitrateCap))
+        sendControl(.bitrateCapRequest(bitsPerSecond: AdvancedSettings.effectiveBitrateCap(controllerAttached: controllerAttached)))
     }
+
+    /// Whether a controller is attached right now; the interactive bitrate cap follows it.
+    private var controllerAttached = false
+    private var clickModeOn = false
+    /// Click mode is the other interactive signal; the app reports it as it changes.
+    func setClickMode(_ on: Bool) {
+        clickModeOn = on
+        AdvancedSettings.interactiveNow = controllerAttached || on
+        applyBitrateCap()
+    }
+    /// The user changed the stream mode: re-evaluate the cap (pacing is read per frame).
+    func streamModeChanged() { applyBitrateCap() }
+
+    /// The mode's knobs follow the interactive state; the cap is re-sent when they change.
+    private func modeStateChanged() { applyBitrateCap() }
 
     func setAudioEnabled(_ enabled: Bool) {
         guard enabled != isAudioEnabled else { return }
@@ -357,7 +431,8 @@ final class ConnectionManager {
     /// Unlike JSON control messages, these are framed with a PacketHeader so the
     /// host can cheaply distinguish them from JSON without attempting a decode.
     func sendControllerState(_ state: ControllerReport, connected: Bool) {
-        transport?.sendInput(state, connected: connected)
+        if rtcReady, let rtcTransport { rtcTransport.sendInput(state, connected: connected) }
+        else { transport?.sendInput(state, connected: connected) }
     }
 
     // MARK: - Disconnect
@@ -395,6 +470,10 @@ final class ConnectionManager {
         sendStreamStop()
         transport?.cancel()
         transport = nil
+        rtcTransport?.cancel()
+        rtcTransport = nil
+        rtcPeer = nil
+        rtcReady = false
         streamReceiver.reset()
         audioPlayer.stop()
         let holdOpen = keepStreamViewOpen
@@ -589,6 +668,14 @@ final class ConnectionManager {
         switch message {
         case .pong:
             handlePong()
+        case .transportFallback:
+            rtcReady = false
+            rtcTransport?.cancel(); rtcTransport = nil; rtcPeer = nil
+            DiagnosticLogger.shared.log("Host abandoned rtc2: media and input back on TCP", category: "Connection")
+        case .transportOffer(let offer):
+            acceptRTC(offer)
+        case .transportAnswer:
+            break  // a client never receives answers
         case .clockReply(let reply):
             let now = Self.nowMicros()
             var updated: ClockSync?
@@ -677,7 +764,7 @@ final class ConnectionManager {
             if !isAudioEnabled, !hostSupportsAudioToggle {
                 DiagnosticLogger.shared.log("Audio off but host predates the audio toggle — muting locally only", category: "Audio")
             }
-            if let cap = AdvancedSettings.bitrateCap { sendControl(.bitrateCapRequest(bitsPerSecond: cap)) }
+            if let cap = AdvancedSettings.effectiveBitrateCap(controllerAttached: controllerAttached) { sendControl(.bitrateCapRequest(bitsPerSecond: cap)) }
             // Refresh the host's remote (Tailscale) addresses on every successful auth, not
             // just at pairing — this is how the stored copy stays correct if the Mac's tailnet
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works
@@ -713,6 +800,9 @@ final class ConnectionManager {
                 )
                 controllerInput.onAttachmentChange = { [weak self] attached in
                     DiagnosticLogger.shared.log("Controller \(attached ? "attached" : "detached")", category: "Controller")
+                    self?.controllerAttached = attached
+                    AdvancedSettings.interactiveNow = attached || (self?.clickModeOn ?? false)
+                    self?.applyBitrateCap()
                     Task { @MainActor in
                         self?.appState?.isControllerConnected = attached
                     }

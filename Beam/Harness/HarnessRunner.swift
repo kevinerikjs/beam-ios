@@ -23,26 +23,89 @@ import PhorosInput
 import PhorosMedia
 import PhorosNetwork
 import PhorosSession
+import PhorosCore
 import UIKit
+import AVFoundation
 import VideoToolbox
 
 final class HarnessRunner {
-    static let shared = HarnessRunner()
+    static var shared = HarnessRunner()
+    /// True once a harness run was requested on the command line.
+    static private(set) var isActive = false
+    private static var peerPortOffset = 0
 
     /// Starts when the launch arguments ask for it. Safe to call on every launch.
     static func startIfRequested() {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "-harness"), i + 1 < args.count else { return }
-        let host = args[i + 1]
-        let presses = i + 2 < args.count ? Int(args[i + 2]) ?? 60 : 60
-        let interval = i + 3 < args.count ? Int(args[i + 3]) ?? 600 : 600
-        let preset = i + 4 < args.count ? QualityPreset(rawValue: args[i + 4]) ?? .p1080_60 : .p1080_60
+        isActive = true
+        startControlListener()
+        start(with: Array(args[i...]))
+    }
+
+    /// `["-harness", host, presses, interval, preset, extra...]`: a fresh runner for each run.
+    private static func start(with args: [String]) {
+        guard args.count >= 2 else { return }
+        let host = args[1]
+        let presses = args.count > 2 ? Int(args[2]) ?? 60 : 60
+        let interval = args.count > 3 ? Int(args[3]) ?? 600 : 600
+        let preset = args.count > 4 ? QualityPreset(rawValue: args[4]) ?? .p1080_60 : .p1080_60
+        shared.stop()
+        shared = HarnessRunner(host: host, args: args)
         shared.start(host: host, presses: presses, intervalMs: interval, preset: preset)
+    }
+
+    /// The Mac starts the next run over plain TCP (port 7991, one line: the arguments after
+    /// `-harness`), so the app is launched through devicectl once per session: every
+    /// devicectl call brings up a CoreDevice tunnel on the Mac, and each tunnel costs a
+    /// ~3.5 s full-band Wi-Fi scan.
+    private static var control: NWListener?
+    private static func startControlListener() {
+        guard control == nil, let listener = try? NWListener(using: .tcp, on: 7991) else { return }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .main)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
+                defer { connection.cancel() }
+                guard let data, let line = String(data: data, encoding: .utf8) else { return }
+                let args = line.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+                DispatchQueue.main.async { start(with: args) }
+            }
+        }
+        listener.start(queue: .main)
+        control = listener
+    }
+
+    private let args: [String]
+    private func flag(_ name: String) -> Bool { args.contains(name) }
+    private func value(_ name: String) -> String? {
+        guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
+    /// Tears the run down so a new runner can take the port and the peer socket.
+    func stop() {
+        keepAwakeTimer?.cancel(); keepAwakeTimer = nil
+        clockTimer?.cancel(); clockTimer = nil
+        sink?.cancel(); sink = nil
+        link?.onEnd = nil; link?.cancel(); link = nil
+        rtcTransport?.cancel(); rtcTransport = nil; rtcPeer = nil; rtcReady = false
+        if let decoder { VTDecompressionSessionInvalidate(decoder) }; decoder = nil
+        audioPlayer?.stop(); audioPlayer = nil; aacDecoder = nil
+        AudioPlayer.harnessLog = nil; DiagnosticLogger.shared.mirror = nil
+        logQueue.sync {}
     }
 
     private let secret = SharedSecret(hex: "5e1f2a9c4d7b3e6a8f0c1d2e3b4a5968778695a4b3c2d1e0f1e2d3c4b5a69788")!
     private var link: PhorosConnection?
     private var assembler = FrameAssembler()
+    /// -audio: take the host's audio through the app's own AudioPlayer (AAC, like Beam), and
+    /// log every chunk (CA), every scheduling decision (PA), every silent render (PZ) and
+    /// the player's own diagnostics (PD). Needs the phone unmuted: the player skips A/V sync
+    /// at zero volume, which is a different code path.
+    private lazy var wantsAudio = flag("-audio")
+    private var audioPlayer: AudioPlayer?
+    private var aacDecoder: AACDecoder?
+    private var audioChunks = 0
     private var formatDescription: CMVideoFormatDescription?
     private var decoder: VTDecompressionSession?
     private var clock = ClockSync()
@@ -57,6 +120,13 @@ final class HarnessRunner {
     private let queue = DispatchQueue(label: "beam.harness", qos: .userInteractive)
     private let logQueue = DispatchQueue(label: "beam.harness.log")
     private var logHandle: FileHandle?
+    private var rtcPeer: RealtimePeer?
+    private var rtcTransport: PhorosPeerTransport?
+    private var rtcReady = false
+    private let host: String
+
+    private init() { host = ""; args = [] }
+    private init(host: String, args: [String]) { self.host = host; self.args = args }
 
     static var logURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("harness.log")
@@ -73,6 +143,23 @@ final class HarnessRunner {
     private func log(_ stage: String, _ id: Int, extra: String = "") {
         let line = "\(stage),\(id),\(nowNanos())\(extra.isEmpty ? "" : "," + extra)\n"
         logQueue.async { self.logHandle?.write(line.data(using: .utf8)!) }
+        if stage == "DONE" || stage == "END" { logQueue.async { self.uploadLog() } }
+    }
+
+    /// Pushes the whole log to the runner on the Mac (port 7990) once the run ends, so the
+    /// result never depends on the developer tunnel copying files off the phone.
+    private var uploaded = false
+    private func uploadLog() {
+        guard !uploaded, let data = try? Data(contentsOf: Self.logURL) else { return }
+        uploaded = true
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: 7990, using: .tcp)
+        connection.stateUpdateHandler = { state in
+            if case .ready = state {
+                connection.send(content: data, completion: .contentProcessed { _ in connection.cancel() })
+            }
+            if case .failed = state { connection.cancel() }
+        }
+        connection.start(queue: self.logQueue)
     }
 
     private func start(host: String, presses: Int, intervalMs: Int, preset: QualityPreset) {
@@ -81,25 +168,53 @@ final class HarnessRunner {
         logHandle = try? FileHandle(forWritingTo: Self.logURL)
         log("START", 0, extra: "\(host),\(UIScreen.main.maximumFramesPerSecond)")
         UIApplication.shared.isIdleTimerDisabled = true
+        startKeepAwakeIfRequested()
+        startTCPSinkIfRequested(host: host)
 
         let capabilities = ClientCapabilities(
             deviceName: "Harness iPhone", deviceID: "harness-client",
-            audioCodecs: [.pcmFloat32], videoCodecs: [.hevc, .h264], wantsAudio: false,
+            audioCodecs: [.aacLC, .pcmFloat32], videoCodecs: [.hevc, .h264], wantsAudio: wantsAudio,
             maximumFrameRate: Double(UIScreen.main.maximumFramesPerSecond)
         )
+        if wantsAudio {
+            AudioPlayer.harnessLog = { [weak self] stage, id, extra in self?.log(stage, id, extra: extra) }
+            DiagnosticLogger.shared.mirror = { [weak self] message, category in
+                if category == "Audio" { self?.log("PD", 0, extra: message.replacingOccurrences(of: ",", with: ";")) }
+            }
+            let player = AudioPlayer()
+            audioPlayer = player
+            player.start()
+            log("AUDIO", 0, extra: "volume=\(AVAudioSession.sharedInstance().outputVolume)")
+        }
+        connect(host: host, capabilities: capabilities, attempt: 1)
+        queue.asyncAfter(deadline: .now() + 30) { [weak self] in
+            guard let self, self.formatDescription == nil else { return }
+            log("DONE", 0, extra: "no video within 30 s")
+        }
+    }
+
+    private var connected = false
+    /// A fresh launch sometimes never completes the TCP handshake (the SYN leaves before the
+    /// phone's radio is fully up after the tunnel activity); a connection that is not ready
+    /// within 4 s is dropped and made again, three times.
+    private func connect(host: String, capabilities: ClientCapabilities, attempt: Int) {
         let link = PhorosConnection(to: .hostPort(host: NWEndpoint.Host(host), port: 7979), parameters: PhorosConnection.parameters(), queue: queue)
         self.link = link
         link.onReady = { [weak self] in
             guard let self else { return }
-            log("CONNECTED", 0)
+            connected = true
+            log("CONNECTED", attempt)
             link.send(try! JSONEncoder().encode(capabilities.authRequest(secret: secret)))
         }
         link.onEnd = { [weak self] reason in self?.log("END", 0, extra: "\(reason)") }
         link.onFrame = { [weak self] frame in self?.handle(frame) }
         link.start()
-        queue.asyncAfter(deadline: .now() + 20) { [weak self] in
-            guard let self, self.formatDescription == nil else { return }
-            log("DONE", 0, extra: "no video within 20 s")
+        queue.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self, !self.connected, attempt < 4 else { return }
+            log("RETRY", attempt)
+            link.onEnd = nil
+            link.cancel()
+            self.connect(host: host, capabilities: capabilities, attempt: attempt + 1)
         }
     }
 
@@ -118,8 +233,13 @@ final class HarnessRunner {
                     if let age = clock.age(ofPresentationTimestamp: assembled.presentationTimestamp, now: nowMicros()) {
                         log("A", Int(assembled.frameNumber), extra: "\(age)")
                     }
+                    audioPlayer?.updateVideoClock(remotePresentationTimestampUs: assembled.presentationTimestamp)
                     decode(assembled)
                 }
+            case .audio:
+                guard let codec = AudioCodecID(packetFlags: packet.header.flags),
+                      let header = AudioChunkHeader.parse(from: packet.payload) else { return }
+                receiveAudio(header, packet.payload.dropFirst(AudioChunkHeader.size), codec: codec)
             case .parameterSets:
                 guard let codec = VideoCodecID(packetFlags: packet.header.flags),
                       let description = VideoFormat.makeDescription(parameterSets: packet.payload, codec: codec) else { return }
@@ -152,7 +272,9 @@ final class HarnessRunner {
                 }
                 // Attach a controller: one neutral connected report, then presses.
                 sendReport(a: false)
-                queue.asyncAfter(deadline: .now() + 3) { [weak self] in self?.press() }
+                // 8 s: the devicectl launch tunnel makes the Mac scan all Wi-Fi bands for
+                // ~3.5 s; the presses start after that blackout has passed.
+                queue.asyncAfter(deadline: .now() + 8) { [weak self] in self?.press() }
             case .failed(let reason):
                 log("DONE", 0, extra: "auth failed: \(reason)")
             default: break
@@ -160,6 +282,12 @@ final class HarnessRunner {
             return
         }
         if let control = try? JSONDecoder().decode(ControlMessage.self, from: data) {
+            if case .transportOffer(let offer) = control, offer.kind == "rtc2" { acceptRTC(offer) }
+            if case .audioFormatChanged(let format) = control {
+                log("AF", Int(format.sampleRate), extra: "\(format.channels)")
+                audioPlayer?.updateRemoteFormat(sampleRate: format.sampleRate, channels: format.channels)
+                aacDecoder = nil
+            }
             if case .clockReply(let reply) = control, let rtt = clock.reply(reply, now: nowMicros()) {
                 log("C", Int(rtt), extra: "\(clock.offset ?? 0),\(clock.bestRoundTrip ?? 0)")
             }
@@ -167,11 +295,134 @@ final class HarnessRunner {
         }
     }
 
+    // MARK: audio, the app's decoder and player under the harness log
+
+    /// CA: one chunk received (id = sequence, extra = pts_us, bytes, hash, age_us)
+    private func receiveAudio(_ header: AudioChunkHeader, _ body: Data, codec: AudioCodecID) {
+        guard let player = audioPlayer else { return }
+        audioChunks += 1
+        var h: UInt64 = 0xcbf29ce484222325
+        body.withUnsafeBytes { buf in for b in buf { h = (h ^ UInt64(b)) &* 0x100000001b3 } }
+        let age = clock.age(ofPresentationTimestamp: header.presentationTimestamp, now: nowMicros()) ?? -1
+        log("CA", Int(header.sequenceNumber), extra: "\(header.presentationTimestamp),\(body.count),\(h),\(age)")
+        player.noteAudioPacketArrived()
+        switch codec {
+        case .pcmFloat32:
+            player.enqueue(body, remotePresentationTimestampUs: header.presentationTimestamp)
+        case .aacLC:
+            guard player.hasRemoteFormat else { return }
+            if aacDecoder == nil { aacDecoder = AACDecoder(sampleRate: player.currentSampleRate, channels: player.currentChannels) }
+            guard let buffer = aacDecoder?.decode(body) else { log("PD", 0, extra: "decode failed"); return }
+            player.enqueue(buffer: buffer, remotePresentationTimestampUs: header.presentationTimestamp)
+        }
+    }
+
+    // MARK: rtc2: accept the host's UDP transport, take video and send input on it
+
+    private func acceptRTC(_ offer: TransportOffer) {
+        // Bind on the interface that reaches the host: loopback for a host on this machine
+        // (the simulator shares the Mac's stack), else the address of our TCP side.
+        // a fresh port per runner instance: the previous run's socket may still be held
+        HarnessRunner.peerPortOffset = (HarnessRunner.peerPortOffset + 1) % 40
+        let ours = "\(host == "127.0.0.1" ? "127.0.0.1" : localAddressTowardHost()):\(7982 + HarnessRunner.peerPortOffset)"
+        guard let peer = RealtimePeer(isHost: false, localAddress: ours) else { log("RTC", 0, extra: "peer failed"); return }
+        let media = PhorosPeerTransport(peer: peer, queue: queue)
+        media.onReady = { [weak self] in self?.rtcReady = true; self?.log("RTC", 1) }
+        media.onInbound = { [weak self] inbound in
+            guard let self else { return }
+            switch inbound {
+            case .video(let assembled):
+                // -ackvideo: a tiny uplink send in reaction to every received frame, the way
+                // TCP acks arrive; an experiment on the phone's transmit-path state.
+                if self.ackVideo, let t = self.rtcTransport { t.sendInput(self.lastReport, connected: true) }
+                log("H7", Int(assembled.frameNumber), extra: "\(assembled.presentationTimestamp),\(assembled.bitstream.count)")
+                if let age = clock.age(ofPresentationTimestamp: assembled.presentationTimestamp, now: nowMicros()) { log("A", Int(assembled.frameNumber), extra: "\(age)") }
+                self.audioPlayer?.updateVideoClock(remotePresentationTimestampUs: assembled.presentationTimestamp)
+                decode(assembled)
+            case .videoParameterSets(let sets, let codec):
+                guard let description = VideoFormat.makeDescription(parameterSets: sets, codec: codec) else { return }
+                formatDescription = description
+                makeDecoder(description)
+                log("PS", 1, extra: codec.wireName)
+            case .audio(let header, let body, let codec):
+                self.receiveAudio(header, body, codec: codec)
+            default: break
+            }
+        }
+        media.hostTimeReference = offer.hostMicros
+        rtcPeer = peer
+        rtcTransport = media
+        // -udpclass <0|3|4>: the peer socket's service class (best effort, video, voice)
+        if let c = value("-udpclass").flatMap(Int32.init) { peer.setServiceClass(c); log("UDPCLASS", Int(c)) }
+        guard peer.runOwnSocket() == 0 else { log("RTC", 0, extra: "bind failed"); return }
+        peer.setRemote(info: offer.info, address: offer.address, nowMicros: 0)
+        send(.transportAnswer(TransportOffer(kind: "rtc2", address: ours, info: peer.localInfo)))
+        log("RTC", 2, extra: ours)
+    }
+
+    private func localAddressTowardHost() -> String {
+        if let path = link?.connection.currentPath, let endpoint = path.localEndpoint, case .hostPort(let h, _) = endpoint {
+            return "\(h)".split(separator: "%").first.map(String.init) ?? "0.0.0.0"
+        }
+        return "0.0.0.0"
+    }
+
     // MARK: Input: the press is an .input packet with A down, as a paired controller would send.
+
+    /// -tcpsink <port>: opens a TCP connection to the host and discards everything it sends,
+    /// a second bulk TCP flow next to the video (experiment: is the uplink tax about UDP or
+    /// about downlink rate).
+    private var sink: NWConnection?
+    private func startTCPSinkIfRequested(host: String) {
+        guard let port = value("-tcpsink").flatMap(UInt16.init) else { return }
+        let c = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        sink = c
+        func drain() {
+            c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { _, _, done, error in
+                if done || error != nil { return }
+                drain()
+            }
+        }
+        c.stateUpdateHandler = { [weak self] state in if case .ready = state { self?.log("SINK", Int(port)); drain() } }
+        c.start(queue: queue)
+    }
+
+    private var lastReport = ControllerReport()
+    private var keepAwakeTimer: DispatchSourceTimer?
+    /// -keepawake <ms>: resends the current controller state every so often, an experiment
+    /// to keep the phone's radio out of power save (uplink traffic is what an AP counts).
+    private func startKeepAwakeIfRequested() {
+        guard let ms = value("-keepawake").flatMap(Int.init), ms > 0 else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1, repeating: .milliseconds(ms), leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            // With -dualinput each resend is a numbered probe on both pipes; the host logs
+            // which copy arrived first and by how much (H2W/H2X), this side logs the send.
+            var report = self.lastReport
+            if self.dualInput { self.inputSequence &+= 1; report.sequence = self.inputSequence; self.log("KA", Int(self.inputSequence)) }
+            if self.rtcReady, let t = self.rtcTransport { t.sendInput(report, connected: true); if !self.dualInput { return } }
+            self.link?.send(Packet.encode(.input, flags: ControllerReport.connectedFlag, payload: report.serialized()))
+        }
+        timer.resume(); keepAwakeTimer = timer
+        log("KEEPAWAKE", ms)
+    }
+
+    /// -dualinput: every report goes on rtc2 and on the TCP link, numbered; the host takes
+    /// the first copy. The plain mode sends on rtc2 alone once it is up.
+    private lazy var dualInput = flag("-dualinput")
+    private lazy var ackVideo = flag("-ackvideo")
+    private var inputSequence: UInt16 = 0
 
     private func sendReport(a: Bool) {
         var report = ControllerReport()
         if a { report.buttons.insert(.a) }
+        if dualInput { inputSequence &+= 1; report.sequence = inputSequence }
+        lastReport = report
+        if rtcReady, let rtcTransport {
+            rtcTransport.sendInput(report, connected: true)
+            if !dualInput { return }
+        }
         link?.send(Packet.encode(.input, flags: ControllerReport.connectedFlag, payload: report.serialized()))
     }
 
@@ -191,6 +442,8 @@ final class HarnessRunner {
             guard let self else { return }
             log("P", pressID, extra: "up")   // the flash flips on down only
             sendReport(a: false)
+            // send -> wire delay of the down report, from the core (rtc2 only)
+            if let peer = self.rtcPeer, self.rtcReady { let w = peer.wireDelay(); log("WIRE", pressID, extra: "\(w.last),\(w.max)") }
         }
         let jitter = Double(Int.random(in: -150...150)) / 1000
         queue.asyncAfter(deadline: .now() + Double(intervalMs) / 1000 + jitter) { [weak self] in self?.press() }

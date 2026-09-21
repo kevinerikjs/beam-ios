@@ -10,6 +10,13 @@ private let logger = Logger(subsystem: "com.beam.ios", category: "AudioPlayer")
 
 final class AudioPlayer {
 
+    /// Harness only: one line per scheduling decision and per silent render buffer, so an
+    /// audio run can tell a late chunk from a chunk the engine never voiced.
+    ///   PA  a chunk scheduled (id = slack ms: how long before it is due, extra = path, gap ms)
+    ///   PZ  a render buffer that came out silent while chunks were arriving (id = ms)
+    static var harnessLog: ((_ stage: String, _ id: Int, _ extra: String) -> Void)?
+    private var lastArrivalForTap: Double = 0
+
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     /// PROCESS-WIDE, not per instance. Every auto-reconnect builds a fresh ConnectionManager and
@@ -71,7 +78,16 @@ final class AudioPlayer {
     private var lastVideoLocalSeconds: Double?
     private var nextScheduledAudioSeconds: Double?
 
-    private let targetAudioLeadSeconds: Double = 0.10
+    /// How far behind the video timeline audio is played: the buffer that absorbs arrival
+    /// jitter. Starts at 100 ms and grows whenever a chunk arrives after its slot has passed
+    /// (a Wi-Fi stall, Bluetooth audio sharing the radio), by the amount it was late, up to
+    /// `maximumAudioLeadGrowth`. The alternative was a fixed 100 ms, which a
+    /// 150 ms stall turns into a hole in the sound every time. A bigger lead costs lip sync
+    /// (audio lags by that much), which is the lesser evil, and a new session starts over.
+    private var targetAudioLeadSeconds: Double = 0.10
+    private let initialAudioLeadSeconds: Double = 0.10
+    private let maximumAudioLeadGrowth: Double = 0.60
+    private let audioLeadGrowthMargin: Double = 0.03
     /// How far ahead of the video clock audio may be queued before playing.
     ///
     /// Raised from 0.45s once the host started prioritising audio (BEAM-31). Audio no longer
@@ -206,6 +222,7 @@ final class AudioPlayer {
     /// Stamped the moment an audio packet is read off the socket — upstream of the codec check,
     /// the reorder guard, the decoder and the player. Cheap enough to call per packet.
     func noteAudioPacketArrived() {
+        lastArrivalForTap = AVAudioTime.seconds(forHostTime: mach_absolute_time())
         let now = AVAudioTime.seconds(forHostTime: mach_absolute_time())
         arrivalLock.lock()
         lastAudioArrivedAt = now
@@ -392,6 +409,22 @@ final class AudioPlayer {
         let node = AVAudioPlayerNode()
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: format)
+        if Self.harnessLog != nil {
+            // 1024 frames at 48 kHz is 21 ms: a gap shorter than that hides inside one buffer,
+            // anything longer shows as a silent buffer while audio is still arriving.
+            engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+                guard let self, let data = buffer.floatChannelData else { return }
+                var peak: Float = 0
+                for c in 0..<Int(buffer.format.channelCount) {
+                    let p = data[c]
+                    for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(p[i])) }
+                }
+                let now = AVAudioTime.seconds(forHostTime: mach_absolute_time())
+                if peak < 0.001, now - self.lastArrivalForTap < 0.2 {
+                    Self.harnessLog?("PZ", Int(Double(buffer.frameLength) / buffer.format.sampleRate * 1000), "")
+                }
+            }
+        }
         do {
             try engine.start()
             node.play()
@@ -649,13 +682,17 @@ final class AudioPlayer {
             self.syncAnchorRemotePTSUs = remotePresentationTimestampUs
             self.syncAnchorLocalSeconds = startedAt
             scheduleTracked(node, buffer, at: nil, now: startedAt)
+            Self.harnessLog?("PA", 0, "starvation,0")
             return
         }
         let session = AVAudioSession.sharedInstance()
-        let shouldApplySync = session.outputVolume > 0.001
+        // Under the harness the sync path runs at any volume: the render tap measures the
+        // mixer, ahead of the hardware volume, so the phone can stay silent during a run.
+        let shouldApplySync = session.outputVolume > 0.001 || Self.harnessLog != nil
         if !shouldApplySync {
             nextScheduledAudioSeconds = nil
             scheduleTracked(node, buffer, at: nil, now: hostNowSeconds())
+            Self.harnessLog?("PA", 0, "muted,0")
             return
         }
         guard lastVideoRemotePTSUs != nil else {
@@ -673,6 +710,7 @@ final class AudioPlayer {
             let audioNow = hostNowSeconds()
             let startAt = max(nextScheduledAudioSeconds ?? audioNow, audioNow)
             let duration = Double(buffer.frameLength) / playbackSampleRate
+            Self.harnessLog?("PA", Int((startAt - audioNow) * 1000), "novideo,\(Int(max(0, audioNow - (nextScheduledAudioSeconds ?? audioNow)) * 1000))")
             nextScheduledAudioSeconds = startAt + duration
             if startAt <= audioNow + 0.003 {
                 scheduleTracked(node, buffer, at: nil, now: audioNow)
@@ -686,76 +724,98 @@ final class AudioPlayer {
 
         let now = hostNowSeconds()
         guard let mappedTime = mappedLocalSeconds(forRemotePTSUs: remotePresentationTimestampUs) else { return }
+        // How late this chunk is against its slot on the video timeline (negative: early, it
+        // waits in the queue). Every decision below reads this one number. It used to be
+        // measured against the video clock plus the lead, which made the thresholds move
+        // with the lead: a grown buffer put every chunk into catch-up, each played at once
+        // with nothing chained behind it, which is a crackle.
+        var lateBy = now - (mappedTime + targetAudioLeadSeconds)
+        // Late: grow the buffer by that much plus a margin, so the next stall of the same
+        // size fits with room to spare. This chunk then plays a margin from now, which puts
+        // the margin's silence inside the hole that just happened rather than after the
+        // chunk, and the chunks queued behind it land back to back. Without the margin a
+        // link that runs a few ms late again and again clicks on every one of them.
+        if lateBy > 0.001, targetAudioLeadSeconds < maximumAudioLeadGrowth {
+            let grown = min(maximumAudioLeadGrowth, targetAudioLeadSeconds + lateBy + audioLeadGrowthMargin)
+            DiagnosticLogger.shared.log(
+                "Audio buffer \(Int(targetAudioLeadSeconds * 1000)) → \(Int(grown * 1000)) ms: a chunk arrived \(Int(lateBy * 1000)) ms late",
+                category: "Audio"
+            )
+            targetAudioLeadSeconds = grown
+            lateBy = now - (mappedTime + targetAudioLeadSeconds)
+        }
         var targetPlayTime = mappedTime + targetAudioLeadSeconds
 
         var shouldForceImmediateSchedule = false
-        if let videoNowRemotePTSUs = estimatedRemoteVideoPTSUs(atLocalSeconds: now) {
-            let desiredAudioPTSUs = videoNowRemotePTSUs + Int64(targetAudioLeadSeconds * 1_000_000.0)
-            let avErrorSeconds = Double(remotePresentationTimestampUs - desiredAudioPTSUs) / 1_000_000.0
+        if lateBy > lateAudioCatchupThresholdSeconds {
+            // Past the buffer's ceiling and still late. Instead of dropping late audio
+            // (audible clicks/gaps), force immediate catch-up.
+            shouldForceImmediateSchedule = true
+            nextScheduledAudioSeconds = nil
+            targetPlayTime = now + 0.004
 
-            if avErrorSeconds < -lateAudioCatchupThresholdSeconds {
-                // Instead of dropping late audio (audible clicks/gaps), force immediate catch-up.
-                shouldForceImmediateSchedule = true
-                nextScheduledAudioSeconds = nil
-                targetPlayTime = now + 0.004
-
-                // Only dump the queue for a genuine DISCONTINUITY, never for a steady offset.
-                //
-                // Over a remote path audio consistently arrives later than the video clock
-                // expects, because the two have different end-to-end latency. That shows up
-                // as a persistent negative drift in a narrow band — Kevin's log sat between
-                // -1.3s and -3.3s for minutes. Treating that as an error to correct meant
-                // calling node.reset() every 2-3 seconds, and reset() DISCARDS all queued
-                // audio: we were deleting the audio ourselves, over and over, which is what
-                // "constantly buggy over Tailscale" actually was.
-                //
-                // Re-anchoring cannot fix it either, because the error is measured against
-                // the video clock, so the same offset reappears immediately. A constant
-                // offset is not correctable at this layer; it is a property of the link. So
-                // absorb it into the anchor and keep playing. Slightly late audio that is
-                // CONTINUOUS beats perfectly-timed audio that is repeatedly deleted.
-                let isDiscontinuity = abs(avErrorSeconds) > catastrophicResyncThresholdSeconds
-                if abs(avErrorSeconds) > hardAudioResyncThresholdSeconds,
-                   now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
-                    lastHardResyncAt = now
-                    if isDiscontinuity {
-                        // Genuinely broken timeline (reconnect, seek, clock jump): the queued
-                        // audio is meaningless, so clearing it is correct.
-                        node.reset()
-                        // reset() clears the scheduled queue AND leaves the node stopped.
-                        // Without this play(), every buffer scheduled afterwards is silently
-                        // discarded and audio never returns for the rest of the session.
-                        node.play()
-                    }
-                    syncAnchorRemotePTSUs = remotePresentationTimestampUs
-                    syncAnchorLocalSeconds = now
-                    DiagnosticLogger.shared.log(
-                        "RECOVERY[hard-resync]: A/V drift \(String(format: "%.2f", avErrorSeconds))s — queue dumped, anchor reset",
-                        category: "Audio"
-                    )
-                }
-            } else if avErrorSeconds > earlyAudioResyncThresholdSeconds,
-                      now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
-                // Symmetric counterpart. Audio EARLY was previously only clamped, never
-                // re-anchored, so after a post-stall burst the node's real queue could stay
-                // seconds deeper than the scheduler's model with no exit.
+            // Only dump the queue for a genuine DISCONTINUITY, never for a steady offset.
+            //
+            // Over a remote path audio consistently arrives later than the video clock
+            // expects, because the two have different end-to-end latency. That shows up
+            // as a persistent negative drift in a narrow band — Kevin's log sat between
+            // -1.3s and -3.3s for minutes. Treating that as an error to correct meant
+            // calling node.reset() every 2-3 seconds, and reset() DISCARDS all queued
+            // audio: we were deleting the audio ourselves, over and over, which is what
+            // "constantly buggy over Tailscale" actually was.
+            //
+            // Re-anchoring cannot fix it either, because the error is measured against
+            // the video clock, so the same offset reappears immediately. A constant
+            // offset is not correctable at this layer; it is a property of the link. So
+            // absorb it into the anchor and keep playing. Slightly late audio that is
+            // CONTINUOUS beats perfectly-timed audio that is repeatedly deleted.
+            let isDiscontinuity = lateBy > catastrophicResyncThresholdSeconds
+            if lateBy > hardAudioResyncThresholdSeconds,
+               now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
                 lastHardResyncAt = now
-                nextScheduledAudioSeconds = nil
+                if isDiscontinuity {
+                    // Genuinely broken timeline (reconnect, seek, clock jump): the queued
+                    // audio is meaningless, so clearing it is correct.
+                    node.reset()
+                    // reset() clears the scheduled queue AND leaves the node stopped.
+                    // Without this play(), every buffer scheduled afterwards is silently
+                    // discarded and audio never returns for the rest of the session.
+                    node.play()
+                }
                 syncAnchorRemotePTSUs = remotePresentationTimestampUs
                 syncAnchorLocalSeconds = now
+                targetAudioLeadSeconds = initialAudioLeadSeconds
                 DiagnosticLogger.shared.log(
-                    "RECOVERY[hard-resync-early]: audio \(String(format: "%.2f", avErrorSeconds))s ahead — anchor reset",
+                    "RECOVERY[hard-resync]: audio \(String(format: "%.2f", lateBy))s late — queue dumped, anchor reset",
                     category: "Audio"
                 )
             }
-            if avErrorSeconds > maxAudioLeadSeconds {
-                // Keep audio lead bounded; avoid excessive queueing.
-                targetPlayTime = min(targetPlayTime, now + maxAudioLeadSeconds)
-            }
+        } else if -lateBy > earlyAudioResyncThresholdSeconds,
+                  now - lastHardResyncAt >= minSecondsBetweenHardResyncs {
+            // Symmetric counterpart. Audio EARLY was previously only clamped, never
+            // re-anchored, so after a post-stall burst the node's real queue could stay
+            // seconds deeper than the scheduler's model with no exit.
+            lastHardResyncAt = now
+            nextScheduledAudioSeconds = nil
+            syncAnchorRemotePTSUs = remotePresentationTimestampUs
+            syncAnchorLocalSeconds = now
+            targetAudioLeadSeconds = initialAudioLeadSeconds
+            targetPlayTime = now + initialAudioLeadSeconds
+            DiagnosticLogger.shared.log(
+                "RECOVERY[hard-resync-early]: audio \(String(format: "%.2f", -lateBy))s ahead — anchor reset",
+                category: "Audio"
+            )
         }
 
         if !shouldForceImmediateSchedule, let queuedAudioTime = nextScheduledAudioSeconds {
             targetPlayTime = max(targetPlayTime, queuedAudioTime)
+        }
+        // slack: how long before this chunk is due on the video timeline; gap: silence the
+        // engine will play because the previous chunk already ended (0 when chained)
+        if Self.harnessLog != nil {
+            let slack = (mappedTime + targetAudioLeadSeconds - now) * 1000
+            let gap = nextScheduledAudioSeconds.map { max(0, now - $0) * 1000 } ?? 0
+            Self.harnessLog?("PA", Int(slack), "\(shouldForceImmediateSchedule ? "catchup" : "synced"),\(Int(gap))")
         }
         targetPlayTime = max(targetPlayTime, now)
         targetPlayTime = min(targetPlayTime, now + maxAudioLeadSeconds)
@@ -846,6 +906,7 @@ final class AudioPlayer {
     }
 
     private func resetSyncState() {
+        targetAudioLeadSeconds = initialAudioLeadSeconds
         syncAnchorRemotePTSUs = nil
         syncAnchorLocalSeconds = nil
         lastVideoRemotePTSUs = nil

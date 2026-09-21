@@ -650,10 +650,32 @@ struct StreamSettingsSheet: View {
     @AppStorage(ConnectionManager.streamAudioDefaultsKey) private var streamAudio = true
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
+    @AppStorage(AdvancedSettings.streamModeKey) private var streamMode = 0
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Picker("Mode", selection: $streamMode) {
+                        Text("Auto").tag(0)
+                        Text("Game").tag(1)
+                        Text("Video").tag(2)
+                        Text("Custom").tag(3)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: streamMode) { _ in
+                        AdvancedSettings.applyMode()
+                        appState.connectionManager?.streamModeChanged()
+                    }
+                } header: {
+                    Text("Mode")
+                } footer: {
+                    Text(streamMode == 1 ? "Fastest response: 6 Mbps cap, every frame shown as it arrives."
+                         : streamMode == 2 ? "Best picture: full bitrate, frames at a steady rhythm."
+                         : streamMode == 3 ? "Your own Max Bitrate and Frame Pacing from Advanced settings."
+                         : "Game while a controller is connected or click mode is on, Video otherwise.")
+                }
+
                 Section {
                     Toggle("Stream Audio", isOn: $streamAudio)
                         .tint(.orange)

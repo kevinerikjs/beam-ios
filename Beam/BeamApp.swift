@@ -34,6 +34,7 @@ struct BeamApp: App {
 
     init() {
         Analytics.start()
+        AdvancedSettings.applyMode()   // the mode's knobs are what Advanced shows
         observeSystemEvents()
         #if DEBUG
         HarnessRunner.startIfRequested()

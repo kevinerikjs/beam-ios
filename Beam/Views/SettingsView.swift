@@ -20,13 +20,15 @@ struct SettingsView: View {
     @State private var manualRemoteHost = ""
     @AppStorage(AdvancedSettings.latencyMeterKey) private var showLatencyMeter = false
     @AppStorage(AdvancedSettings.enqueueOnMainKey) private var enqueueOnMain = false
-    @AppStorage(AdvancedSettings.framePacingKey) private var framePacing = 0
+    @AppStorage(AdvancedSettings.framePacingKey) private var framePacing = 1
     @AppStorage(AdvancedSettings.bitrateCapMbpsKey) private var bitrateCapMbps = 0.0
     @AppStorage(AdvancedSettings.keepScreenAwakeKey) private var keepScreenAwake = true
     @AppStorage(AdvancedSettings.forceH264Key) private var forceH264 = false
     @AppStorage("beam.settings.advancedExpanded") private var advancedExpanded = false
     #if DEBUG
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
+    @AppStorage(ConnectionManager.legacyTransportKey) private var legacyTransport = false
+    @AppStorage(AdvancedSettings.streamModeKey) private var streamMode = 0
     #endif
     @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
 
@@ -77,6 +79,35 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Stream")
             VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Mode")
+                        .foregroundStyle(.white)
+                    Picker("", selection: $streamMode) {
+                        Text("Auto").tag(0)
+                        Text("Game").tag(1)
+                        Text("Video").tag(2)
+                        Text("Custom").tag(3)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: streamMode) { _ in
+                        AdvancedSettings.applyMode()
+                        appState.connectionManager?.streamModeChanged()
+                    }
+                    Text(streamMode == 1
+                         ? "Fastest response: video capped at 6 Mbps so your presses land sooner, every frame shown as it arrives."
+                         : streamMode == 2
+                         ? "Best picture: full bitrate and frames played at a steady rhythm."
+                         : streamMode == 3
+                         ? "Your own Max Bitrate and Frame Pacing from Advanced."
+                         : "Game while a controller is connected or click mode is on, Video otherwise. Switches live.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                cardDivider
+
                 HStack {
                     Text("Default Quality")
                         .foregroundStyle(.white)
@@ -113,20 +144,6 @@ struct SettingsView: View {
                     appState.connectionManager?.setAudioEnabled(enabled)
                 }
 
-                cardDivider
-
-                Toggle(isOn: $highFrameRate) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("High Frame Rate")
-                            .foregroundStyle(.white)
-                        Text("Smoother motion and lower input latency: the Mac sends frames at this screen's refresh rate (\(ConnectionManager.screenMaximumFramesPerSecond) Hz). Takes effect on the next connection.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .tint(.orange)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
             }
             .background(Color.white.opacity(0.07))
             .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -266,9 +283,12 @@ struct SettingsView: View {
                             Text("Smoothest").tag(1)
                         }
                         .pickerStyle(.segmented)
+                        .onChange(of: framePacing) { _ in AdvancedSettings.knobEdited() }
                         Text(framePacing == 0
-                             ? "Shows each frame the instant it arrives. Pick this for gaming and remote control."
-                             : "Holds frames briefly so they play at a steady rhythm. Pick this for watching video. Adds about 10 to 30 ms.")
+                             ? "Shows each frame the instant it arrives. Pick this for gaming and remote control. Set by the stream mode, changing it makes the mode Custom."
+                             : "Holds frames briefly so they play at a steady rhythm. Pick this for watching video. Adds about 10 to 30 ms. Set by the stream mode, changing it makes the mode Custom.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -289,8 +309,10 @@ struct SettingsView: View {
                         }
                         Slider(value: $bitrateCapMbps, in: 0...30, step: 1)
                             .tint(.orange)
-                            .onChange(of: bitrateCapMbps) { _ in appState.connectionManager?.applyBitrateCap() }
-                        Text("A ceiling on video bandwidth for shared or metered Wi-Fi. It can only lower what the quality preset allows.")
+                            .onChange(of: bitrateCapMbps) { _ in AdvancedSettings.knobEdited(); appState.connectionManager?.applyBitrateCap() }
+                        Text(bitrateCapMbps > 0
+                             ? "A ceiling on video bandwidth. Lower is also lower input latency on iPhone. It can only lower what the quality preset allows."
+                             : "No limit. Game mode sets 6 Mbps here, because an iPhone answers slower while receiving more than that. Changing it makes the mode Custom.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -304,6 +326,36 @@ struct SettingsView: View {
                             Text("Prefer H.264")
                                 .foregroundStyle(.white)
                             Text("Use H.264 instead of HEVC. HEVC needs less bandwidth for the same picture. Try H.264 if video looks wrong. Applies on the next connection.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    cardDivider
+
+                    Toggle(isOn: $highFrameRate) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Match Screen Refresh Rate")
+                                .foregroundStyle(.white)
+                            Text("The Mac sends frames at this screen's rate (\(ConnectionManager.screenMaximumFramesPerSecond) Hz), for smoother motion and lower latency. Off saves battery. Applies on the next connection.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+
+                    cardDivider
+
+                    Toggle(isOn: $legacyTransport) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Legacy Transport")
+                                .foregroundStyle(.white)
+                            Text("Keep video on the TCP connection instead of the faster UDP path. Try this if the stream misbehaves. Applies on the next connection.")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -418,6 +470,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
+
                     #endif
                 }
                 .background(Color.white.opacity(0.07))
