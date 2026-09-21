@@ -53,7 +53,9 @@ final class BeamAppState: ObservableObject {
     @Published var hostPhoneControls: [ControlButton] = []
     /// A toggled phone-control mode (BEAM-40): live keyboard or click passthrough, by button id.
     /// The overlay stays up while one is active.
-    @Published var activeControlMode: ActiveControlMode? = nil
+    @Published var activeControlMode: ActiveControlMode? = nil {
+        didSet { connectionManager?.setClickMode(activeControlMode?.isClick == true) }
+    }
     /// Right-click instead of left while click mode is on.
     @Published var clickModeRight = false
     /// Sticky modifiers armed by modifier buttons (BEAM-40), by control id → Carbon mask.
