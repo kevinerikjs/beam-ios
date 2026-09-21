@@ -290,7 +290,9 @@ struct SettingsView: View {
                         Slider(value: $bitrateCapMbps, in: 0...30, step: 1)
                             .tint(.orange)
                             .onChange(of: bitrateCapMbps) { _ in appState.connectionManager?.applyBitrateCap() }
-                        Text("A ceiling on video bandwidth for shared or metered Wi-Fi. It can only lower what the quality preset allows.")
+                        Text(bitrateCapMbps > 0
+                             ? "A ceiling on video bandwidth. Lower is also lower input latency on iPhone. It can only lower what the quality preset allows."
+                             : "No limit set. With a controller attached Beam caps video at 6 Mbps on its own, because an iPhone answers slower while receiving more than that. Set a value to override.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
