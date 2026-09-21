@@ -285,11 +285,10 @@ struct SettingsView: View {
                         .pickerStyle(.segmented)
                         .onChange(of: framePacing) { _ in AdvancedSettings.knobEdited() }
                         Text(framePacing == 0
-                             ? "Shows each frame the instant it arrives. Pick this for gaming and remote control."
-                             : "Holds frames briefly so they play at a steady rhythm. Pick this for watching video. Adds about 10 to 30 ms.")
-                        Text("Set by the stream mode. Changing it here makes the mode Custom.")
-                            .font(.caption2)
-                            .foregroundStyle(.quaternary)
+                             ? "Shows each frame the instant it arrives. Pick this for gaming and remote control. Set by the stream mode, changing it makes the mode Custom."
+                             : "Holds frames briefly so they play at a steady rhythm. Pick this for watching video. Adds about 10 to 30 ms. Set by the stream mode, changing it makes the mode Custom.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
