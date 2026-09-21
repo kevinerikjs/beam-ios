@@ -24,9 +24,24 @@ struct ChangeEntry: Identifiable {
 
 /// Ships with the release. Must NOT mention any feature that is still behind a flag.
 /// Controller passthrough is no longer behind one: the flag went global with Beacon 1.5.0, and
-/// 3.1 also arms on the host's own capability. 3.2's latency work heads the list. The 3.0
-/// entries stay because most people update straight from 2.x.
+/// 3.1 also arms on the host's own capability. 3.3's engine and modes head the list, 3.2's
+/// latency work follows. The 3.0 entries stay because most people update straight from 2.x.
 private let versionChangelog: [ChangeEntry] = [
+    ChangeEntry(
+        icon: "antenna.radiowaves.left.and.right",
+        title: "New Streaming Engine",
+        detail: "Video, audio and controller input now travel over a transport built for games: lost packets are repaired in milliseconds instead of stalling the stream, so a busy Wi-Fi network no longer means hitches. If it ever struggles, Beam falls back to the old path on its own. Needs Beacon 1.6, which updates itself."
+    ),
+    ChangeEntry(
+        icon: "gamecontroller.fill",
+        title: "Stream Modes",
+        detail: "Game mode trades a little picture detail for the tightest input response. Video mode gives the picture everything. Auto picks Game whenever a controller is attached or click mode is on. Change it in Settings or from the in-stream sheet, it applies live."
+    ),
+    ChangeEntry(
+        icon: "waveform",
+        title: "Audio That Stays Put",
+        detail: "Sound no longer crackles or drops out when the radio hiccups. Beam now sizes its audio buffer to what your network actually does."
+    ),
     ChangeEntry(
         icon: "bolt.fill",
         title: "Much Lower Latency",
@@ -34,8 +49,8 @@ private let versionChangelog: [ChangeEntry] = [
     ),
     ChangeEntry(
         icon: "gauge.with.dots.needle.67percent",
-        title: "High Frame Rate and Advanced Settings",
-        detail: "High Frame Rate streams at your screen's refresh rate, up to 120 fps, for smoother motion and lower latency. The new Advanced section has frame pacing, a bitrate cap, codec choice and a latency meter."
+        title: "120 fps and Advanced Settings",
+        detail: "Beam streams at your screen's refresh rate, up to 120 fps, for smoother motion and lower latency. The Advanced section has frame pacing, a bitrate cap, codec choice, a Legacy Transport switch and a latency meter."
     ),
     ChangeEntry(
         icon: "gamecontroller.fill",
