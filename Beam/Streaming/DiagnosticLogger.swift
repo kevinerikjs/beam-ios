@@ -30,8 +30,12 @@ final class DiagnosticLogger {
 
     // MARK: - Public API
 
+    /// Harness only: sees every line as it is logged.
+    var mirror: ((_ message: String, _ category: String) -> Void)?
+
     func log(_ message: String, category: String = "General") {
         logger.debug("[\(category)] \(message)")
+        mirror?(message, category)
         let line = formatted(message: message, category: category)
         fileQueue.async { [weak self] in
             self?.appendLine(line)

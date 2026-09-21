@@ -25,6 +25,7 @@ import PhorosNetwork
 import PhorosSession
 import PhorosCore
 import UIKit
+import AVFoundation
 import VideoToolbox
 
 final class HarnessRunner {
@@ -89,12 +90,22 @@ final class HarnessRunner {
         link?.onEnd = nil; link?.cancel(); link = nil
         rtcTransport?.cancel(); rtcTransport = nil; rtcPeer = nil; rtcReady = false
         if let decoder { VTDecompressionSessionInvalidate(decoder) }; decoder = nil
+        audioPlayer?.stop(); audioPlayer = nil; aacDecoder = nil
+        AudioPlayer.harnessLog = nil; DiagnosticLogger.shared.mirror = nil
         logQueue.sync {}
     }
 
     private let secret = SharedSecret(hex: "5e1f2a9c4d7b3e6a8f0c1d2e3b4a5968778695a4b3c2d1e0f1e2d3c4b5a69788")!
     private var link: PhorosConnection?
     private var assembler = FrameAssembler()
+    /// -audio: take the host's audio through the app's own AudioPlayer (AAC, like Beam), and
+    /// log every chunk (CA), every scheduling decision (PA), every silent render (PZ) and
+    /// the player's own diagnostics (PD). Needs the phone unmuted: the player skips A/V sync
+    /// at zero volume, which is a different code path.
+    private lazy var wantsAudio = flag("-audio")
+    private var audioPlayer: AudioPlayer?
+    private var aacDecoder: AACDecoder?
+    private var audioChunks = 0
     private var formatDescription: CMVideoFormatDescription?
     private var decoder: VTDecompressionSession?
     private var clock = ClockSync()
@@ -162,9 +173,19 @@ final class HarnessRunner {
 
         let capabilities = ClientCapabilities(
             deviceName: "Harness iPhone", deviceID: "harness-client",
-            audioCodecs: [.pcmFloat32], videoCodecs: [.hevc, .h264], wantsAudio: false,
+            audioCodecs: [.aacLC, .pcmFloat32], videoCodecs: [.hevc, .h264], wantsAudio: wantsAudio,
             maximumFrameRate: Double(UIScreen.main.maximumFramesPerSecond)
         )
+        if wantsAudio {
+            AudioPlayer.harnessLog = { [weak self] stage, id, extra in self?.log(stage, id, extra: extra) }
+            DiagnosticLogger.shared.mirror = { [weak self] message, category in
+                if category == "Audio" { self?.log("PD", 0, extra: message.replacingOccurrences(of: ",", with: ";")) }
+            }
+            let player = AudioPlayer()
+            audioPlayer = player
+            player.start()
+            log("AUDIO", 0, extra: "volume=\(AVAudioSession.sharedInstance().outputVolume)")
+        }
         connect(host: host, capabilities: capabilities, attempt: 1)
         queue.asyncAfter(deadline: .now() + 30) { [weak self] in
             guard let self, self.formatDescription == nil else { return }
@@ -212,8 +233,13 @@ final class HarnessRunner {
                     if let age = clock.age(ofPresentationTimestamp: assembled.presentationTimestamp, now: nowMicros()) {
                         log("A", Int(assembled.frameNumber), extra: "\(age)")
                     }
+                    audioPlayer?.updateVideoClock(remotePresentationTimestampUs: assembled.presentationTimestamp)
                     decode(assembled)
                 }
+            case .audio:
+                guard let codec = AudioCodecID(packetFlags: packet.header.flags),
+                      let header = AudioChunkHeader.parse(from: packet.payload) else { return }
+                receiveAudio(header, packet.payload.dropFirst(AudioChunkHeader.size), codec: codec)
             case .parameterSets:
                 guard let codec = VideoCodecID(packetFlags: packet.header.flags),
                       let description = VideoFormat.makeDescription(parameterSets: packet.payload, codec: codec) else { return }
@@ -257,10 +283,37 @@ final class HarnessRunner {
         }
         if let control = try? JSONDecoder().decode(ControlMessage.self, from: data) {
             if case .transportOffer(let offer) = control, offer.kind == "rtc2" { acceptRTC(offer) }
+            if case .audioFormatChanged(let format) = control {
+                log("AF", Int(format.sampleRate), extra: "\(format.channels)")
+                audioPlayer?.updateRemoteFormat(sampleRate: format.sampleRate, channels: format.channels)
+                aacDecoder = nil
+            }
             if case .clockReply(let reply) = control, let rtt = clock.reply(reply, now: nowMicros()) {
                 log("C", Int(rtt), extra: "\(clock.offset ?? 0),\(clock.bestRoundTrip ?? 0)")
             }
             if case .ping = control { send(.pong) }
+        }
+    }
+
+    // MARK: audio, the app's decoder and player under the harness log
+
+    /// CA: one chunk received (id = sequence, extra = pts_us, bytes, hash, age_us)
+    private func receiveAudio(_ header: AudioChunkHeader, _ body: Data, codec: AudioCodecID) {
+        guard let player = audioPlayer else { return }
+        audioChunks += 1
+        var h: UInt64 = 0xcbf29ce484222325
+        body.withUnsafeBytes { buf in for b in buf { h = (h ^ UInt64(b)) &* 0x100000001b3 } }
+        let age = clock.age(ofPresentationTimestamp: header.presentationTimestamp, now: nowMicros()) ?? -1
+        log("CA", Int(header.sequenceNumber), extra: "\(header.presentationTimestamp),\(body.count),\(h),\(age)")
+        player.noteAudioPacketArrived()
+        switch codec {
+        case .pcmFloat32:
+            player.enqueue(body, remotePresentationTimestampUs: header.presentationTimestamp)
+        case .aacLC:
+            guard player.hasRemoteFormat else { return }
+            if aacDecoder == nil { aacDecoder = AACDecoder(sampleRate: player.currentSampleRate, channels: player.currentChannels) }
+            guard let buffer = aacDecoder?.decode(body) else { log("PD", 0, extra: "decode failed"); return }
+            player.enqueue(buffer: buffer, remotePresentationTimestampUs: header.presentationTimestamp)
         }
     }
 
@@ -284,15 +337,19 @@ final class HarnessRunner {
                 if self.ackVideo, let t = self.rtcTransport { t.sendInput(self.lastReport, connected: true) }
                 log("H7", Int(assembled.frameNumber), extra: "\(assembled.presentationTimestamp),\(assembled.bitstream.count)")
                 if let age = clock.age(ofPresentationTimestamp: assembled.presentationTimestamp, now: nowMicros()) { log("A", Int(assembled.frameNumber), extra: "\(age)") }
+                self.audioPlayer?.updateVideoClock(remotePresentationTimestampUs: assembled.presentationTimestamp)
                 decode(assembled)
             case .videoParameterSets(let sets, let codec):
                 guard let description = VideoFormat.makeDescription(parameterSets: sets, codec: codec) else { return }
                 formatDescription = description
                 makeDecoder(description)
                 log("PS", 1, extra: codec.wireName)
+            case .audio(let header, let body, let codec):
+                self.receiveAudio(header, body, codec: codec)
             default: break
             }
         }
+        media.hostTimeReference = offer.hostMicros
         rtcPeer = peer
         rtcTransport = media
         // -udpclass <0|3|4>: the peer socket's service class (best effort, video, voice)

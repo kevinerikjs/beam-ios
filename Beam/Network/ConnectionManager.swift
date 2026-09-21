@@ -69,6 +69,7 @@ final class ConnectionManager {
             self.rtcReady = up
             DiagnosticLogger.shared.log(up ? "rtc2 link up" : "rtc2 link down, input on TCP", category: "Connection")
         }
+        media.hostTimeReference = offer.hostMicros
         rtcPeer = peer
         rtcTransport = media
         guard peer.runOwnSocket() == 0 else {
