@@ -229,6 +229,9 @@ final class HarnessRunner {
             guard let self else { return }
             switch inbound {
             case .video(let assembled):
+                // -ackvideo: a tiny uplink send in reaction to every received frame, the way
+                // TCP acks arrive; an experiment on the phone's transmit-path state.
+                if self.ackVideo, let t = self.rtcTransport { t.sendInput(self.lastReport, connected: true) }
                 log("H7", Int(assembled.frameNumber), extra: "\(assembled.presentationTimestamp),\(assembled.bitstream.count)")
                 if let age = clock.age(ofPresentationTimestamp: assembled.presentationTimestamp, now: nowMicros()) { log("A", Int(assembled.frameNumber), extra: "\(age)") }
                 decode(assembled)
@@ -272,8 +275,12 @@ final class HarnessRunner {
         timer.schedule(deadline: .now() + 1, repeating: .milliseconds(ms), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            if self.rtcReady, let t = self.rtcTransport { t.sendInput(self.lastReport, connected: true) }
-            else { self.link?.send(Packet.encode(.input, flags: ControllerReport.connectedFlag, payload: self.lastReport.serialized())) }
+            // With -dualinput each resend is a numbered probe on both pipes; the host logs
+            // which copy arrived first and by how much (H2W/H2X), this side logs the send.
+            var report = self.lastReport
+            if self.dualInput { self.inputSequence &+= 1; report.sequence = self.inputSequence; self.log("KA", Int(self.inputSequence)) }
+            if self.rtcReady, let t = self.rtcTransport { t.sendInput(report, connected: true); if !self.dualInput { return } }
+            self.link?.send(Packet.encode(.input, flags: ControllerReport.connectedFlag, payload: report.serialized()))
         }
         timer.resume(); keepAwakeTimer = timer
         log("KEEPAWAKE", ms)
@@ -282,6 +289,7 @@ final class HarnessRunner {
     /// -dualinput: every report goes on rtc2 and on the TCP link, numbered; the host takes
     /// the first copy. The plain mode sends on rtc2 alone once it is up.
     private lazy var dualInput = CommandLine.arguments.contains("-dualinput")
+    private lazy var ackVideo = CommandLine.arguments.contains("-ackvideo")
     private var inputSequence: UInt16 = 0
 
     private func sendReport(a: Bool) {
