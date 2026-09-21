@@ -412,6 +412,9 @@ final class ConnectionManager {
     /// The user changed the stream mode: re-evaluate the cap (pacing is read per frame).
     func streamModeChanged() { applyBitrateCap() }
 
+    /// The mode's knobs follow the interactive state; the cap is re-sent when they change.
+    private func modeStateChanged() { applyBitrateCap() }
+
     func setAudioEnabled(_ enabled: Bool) {
         guard enabled != isAudioEnabled else { return }
         isAudioEnabled = enabled

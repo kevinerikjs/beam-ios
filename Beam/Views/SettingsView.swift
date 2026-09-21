@@ -20,7 +20,7 @@ struct SettingsView: View {
     @State private var manualRemoteHost = ""
     @AppStorage(AdvancedSettings.latencyMeterKey) private var showLatencyMeter = false
     @AppStorage(AdvancedSettings.enqueueOnMainKey) private var enqueueOnMain = false
-    @AppStorage(AdvancedSettings.framePacingKey) private var framePacing = 2
+    @AppStorage(AdvancedSettings.framePacingKey) private var framePacing = 1
     @AppStorage(AdvancedSettings.bitrateCapMbpsKey) private var bitrateCapMbps = 0.0
     @AppStorage(AdvancedSettings.keepScreenAwakeKey) private var keepScreenAwake = true
     @AppStorage(AdvancedSettings.forceH264Key) private var forceH264 = false
@@ -86,13 +86,19 @@ struct SettingsView: View {
                         Text("Auto").tag(0)
                         Text("Game").tag(1)
                         Text("Video").tag(2)
+                        Text("Custom").tag(3)
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: streamMode) { _ in appState.connectionManager?.streamModeChanged() }
+                    .onChange(of: streamMode) { _ in
+                        AdvancedSettings.applyMode()
+                        appState.connectionManager?.streamModeChanged()
+                    }
                     Text(streamMode == 1
                          ? "Fastest response: video capped at 6 Mbps so your presses land sooner, every frame shown as it arrives."
                          : streamMode == 2
                          ? "Best picture: full bitrate and frames played at a steady rhythm."
+                         : streamMode == 3
+                         ? "Your own Max Bitrate and Frame Pacing from Advanced."
                          : "Game while a controller is connected or click mode is on, Video otherwise. Switches live.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -273,16 +279,17 @@ struct SettingsView: View {
                         Text("Frame Pacing")
                             .foregroundStyle(.white)
                         Picker("", selection: $framePacing) {
-                            Text("Auto").tag(2)
                             Text("Lowest Latency").tag(0)
                             Text("Smoothest").tag(1)
                         }
                         .pickerStyle(.segmented)
-                        Text(framePacing == 2
-                             ? "Follows the stream mode: lowest latency in Game, smoothest in Video."
-                             : framePacing == 0
+                        .onChange(of: framePacing) { _ in AdvancedSettings.knobEdited() }
+                        Text(framePacing == 0
                              ? "Shows each frame the instant it arrives. Pick this for gaming and remote control."
                              : "Holds frames briefly so they play at a steady rhythm. Pick this for watching video. Adds about 10 to 30 ms.")
+                        Text("Set by the stream mode. Changing it here makes the mode Custom.")
+                            .font(.caption2)
+                            .foregroundStyle(.quaternary)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -303,10 +310,10 @@ struct SettingsView: View {
                         }
                         Slider(value: $bitrateCapMbps, in: 0...30, step: 1)
                             .tint(.orange)
-                            .onChange(of: bitrateCapMbps) { _ in appState.connectionManager?.applyBitrateCap() }
+                            .onChange(of: bitrateCapMbps) { _ in AdvancedSettings.knobEdited(); appState.connectionManager?.applyBitrateCap() }
                         Text(bitrateCapMbps > 0
                              ? "A ceiling on video bandwidth. Lower is also lower input latency on iPhone. It can only lower what the quality preset allows."
-                             : "No limit set. In Game mode Beam caps video at 6 Mbps on its own, because an iPhone answers slower while receiving more than that. Set a value to override.")
+                             : "No limit. Game mode sets 6 Mbps here, because an iPhone answers slower while receiving more than that. Changing it makes the mode Custom.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
