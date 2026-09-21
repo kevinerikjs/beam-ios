@@ -25,10 +25,10 @@ struct SettingsView: View {
     @AppStorage(AdvancedSettings.keepScreenAwakeKey) private var keepScreenAwake = true
     @AppStorage(AdvancedSettings.forceH264Key) private var forceH264 = false
     @AppStorage("beam.settings.advancedExpanded") private var advancedExpanded = false
-    #if DEBUG
-    @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
     @AppStorage(ConnectionManager.legacyTransportKey) private var legacyTransport = false
     @AppStorage(AdvancedSettings.streamModeKey) private var streamMode = 0
+    #if DEBUG
+    @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
     #endif
     @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
 
