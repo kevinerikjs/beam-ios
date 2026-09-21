@@ -31,18 +31,65 @@ final class HarnessRunner {
     static var shared = HarnessRunner()
     /// True once a harness run was requested on the command line.
     static private(set) var isActive = false
+    private static var peerPortOffset = 0
 
     /// Starts when the launch arguments ask for it. Safe to call on every launch.
     static func startIfRequested() {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "-harness"), i + 1 < args.count else { return }
-        let host = args[i + 1]
-        let presses = i + 2 < args.count ? Int(args[i + 2]) ?? 60 : 60
-        let interval = i + 3 < args.count ? Int(args[i + 3]) ?? 600 : 600
-        let preset = i + 4 < args.count ? QualityPreset(rawValue: args[i + 4]) ?? .p1080_60 : .p1080_60
         isActive = true
-        shared = HarnessRunner(host: host)
+        startControlListener()
+        start(with: Array(args[i...]))
+    }
+
+    /// `["-harness", host, presses, interval, preset, extra...]`: a fresh runner for each run.
+    private static func start(with args: [String]) {
+        guard args.count >= 2 else { return }
+        let host = args[1]
+        let presses = args.count > 2 ? Int(args[2]) ?? 60 : 60
+        let interval = args.count > 3 ? Int(args[3]) ?? 600 : 600
+        let preset = args.count > 4 ? QualityPreset(rawValue: args[4]) ?? .p1080_60 : .p1080_60
+        shared.stop()
+        shared = HarnessRunner(host: host, args: args)
         shared.start(host: host, presses: presses, intervalMs: interval, preset: preset)
+    }
+
+    /// The Mac starts the next run over plain TCP (port 7991, one line: the arguments after
+    /// `-harness`), so the app is launched through devicectl once per session: every
+    /// devicectl call brings up a CoreDevice tunnel on the Mac, and each tunnel costs a
+    /// ~3.5 s full-band Wi-Fi scan.
+    private static var control: NWListener?
+    private static func startControlListener() {
+        guard control == nil, let listener = try? NWListener(using: .tcp, on: 7991) else { return }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .main)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
+                defer { connection.cancel() }
+                guard let data, let line = String(data: data, encoding: .utf8) else { return }
+                let args = line.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+                DispatchQueue.main.async { start(with: args) }
+            }
+        }
+        listener.start(queue: .main)
+        control = listener
+    }
+
+    private let args: [String]
+    private func flag(_ name: String) -> Bool { args.contains(name) }
+    private func value(_ name: String) -> String? {
+        guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
+    /// Tears the run down so a new runner can take the port and the peer socket.
+    func stop() {
+        keepAwakeTimer?.cancel(); keepAwakeTimer = nil
+        clockTimer?.cancel(); clockTimer = nil
+        sink?.cancel(); sink = nil
+        link?.onEnd = nil; link?.cancel(); link = nil
+        rtcTransport?.cancel(); rtcTransport = nil; rtcPeer = nil; rtcReady = false
+        if let decoder { VTDecompressionSessionInvalidate(decoder) }; decoder = nil
+        logQueue.sync {}
     }
 
     private let secret = SharedSecret(hex: "5e1f2a9c4d7b3e6a8f0c1d2e3b4a5968778695a4b3c2d1e0f1e2d3c4b5a69788")!
@@ -67,8 +114,8 @@ final class HarnessRunner {
     private var rtcReady = false
     private let host: String
 
-    private init() { host = "" }
-    private init(host: String) { self.host = host }
+    private init() { host = ""; args = [] }
+    private init(host: String, args: [String]) { self.host = host; self.args = args }
 
     static var logURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("harness.log")
@@ -222,7 +269,9 @@ final class HarnessRunner {
     private func acceptRTC(_ offer: TransportOffer) {
         // Bind on the interface that reaches the host: loopback for a host on this machine
         // (the simulator shares the Mac's stack), else the address of our TCP side.
-        let ours = "\(host == "127.0.0.1" ? "127.0.0.1" : localAddressTowardHost()):7982"
+        // a fresh port per runner instance: the previous run's socket may still be held
+        HarnessRunner.peerPortOffset = (HarnessRunner.peerPortOffset + 1) % 40
+        let ours = "\(host == "127.0.0.1" ? "127.0.0.1" : localAddressTowardHost()):\(7982 + HarnessRunner.peerPortOffset)"
         guard let peer = RealtimePeer(isHost: false, localAddress: ours) else { log("RTC", 0, extra: "peer failed"); return }
         let media = PhorosPeerTransport(peer: peer, queue: queue)
         media.onReady = { [weak self] in self?.rtcReady = true; self?.log("RTC", 1) }
@@ -247,9 +296,7 @@ final class HarnessRunner {
         rtcPeer = peer
         rtcTransport = media
         // -udpclass <0|3|4>: the peer socket's service class (best effort, video, voice)
-        if let i = CommandLine.arguments.firstIndex(of: "-udpclass"), i + 1 < CommandLine.arguments.count, let c = Int32(CommandLine.arguments[i + 1]) {
-            peer.setServiceClass(c); log("UDPCLASS", Int(c))
-        }
+        if let c = value("-udpclass").flatMap(Int32.init) { peer.setServiceClass(c); log("UDPCLASS", Int(c)) }
         guard peer.runOwnSocket() == 0 else { log("RTC", 0, extra: "bind failed"); return }
         peer.setRemote(info: offer.info, address: offer.address, nowMicros: 0)
         send(.transportAnswer(TransportOffer(kind: "rtc2", address: ours, info: peer.localInfo)))
@@ -270,8 +317,7 @@ final class HarnessRunner {
     /// about downlink rate).
     private var sink: NWConnection?
     private func startTCPSinkIfRequested(host: String) {
-        let args = CommandLine.arguments
-        guard let i = args.firstIndex(of: "-tcpsink"), i + 1 < args.count, let port = UInt16(args[i + 1]) else { return }
+        guard let port = value("-tcpsink").flatMap(UInt16.init) else { return }
         let c = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
         sink = c
         func drain() {
@@ -289,8 +335,7 @@ final class HarnessRunner {
     /// -keepawake <ms>: resends the current controller state every so often, an experiment
     /// to keep the phone's radio out of power save (uplink traffic is what an AP counts).
     private func startKeepAwakeIfRequested() {
-        let args = CommandLine.arguments
-        guard let i = args.firstIndex(of: "-keepawake"), i + 1 < args.count, let ms = Int(args[i + 1]), ms > 0 else { return }
+        guard let ms = value("-keepawake").flatMap(Int.init), ms > 0 else { return }
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 1, repeating: .milliseconds(ms), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
@@ -308,8 +353,8 @@ final class HarnessRunner {
 
     /// -dualinput: every report goes on rtc2 and on the TCP link, numbered; the host takes
     /// the first copy. The plain mode sends on rtc2 alone once it is up.
-    private lazy var dualInput = CommandLine.arguments.contains("-dualinput")
-    private lazy var ackVideo = CommandLine.arguments.contains("-ackvideo")
+    private lazy var dualInput = flag("-dualinput")
+    private lazy var ackVideo = flag("-ackvideo")
     private var inputSequence: UInt16 = 0
 
     private func sendReport(a: Bool) {
