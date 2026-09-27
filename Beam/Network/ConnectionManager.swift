@@ -225,6 +225,8 @@ final class ConnectionManager {
     /// toggle still mutes, it just can't save the bandwidth.
     private(set) var hostSupportsAudioToggle = false
     private(set) var hostSupportsWindowSelection = false
+    /// Press/drag/release, scroll and multi-clicks in click mode (BEAM-70).
+    private(set) var hostSupportsPointer = false
     /// True when the host said it replays controller input into a virtual gamepad (Beacon 1.5+).
     private(set) var hostSupportsControllerInput = false
     private var warmupStartedAt: Date?
@@ -383,10 +385,13 @@ final class ConnectionManager {
     /// `controlID` names a button of the host's advertised layout (BEAM-39); `key` is what an
     /// older host acts on and is only meaningful for the built-in layout.
     func sendMediaKey(_ key: MediaKeyCommand.Key, controlID: String? = nil, text: String? = nil,
-                      keystroke: String? = nil, keystrokeModifiers: UInt32? = nil, click: Click? = nil) {
+                      keystroke: String? = nil, specialKey: SpecialKey? = nil,
+                      keystrokeModifiers: UInt32? = nil, click: Click? = nil,
+                      pointer: PointerEvent? = nil) {
         sendControl(.mediaKey(MediaKeyCommand(
             key: key, controlID: controlID, text: text,
-            keystroke: keystroke, keystrokeModifiers: keystrokeModifiers, click: click
+            keystroke: keystroke, keystrokeModifiers: keystrokeModifiers,
+            specialKey: specialKey, click: click, pointer: pointer
         )))
     }
 
@@ -753,12 +758,14 @@ final class ConnectionManager {
             hostSupportsVideoHold = peer.supportsVideoHold
             hostSupportsAudioToggle = peer.supportsAudioToggle
             hostSupportsWindowSelection = peer.supportsWindowSelection
+            hostSupportsPointer = peer.supportsPointer
             hostSupportsControllerInput = peer.supportsControllerInput
             hostSupportsClockSync = peer.supportsClockSync
             if peer.supportsClockSync { startClockProbes() }
             let controls = Array(peer.controls.prefix(8))
             Task { @MainActor in
                 appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection
+                appState?.hostSupportsPointer = self.hostSupportsPointer
                 appState?.hostPhoneControls = controls
             }
             if !isAudioEnabled, !hostSupportsAudioToggle {

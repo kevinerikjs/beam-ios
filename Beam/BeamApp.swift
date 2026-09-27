@@ -69,9 +69,10 @@ struct BeamApp: App {
                 .sheet(item: $whatsNew) { presentation in
                     switch presentation {
                     case .version:
+                        let sections = WhatsNewManager.unseenSections
                         WhatsNewView(
-                            entries: WhatsNewManager.versionEntries,
-                            subtitle: "Version \(WhatsNewManager.appVersion)"
+                            sections: sections,
+                            subtitle: WhatsNewManager.subtitle(for: sections)
                         ) {
                             WhatsNewManager.markVersionSeen()
                             whatsNew = nil

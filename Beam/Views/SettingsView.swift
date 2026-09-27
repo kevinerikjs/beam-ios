@@ -800,8 +800,9 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Version \(WhatsNewManager.appVersion), show what's new")
                 .sheet(isPresented: $showWhatsNew) {
+                    // The full history, one heading per release.
                     WhatsNewView(
-                        entries: WhatsNewManager.versionEntries,
+                        sections: WhatsNewManager.allSections,
                         subtitle: "Version \(WhatsNewManager.appVersion)"
                     ) {
                         showWhatsNew = false
