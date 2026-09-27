@@ -6,7 +6,22 @@ import PostHog
 
 enum Analytics {
 
+    /// Simulator and Debug builds stay out of the production project: a
+    /// screenshot run on 2026-09-27 reinstalled the app on a simulator 13
+    /// times and took that day's installs from 5 to 18 (BEAM-71). Set
+    /// `BEAM_ANALYTICS=1` in the scheme's environment to send anyway, for
+    /// example to check a new event.
+    private static let isEnabled: Bool = {
+        if ProcessInfo.processInfo.environment["BEAM_ANALYTICS"] == "1" { return true }
+        #if targetEnvironment(simulator) || DEBUG
+        return false
+        #else
+        return true
+        #endif
+    }()
+
     static func start() {
+        guard isEnabled else { return }
         let config = PostHogConfig(apiKey: "phc_h2gJDFJnFYT3CKU5pyuv2Yk5VE28YjS2mBvAQqTTNij", host: "https://w.beamscreen.app")
         config.captureScreenViews = false
         config.captureApplicationLifecycleEvents = true
@@ -17,6 +32,7 @@ enum Analytics {
     }
 
     static func track(_ event: String, properties: [String: Any]? = nil) {
+        guard isEnabled else { return }
         PostHogSDK.shared.capture(event, properties: properties)
     }
 }
