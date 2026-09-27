@@ -25,6 +25,7 @@ struct StreamOverlay: View {
     let onDisconnect: () -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var isShowingClickGuide = false
 
     /// iPhone in portrait. The one layout where the bottom bar's full set of controls is
     /// wider than the screen, so it stacks into two rows there.
@@ -51,6 +52,9 @@ struct StreamOverlay: View {
             // Never wider than the screen: an overflowing HStack would otherwise centre itself
             // and push both bars' outer buttons off the edges.
             .frame(maxWidth: .infinity)
+        }
+        .sheet(isPresented: $isShowingClickGuide) {
+            ClickModeGuideView()
         }
     }
 
@@ -208,6 +212,38 @@ struct StreamOverlay: View {
         .padding(.leading, 6)
     }
 
+    /// How to click, drag, scroll and zoom in click mode (BEAM-70).
+    private var clickGuideButton: some View {
+        Button {
+            isShowingClickGuide = true
+        } label: {
+            // A cursor with a question-mark badge: "how does the pointer work here?"
+            Image(systemName: "cursorarrow")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .overlay(alignment: .topTrailing) {
+                    Image(systemName: "questionmark.circle.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.black, .orange)
+                        .offset(x: 7, y: -5)
+                }
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 4)
+        .accessibilityLabel("Click mode gestures")
+    }
+
+    /// The host's layout, minus right-click buttons when the Mac takes a two-finger tap as a
+    /// right click. An older Mac keeps them: it is the only way to right-click there, and an
+    /// older phone still gets them from the same layout.
+    private var visiblePhoneControls: [ControlButton] {
+        guard appState.hostSupportsPointer else { return appState.hostPhoneControls }
+        return appState.hostPhoneControls.filter { $0.mode != "click_right" }
+    }
+
     /// The host's layout when it advertised one (BEAM-39), else the built-in five. A symbol
     /// this iOS version doesn't have falls back to a generic glyph so no button is ever blank.
     private var mediaControls: some View {
@@ -219,28 +255,41 @@ struct StreamOverlay: View {
                 MediaButton(systemName: "forward.fill",    label: "Next") { appState.connectionManager?.sendMediaKey(.next) }
                 MediaButton(systemName: "arrow.clockwise", label: "Seek Forward") { appState.connectionManager?.sendMediaKey(.seekForward) }
             } else {
-                ForEach(appState.hostPhoneControls, id: \.id) { control in
+                ForEach(visiblePhoneControls, id: \.id) { control in
                     let symbol = UIImage(systemName: control.symbol) != nil ? control.symbol : "circle.fill"
                     let mode = control.mode ?? (control.promptsForText == true ? "text" : "tap")
-                    let isOn = appState.activeControlMode?.controlID == control.id
-                        || appState.armedModifiers[control.id] != nil
+                    let modifierState = appState.keyboardModifierState(for: control.modifier ?? "")
+                    let isModifier = mode == "modifier"
+                    let isOn: Bool = {
+                        switch mode {
+                        case "modifier": return modifierState != .off
+                        case "keyboard": return appState.keyboardControlID == control.id
+                        case "click", "click_left", "click_right": return appState.clickControl?.controlID == control.id
+                        default: return false
+                        }
+                    }()
                     MediaButton(systemName: symbol, label: control.label, large: control.prominent ?? false,
-                                isOn: isOn, compact: isNarrowPortrait && appState.hostPhoneControls.count >= 7) {
+                                isOn: isOn, isLocked: isModifier && modifierState == .locked,
+                                compact: isNarrowPortrait && visiblePhoneControls.count >= 7) {
                         switch mode {
                         case "text":
                             onPromptText(control)
                         case "keyboard":
-                            appState.activeControlMode = isOn ? nil : .keyboard(controlID: control.id)
+                            appState.keyboardControlID = isOn ? nil : control.id
                         case "modifier":
-                            if isOn {
-                                appState.armedModifiers[control.id] = nil
-                            } else {
-                                appState.armedModifiers[control.id] = BeamAppState.carbonMask(forModifier: control.modifier ?? "")
-                            }
+                            appState.tapKeyboardModifier(control.modifier ?? "")
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         case "click", "click_left", "click_right":
-                            if mode == "click_left" { appState.clickModeRight = false }
-                            if mode == "click_right" { appState.clickModeRight = true }
-                            appState.activeControlMode = isOn ? nil : .click(controlID: control.id, fixed: mode != "click")
+                            if appState.hostSupportsPointer {
+                                // One click mode: taps are left clicks, a two-finger tap is
+                                // the right click, so there is no button to choose.
+                                appState.clickModeRight = false
+                                appState.clickControl = isOn ? nil : .init(controlID: control.id, fixed: true)
+                            } else {
+                                if mode == "click_left" { appState.clickModeRight = false }
+                                if mode == "click_right" { appState.clickModeRight = true }
+                                appState.clickControl = isOn ? nil : .init(controlID: control.id, fixed: mode != "click")
+                            }
                         default:
                             // `key` is irrelevant to a host that sent a layout; playPause is the
                             // harmless placeholder the wire format still requires.
@@ -248,7 +297,9 @@ struct StreamOverlay: View {
                         }
                     }
                 }
-                if case .click(_, let fixed) = appState.activeControlMode, !fixed {
+                if appState.isClickActive, appState.hostSupportsPointer {
+                    clickGuideButton
+                } else if let click = appState.clickControl, !click.fixed {
                     clickButtonPicker
                 }
             }
@@ -781,6 +832,8 @@ struct MediaButton: View {
     var large: Bool = false
     /// Toggled state for mode buttons (BEAM-40): filled accent circle behind the glyph.
     var isOn: Bool = false
+    /// A locked modifier has a stronger outline and lock badge than a one-shot modifier.
+    var isLocked: Bool = false
     /// Tighter hit targets so an eight-button bar fits an iPhone in portrait.
     var compact: Bool = false
     let action: () -> Void
@@ -793,6 +846,19 @@ struct MediaButton: View {
                 .foregroundStyle(isOn ? .black : .white)
                 .frame(width: side, height: side)
                 .background(isOn ? Color.orange : .clear, in: Circle())
+                .overlay {
+                    if isLocked {
+                        Circle().stroke(Color.white.opacity(0.82), lineWidth: 1.5)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                            .offset(x: -2, y: 2)
+                    }
+                }
         }
         .accessibilityLabel(label)
         .accessibilityAddTraits(isOn ? .isSelected : [])

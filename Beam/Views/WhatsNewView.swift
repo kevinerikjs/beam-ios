@@ -1,8 +1,10 @@
 // WhatsNewView.swift
 // Two independent "what's new" surfaces, both one-shot:
 //
-//   1. Version changelog — shown once per app version after an update. Lists what shipped
-//      in that release.
+//   1. Version changelog — every entry is tagged with the release it shipped in, and the
+//      phone remembers which releases the person has already seen and dismissed. After an
+//      update it shows only the unseen ones, newest first, so someone updating daily sees one
+//      short list per update and someone who skipped a few sees just what they missed.
 //   2. Feature-unlock changelog — shown once, ever, the first time a remotely-gated feature
 //      latches on (BEAM-18). Lists ONLY that feature.
 //
@@ -20,83 +22,135 @@ struct ChangeEntry: Identifiable {
     let icon: String
     let title: String
     let detail: String
+    /// The app version this shipped in ("3.4"). Empty for feature-unlock notes.
+    var release: String = ""
 }
 
-/// Ships with the release. Must NOT mention any feature that is still behind a flag.
-/// Controller passthrough is no longer behind one: the flag went global with Beacon 1.5.0, and
-/// 3.1 also arms on the host's own capability. 3.3's engine and modes head the list, 3.2's
-/// latency work follows. The 3.0 entries stay because most people update straight from 2.x.
+/// One release's entries. `release` nil means "no heading" (a single-release list).
+struct ChangeSection: Identifiable {
+    let release: String?
+    let entries: [ChangeEntry]
+    var id: String { release ?? "all" }
+}
+
+/// Every release's notes, newest first, each tagged with its release. Only entries whose
+/// release the person hasn't dismissed yet are shown after an update; Settings shows them
+/// all. Must NOT mention any feature that is still behind a flag.
 private let versionChangelog: [ChangeEntry] = [
+    ChangeEntry(
+        icon: "command",
+        title: "Mac Keys Above Your Keyboard",
+        detail: "Live keyboard now has a row of Mac keys on top: esc, tab, the arrows and ⌃ ⌥ ⇧ ⌘. Swipe it for home, end, page up and down, forward delete and F1 to F12. Tap a modifier for one key, or hold it to lock it for as many shortcuts as you like. Needs the latest Beacon, which updates itself.",
+        release: "3.4"
+    ),
+    ChangeEntry(
+        icon: "cursorarrow.motionlines",
+        title: "Double-Click, Right-Click, Drag and Scroll",
+        detail: "In click mode, tap twice to double-click. Touch and hold, then move to drag windows or select text, or lift to right-click. Slide two fingers to scroll. The cursor button in the bar shows every gesture. Needs the latest Beacon.",
+        release: "3.4"
+    ),
+    ChangeEntry(
+        icon: "keyboard",
+        title: "Type and Click Together",
+        detail: "Keyboard and click mode can be on at the same time. When the keyboard opens, the picture slides up so the keyboard doesn't cover it.",
+        release: "3.4"
+    ),
+    ChangeEntry(
+        icon: "wrench.and.screwdriver",
+        title: "Fixes",
+        detail: "Zooming out no longer leaves the picture hanging off the edge. Turning the phone keeps the keyboard open. In landscape, the key row stays clear of the notch.",
+        release: "3.4"
+    ),
     ChangeEntry(
         icon: "antenna.radiowaves.left.and.right",
         title: "New Streaming Engine",
-        detail: "Video, audio and controller input now travel over a transport built for games: lost packets are repaired in milliseconds instead of stalling the stream, so a busy Wi-Fi network no longer means hitches. If it ever struggles, Beam falls back to the old path on its own. Needs Beacon 1.6, which updates itself."
+        detail: "Video, audio and controller input now travel over a transport built for games: lost packets are repaired in milliseconds instead of stalling the stream, so a busy Wi-Fi network no longer means hitches. If it ever struggles, Beam falls back to the old path on its own. Needs Beacon 1.6, which updates itself.",
+        release: "3.3"
     ),
     ChangeEntry(
         icon: "gamecontroller.fill",
         title: "Stream Modes",
-        detail: "Game mode trades a little picture detail for the tightest input response. Video mode gives the picture everything. Auto picks Game whenever a controller is attached or click mode is on. Change it in Settings or from the in-stream sheet, it applies live."
+        detail: "Game mode trades a little picture detail for the tightest input response. Video mode gives the picture everything. Auto picks Game whenever a controller is attached or click mode is on. Change it in Settings or from the in-stream sheet, it applies live.",
+        release: "3.3"
     ),
     ChangeEntry(
         icon: "waveform",
         title: "Audio That Stays Put",
-        detail: "Sound no longer crackles or drops out when the radio hiccups. Beam now sizes its audio buffer to what your network actually does."
+        detail: "Sound no longer crackles or drops out when the radio hiccups. Beam now sizes its audio buffer to what your network actually does.",
+        release: "3.3"
     ),
     ChangeEntry(
         icon: "bolt.fill",
         title: "Much Lower Latency",
-        detail: "A press reaches the screen in about a third of the time it took before. The Mac sends video at the pace your Wi-Fi can carry, and frames go straight to the display. Needs Beacon 1.5.1, which updates itself."
+        detail: "A press reaches the screen in about a third of the time it took before. The Mac sends video at the pace your Wi-Fi can carry, and frames go straight to the display. Needs Beacon 1.5.1, which updates itself.",
+        release: "3.2"
     ),
     ChangeEntry(
         icon: "gauge.with.dots.needle.67percent",
         title: "120 fps and Advanced Settings",
-        detail: "Beam streams at your screen's refresh rate, up to 120 fps, for smoother motion and lower latency. The Advanced section has frame pacing, a bitrate cap, codec choice, a Legacy Transport switch and a latency meter."
+        detail: "Beam streams at your screen's refresh rate, up to 120 fps, for smoother motion and lower latency. The Advanced section has frame pacing, a bitrate cap, codec choice, a Legacy Transport switch and a latency meter.",
+        release: "3.2"
     ),
     ChangeEntry(
         icon: "gamecontroller.fill",
         title: "Play Mac Games With a Controller",
-        detail: "Pair a controller with your iPhone or iPad and your Mac sees a real gamepad: both sticks, analog triggers, every button. Needs Beacon 1.5.0 on the Mac, which updates itself."
+        detail: "Pair a controller with your iPhone or iPad and your Mac sees a real gamepad: both sticks, analog triggers, every button. Needs Beacon 1.5.0 on the Mac, which updates itself.",
+        release: "3.1"
     ),
     ChangeEntry(
         icon: "ipad.landscape",
         title: "Beam on iPad",
-        detail: "Beam now runs on iPad. Same pairing, same stream, more screen."
+        detail: "Beam now runs on iPad. Same pairing, same stream, more screen.",
+        release: "3.0"
     ),
     ChangeEntry(
         icon: "cursorarrow.click",
         title: "Click the Mac From Your Phone",
-        detail: "Turn on click mode and tap the stream. The Mac clicks the same point, with zoom, viewport lock and window mode taken into account. Left click and right click are separate buttons in the default bar."
+        detail: "Turn on click mode and tap the stream. The Mac clicks the same point, with zoom, viewport lock and window mode taken into account. Left click and right click are separate buttons in the default bar.",
+        release: "3.0"
     ),
     ChangeEntry(
         icon: "keyboard",
         title: "Type on the Mac Live",
-        detail: "The Keyboard button opens your phone keyboard. Each key goes to the app that has focus on the Mac as you type. In the Computer Use layout, the ⌘ ⌃ ⌥ ⇧ buttons hold a modifier for the next key, so you can type shortcuts."
+        detail: "The Keyboard button opens your phone keyboard. Each key goes to the app that has focus on the Mac as you type. In the Computer Use layout, the ⌘ ⌃ ⌥ ⇧ buttons hold a modifier for the next key, so you can type shortcuts.",
+        release: "3.0"
     ),
     ChangeEntry(
         icon: "slider.horizontal.3",
         title: "Your Buttons, Your Layout",
-        detail: "Open Beacon Settings, then Controls, and build your own bar: up to eight buttons, each with its own icon and action. Actions are keys, shortcuts, media keys, recorded macros, a text box, live keyboard and click. Two built-in layouts are included."
+        detail: "Open Beacon Settings, then Controls, and build your own bar: up to eight buttons, each with its own icon and action. Actions are keys, shortcuts, media keys, recorded macros, a text box, live keyboard and click. Two built-in layouts are included.",
+        release: "3.0"
     ),
     ChangeEntry(
         icon: "macwindow",
         title: "Pick the Window From Here",
-        detail: "Lock the stream to one Mac window from the phone, or go back to the full display. Beacon can also start on a window you choose each time you connect."
+        detail: "Lock the stream to one Mac window from the phone, or go back to the full display. Beacon can also start on a window you choose each time you connect.",
+        release: "3.0"
     ),
     ChangeEntry(
         icon: "speaker.slash.fill",
         title: "Stream Without Audio",
-        detail: "Turn audio off in Settings, or with the speaker button while streaming. With the latest Beacon, the Mac sends no audio at all, so the picture gets all the bandwidth."
+        detail: "Turn audio off in Settings, or with the speaker button while streaming. With the latest Beacon, the Mac sends no audio at all, so the picture gets all the bandwidth.",
+        release: "3.0"
     ),
     ChangeEntry(
         icon: "rectangle.dashed",
         title: "Fixes",
-        detail: "The viewport lock streams exactly the region you chose. Hold-to-detect finds the video edges precisely. The lock hint no longer hides under the notch. The on-screen controls fit every iPhone."
+        detail: "The viewport lock streams exactly the region you chose. Hold-to-detect finds the video edges precisely. The lock hint no longer hides under the notch. The on-screen controls fit every iPhone.",
+        release: "3.0"
     ),
     ChangeEntry(
         icon: "shippingbox",
         title: "Built on Phoros",
-        detail: "Beam now runs on Phoros, the open protocol and plumbing it shares with Beacon. Nothing changes on the wire, so every Beacon keeps working."
+        detail: "Beam now runs on Phoros, the open protocol and plumbing it shares with Beacon. Nothing changes on the wire, so every Beacon keeps working.",
+        release: "3.0"
     ),
+]
+
+/// The release whose notes announce a formerly gated feature. Someone who has seen those
+/// notes doesn't also get the unlock notice.
+private let unlockCoveredByRelease: [FeatureFlags.Feature: String] = [
+    .controllerPassthrough: "3.1",
 ]
 
 /// Shown on its own when a gated feature unlocks. One entry per feature, nothing else.
@@ -112,22 +166,37 @@ private let unlockChangelog: [FeatureFlags.Feature: ChangeEntry] = [
 
 struct WhatsNewView: View {
 
-    let entries: [ChangeEntry]
+    let sections: [ChangeSection]
     let title: String
     let subtitle: String
     let onDismiss: () -> Void
 
+    /// Release notes, one section per release. Each release gets a small heading when more
+    /// than one is shown.
+    init(
+        sections: [ChangeSection],
+        title: String = "What's New",
+        subtitle: String,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.sections = sections
+        self.title = title
+        self.subtitle = subtitle
+        self.onDismiss = onDismiss
+    }
+
+    /// A single list with no headings, as a feature-unlock notice uses.
     init(
         entries: [ChangeEntry],
         title: String = "What's New",
         subtitle: String,
         onDismiss: @escaping () -> Void
     ) {
-        self.entries = entries
-        self.title = title
-        self.subtitle = subtitle
-        self.onDismiss = onDismiss
+        self.init(sections: [ChangeSection(release: nil, entries: entries)],
+                  title: title, subtitle: subtitle, onDismiss: onDismiss)
     }
+
+    private var showsReleaseHeadings: Bool { sections.count > 1 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -160,9 +229,19 @@ struct WhatsNewView: View {
             .padding(.bottom, 36)
 
             // Changelog entries
-            if !entries.isEmpty {
-                VStack(spacing: 20) {
-                    ForEach(entries) { entry in
+            if sections.contains(where: { !$0.entries.isEmpty }) {
+                VStack(alignment: .leading, spacing: 20) {
+                    ForEach(sections) { section in
+                    if showsReleaseHeadings, let release = section.release {
+                        Text("Version \(release)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .tracking(0.6)
+                            .textCase(.uppercase)
+                            .foregroundColor(Color.white.opacity(0.4))
+                            .padding(.top, section.id == sections.first?.id ? 0 : 8)
+                            .accessibilityAddTraits(.isHeader)
+                    }
+                    ForEach(section.entries) { entry in
                         HStack(alignment: .top, spacing: 16) {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -189,6 +268,7 @@ struct WhatsNewView: View {
                             }
                             Spacer(minLength: 0)
                         }
+                    }
                     }
                 }
                 .padding(.horizontal, 28)
@@ -240,18 +320,14 @@ private struct BounceOnlyWhenNeeded: ViewModifier {
 // MARK: - Presentation gate
 
 enum WhatsNewManager {
-    private static let key = "whatsNewLastSeenVersion"
+    /// Releases whose notes the person has dismissed ("3.3", "3.4", ...).
+    private static let seenReleasesKey = "whatsNewSeenReleases"
+    /// Before per-release tracking: the last version shown, as "3.3 (15)". Read once to
+    /// migrate, so an existing user doesn't get the whole history again.
+    private static let legacyKey = "whatsNewLastSeenVersion"
 
     static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1"
-    }
-
-    /// The seen marker includes the build number, so a new build of the same version shows
-    /// the changelog again. Builds only change per submission, so users see it once per
-    /// release; developers see it on every install.
-    private static var seenMarker: String {
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        return "\(appVersion) (\(build))"
     }
 
     /// Shared preconditions for interrupting the user with a sheet at launch.
@@ -266,15 +342,77 @@ enum WhatsNewManager {
     // MARK: Version changelog
 
     static var shouldShowVersion: Bool {
-        guard !versionChangelog.isEmpty, canInterrupt else { return false }
-        let seen = UserDefaults.standard.string(forKey: key) ?? ""
-        return seen != seenMarker
+        migrateIfNeeded()
+        guard canInterrupt else { return false }
+        return !unseenEntries.isEmpty
     }
 
-    static var versionEntries: [ChangeEntry] { versionChangelog }
+    /// What the person hasn't seen yet, one section per release, newest first.
+    static var unseenSections: [ChangeSection] { sections(unseenEntries) }
+
+    /// The whole history, for reopening from Settings.
+    static var allSections: [ChangeSection] { sections(shippedEntries) }
+
+    /// "Version 3.4" for one release, a softer line when several are being caught up on.
+    static func subtitle(for sections: [ChangeSection]) -> String {
+        sections.count > 1 ? "Since your last update" : "Version \(sections.first?.release ?? appVersion)"
+    }
 
     static func markVersionSeen() {
-        UserDefaults.standard.set(seenMarker, forKey: key)
+        migrateIfNeeded()
+        var seen = seenReleases
+        seen.formUnion(shippedEntries.map(\.release))
+        UserDefaults.standard.set(Array(seen).sorted(), forKey: seenReleasesKey)
+    }
+
+    /// Entries for this version and older. Notes written ahead of a version bump stay hidden
+    /// until the build that carries them.
+    private static var shippedEntries: [ChangeEntry] {
+        versionChangelog.filter { compare($0.release, appVersion) <= 0 }
+    }
+
+    private static var unseenEntries: [ChangeEntry] {
+        let seen = seenReleases
+        return shippedEntries.filter { !seen.contains($0.release) }
+    }
+
+    private static var seenReleases: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: seenReleasesKey) ?? [])
+    }
+
+    private static func sections(_ entries: [ChangeEntry]) -> [ChangeSection] {
+        var order: [String] = []
+        var byRelease: [String: [ChangeEntry]] = [:]
+        for entry in entries {
+            if byRelease[entry.release] == nil { order.append(entry.release) }
+            byRelease[entry.release, default: []].append(entry)
+        }
+        order.sort { compare($0, $1) > 0 }
+        return order.map { ChangeSection(release: $0, entries: byRelease[$0] ?? []) }
+    }
+
+    /// First run of per-release tracking. Someone who last saw "3.3 (15)" has seen every
+    /// release up to 3.3. Someone with no record at all is a new install (or never finished
+    /// onboarding): nothing already shipped is news to them.
+    private static func migrateIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard defaults.stringArray(forKey: seenReleasesKey) == nil else { return }
+        let lastSeen = defaults.string(forKey: legacyKey)?
+            .components(separatedBy: " ").first
+        let cutoff = lastSeen ?? appVersion
+        let seen = versionChangelog.map(\.release).filter { compare($0, cutoff) <= 0 }
+        defaults.set(Array(Set(seen)).sorted(), forKey: seenReleasesKey)
+    }
+
+    /// Numeric version comparison: "3.10" is after "3.9".
+    private static func compare(_ a: String, _ b: String) -> Int {
+        let x = a.split(separator: ".").map { Int($0) ?? 0 }
+        let y = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(x.count, y.count) {
+            let l = i < x.count ? x[i] : 0, r = i < y.count ? y[i] : 0
+            if l != r { return l < r ? -1 : 1 }
+        }
+        return 0
     }
 
     // MARK: Feature-unlock changelog
@@ -287,6 +425,12 @@ enum WhatsNewManager {
         guard canInterrupt, !shouldShowVersion else { return nil }
         guard let feature = FeatureFlags.shared.pendingUnlockNotice,
               let entry = unlockChangelog[feature] else { return nil }
+        // Once a feature is in the release notes the person has seen, "just unlocked" is old
+        // news (and baffling on a fresh install): retire the notice quietly.
+        if let release = unlockCoveredByRelease[feature], seenReleases.contains(release) {
+            markUnlockSeen(feature)
+            return nil
+        }
         return (feature, entry)
     }
 

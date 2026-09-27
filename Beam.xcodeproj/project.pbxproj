@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		02B9154D6D615FEE38E9E6B4 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B77BDBB88ACD0081106E6E1E /* StreamView.swift */; };
+		D69000000000000000000001 /* KeyboardAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69000000000000000000002 /* KeyboardAccessory.swift */; };
+		D69000000000000000000003 /* ClickModeSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69000000000000000000004 /* ClickModeSurface.swift */; };
+		D69000000000000000000005 /* ClickModeGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69000000000000000000006 /* ClickModeGuide.swift */; };
 		0A21F4742F81B41A004EA5A1 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A21F4732F81B41A004EA5A1 /* WidgetKit.framework */; };
 		0A21F4762F81B41A004EA5A1 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A21F4752F81B41A004EA5A1 /* SwiftUI.framework */; };
 		0A21F4852F81B41C004EA5A1 /* BeamWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0A21F4722F81B41A004EA5A1 /* BeamWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -125,6 +128,9 @@
 		B5F94B0F4BD70B35FC703EEE /* Network.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Network.framework; path = System/Library/Frameworks/Network.framework; sourceTree = SDKROOT; };
 		B6532D3B9FE36DBFA3E19A7E /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HomeView.swift; path = Beam/Views/HomeView.swift; sourceTree = SOURCE_ROOT; };
 		B77BDBB88ACD0081106E6E1E /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamView.swift; path = Beam/Views/StreamView.swift; sourceTree = SOURCE_ROOT; };
+		D69000000000000000000002 /* KeyboardAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KeyboardAccessory.swift; path = Beam/Views/KeyboardAccessory.swift; sourceTree = SOURCE_ROOT; };
+		D69000000000000000000004 /* ClickModeSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ClickModeSurface.swift; path = Beam/Views/ClickModeSurface.swift; sourceTree = SOURCE_ROOT; };
+		D69000000000000000000006 /* ClickModeGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ClickModeGuide.swift; path = Beam/Views/ClickModeGuide.swift; sourceTree = SOURCE_ROOT; };
 		B8D4E7920AF163C59E33F801 /* VideoMotionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VideoMotionDetector.swift; path = Beam/Streaming/VideoMotionDetector.swift; sourceTree = SOURCE_ROOT; };
 		BCECC1EDA79E5FC2093937B8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Beam/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 		C1557FB665B475A9C150718B /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AudioPlayer.swift; path = Beam/Streaming/AudioPlayer.swift; sourceTree = SOURCE_ROOT; };
@@ -199,6 +205,9 @@
 			children = (
 				B6532D3B9FE36DBFA3E19A7E /* HomeView.swift */,
 				B77BDBB88ACD0081106E6E1E /* StreamView.swift */,
+				D69000000000000000000002 /* KeyboardAccessory.swift */,
+				D69000000000000000000004 /* ClickModeSurface.swift */,
+				D69000000000000000000006 /* ClickModeGuide.swift */,
 				DB2738F326A8777AAE99E234 /* StreamOverlay.swift */,
 				6BB8220BA909DEF51345ADED /* PairingView.swift */,
 				7EDCF096156004B9F6635C7F /* PaywallView.swift */,
@@ -480,6 +489,9 @@
 				A3ADA28A0E5CC7F58B88246D /* SessionManager.swift in Sources */,
 				8D59715E934447A35F0995E3 /* HomeView.swift in Sources */,
 				02B9154D6D615FEE38E9E6B4 /* StreamView.swift in Sources */,
+				D69000000000000000000001 /* KeyboardAccessory.swift in Sources */,
+				D69000000000000000000003 /* ClickModeSurface.swift in Sources */,
+				D69000000000000000000005 /* ClickModeGuide.swift in Sources */,
 				B81E00A43A2907FB1F6F7DE5 /* StreamOverlay.swift in Sources */,
 				6278C33D41F85F23AF8D869B /* PairingView.swift in Sources */,
 				23009CFC5E25DEE3603B26B0 /* PaywallView.swift in Sources */,
@@ -520,7 +532,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -541,7 +553,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios.BeamWidget;
@@ -574,7 +586,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -591,7 +603,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios.BeamWidget;
@@ -661,11 +673,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -728,11 +740,11 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_ENTITLEMENTS = Beam/Beam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				INFOPLIST_FILE = Beam/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 3.3;
+				MARKETING_VERSION = 3.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.beamapp.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -788,7 +800,7 @@
 			repositoryURL = "https://github.com/kevinerikjs/phoros.git";
 			requirement = {
 				kind = exactVersion;
-				version = "1.4.2";
+				version = "1.5.0";
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

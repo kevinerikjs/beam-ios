@@ -17,7 +17,6 @@ struct StreamView: View {
     @State private var showWindowPicker = false
     /// The "keyboard" layout button awaiting text (BEAM-39); non-nil shows the input sheet.
     @State private var textPromptControl: ControlButton? = nil
-    @State private var clickHaptic = false
 
     @AppStorage("beam.flipHorizontal") private var flipHorizontal = false
     @AppStorage("beam.flipVertical") private var flipVertical = false
@@ -41,6 +40,11 @@ struct StreamView: View {
     @State private var baseOffset: CGSize = .zero
     @State private var videoContainerSize: CGSize = .zero
     @State private var isViewportLocked = false
+    /// How far the picture is slid up so the live keyboard doesn't cover it (BEAM-69).
+    /// Kept apart from `videoOffset` so pan limits and zoom never see it.
+    @State private var keyboardLift: CGFloat = 0
+    /// A click-mode drag is holding the Mac's mouse button (BEAM-70).
+    @State private var isPointerDown = false
     @State private var isSelectingViewportLock = false
 
     // Auto video detection
@@ -75,10 +79,15 @@ struct StreamView: View {
                         VideoRendererView(renderer: renderer)
                     }
                 }
-                    .ignoresSafeArea()
+                    // A fixed frame rather than ignoresSafeArea: with the keyboard up, a view that
+                    // ignores the safe area is stretched into the keyboard's area depending on
+                    // where it is drawn, which undid half of the keyboard lift below.
+                    .frame(width: geometry.size.width, height: geometry.size.height)
                     .scaleEffect(x: flipHorizontal ? -1 : 1, y: flipVertical ? -1 : 1)
                     .scaleEffect(videoScale)
                     .offset(videoOffset)
+                    // Lift for the live keyboard (BEAM-69).
+                    .transformEffect(CGAffineTransform(translationX: 0, y: -keyboardLift))
                     .onAppear { videoContainerSize = geometry.size }
                     .onChange(of: geometry.size) { newSize in
                         videoContainerSize = newSize
@@ -94,12 +103,15 @@ struct StreamView: View {
                                 }
                                 guard !isViewportLocked, !isAutoDetecting else { return }
                                 videoScale = max(1.0, min(baseScale * value, 5.0))
+                                clampVideoOffsetToScale()
                             }
                             .onEnded { value in
                                 isZooming = false
                                 guard !isViewportLocked, !isAutoDetecting else { return }
                                 videoScale = max(1.0, min(baseScale * value, 5.0))
+                                clampVideoOffsetToScale()
                                 baseScale = videoScale
+                                baseOffset = videoOffset
                                 if videoScale == 1.0 { resetZoom() }
                             }
                     )
@@ -124,35 +136,42 @@ struct StreamView: View {
                         withAnimation(.spring(duration: 0.3)) { resetZoom() }
                     }
                     .onTapGesture(count: 1, coordinateSpace: .local) { location in
-                        if appState.activeControlMode?.isClick == true {
+                        if appState.isClickActive {
                             sendClick(at: location)
                         } else {
                             toggleOverlay()
                         }
                     }
+
+                // Click mode (BEAM-40/70): taps, multi-clicks, drags, scroll and right-click
+                // go to the Mac; one finger pans and a pinch zooms the view.
+                if appState.isClickActive {
+                    ClickModeSurface(
+                        supportsPointer: appState.hostSupportsPointer,
+                        rightButton: appState.clickModeRight,
+                        isViewLocked: isViewportLocked || isAutoDetecting,
+                        actions: clickModeActions
+                    )
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                }
             }
             .ignoresSafeArea()
-            // Live keyboard (BEAM-40): a zero-size first responder that forwards each key.
+            // Live keyboard (BEAM-40/69): an invisible first responder that forwards native
+            // keys and owns the desktop-key accessory above the system keyboard.
             .background(
                 KeyCaptureView(
-                    isActive: appState.activeControlMode?.isKeyboard == true,
-                    onKey: { key in
-                        guard let id = appState.activeControlMode?.controlID else { return }
-                        // Armed modifiers ride along once, then release (sticky keys).
-                        let mask = appState.armedModifiers.values.reduce(0, |)
-                        appState.connectionManager?.sendMediaKey(.playPause, controlID: id, keystroke: key,
-                                                                 keystrokeModifiers: mask == 0 ? nil : mask)
-                        if mask != 0 { appState.armedModifiers = [:] }
-                    },
+                    isActive: appState.isKeyboardActive,
+                    appState: appState,
+                    onKey: { appState.sendLiveKeyboardKeystroke($0) },
                     onDismissed: {
-                        if appState.activeControlMode?.isKeyboard == true { appState.activeControlMode = nil }
+                        appState.keyboardControlID = nil
                     }
                 )
                 .frame(width: 0, height: 0)
             )
-            .onChange(of: appState.activeControlMode) { mode in
-                // A mode keeps the HUD up; leaving one restarts the auto-hide.
-                if mode != nil {
+            .onChange(of: appState.isAnyControlModeActive) { isActive in
+                // A mode keeps the HUD up; leaving the last one restarts the auto-hide.
+                if isActive {
                     overlayHideTask?.cancel()
                     withAnimation(.easeInOut(duration: 0.25)) { showOverlay = true }
                 } else {
@@ -307,8 +326,14 @@ struct StreamView: View {
         .onChange(of: detectionLockHaptic) { _ in
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
-        .onChange(of: clickHaptic) { _ in
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) {
+            liftVideoAboveKeyboard($0)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
+            let duration = keyboardAnimationDuration(note)
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: duration)) { keyboardLift = 0 }
+            }
         }
         .statusBarHidden(true)
         .preferredColorScheme(.dark)
@@ -612,23 +637,155 @@ struct StreamView: View {
         }
     }
 
-    /// Click passthrough (BEAM-40): a tap in the video container, undone through the phone's
-    /// zoom and pan, then normalised to the encoded frame. Beacon takes it from there.
-    private func sendClick(at location: CGPoint) {
+    /// When the live keyboard would cover the picture and there is empty black space above
+    /// it, slide the picture up by just enough to clear the keyboard, never more than the
+    /// empty space. No zoom and no sideways move, so the same part of the Mac stays in view.
+    private func liftVideoAboveKeyboard(_ note: Notification) {
+        guard let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
         let container = CGRect(origin: .zero, size: videoContainerSize)
-        guard container.width > 0, container.height > 0,
-              let id = appState.activeControlMode?.controlID else { return }
+        let duration = keyboardAnimationDuration(note)
+        guard appState.isKeyboardActive,
+              container.height > 0, end.minY < container.height else {
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: duration)) { keyboardLift = 0 }
+            }
+            return
+        }
+        // Where the picture sits now, before any lift.
         let base = baseVideoRect(in: container)
-        guard base.width > 0, base.height > 0 else { return }
+        let center = CGPoint(x: container.midX, y: container.midY)
+        let top = center.y + (base.minY - center.y) * videoScale + videoOffset.height
+        let bottom = center.y + (base.maxY - center.y) * videoScale + videoOffset.height
+        let covered = min(bottom, container.maxY) - end.minY
+        let emptyAbove = max(top, 0)
+        let lift = max(0, min(covered, emptyAbove))
+        // UIKit posts this from inside the keyboard's own animation block; a SwiftUI change
+        // made there gets caught up in it and stops partway. Apply it on the next pass.
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: duration)) { keyboardLift = lift }
+        }
+    }
+
+    private func keyboardAnimationDuration(_ note: Notification) -> Double {
+        (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+    }
+
+    /// Zooming out shrinks how far the view may sit off-centre. Keep the offset inside that,
+    /// so the picture never hangs past the screen edge until the next pan snaps it back.
+    private func clampVideoOffsetToScale() {
+        let maxX = videoContainerSize.width * (videoScale - 1) / 2
+        let maxY = videoContainerSize.height * (videoScale - 1) / 2
+        videoOffset = CGSize(
+            width: videoOffset.width.clamped(to: -maxX...maxX),
+            height: videoOffset.height.clamped(to: -maxY...maxY)
+        )
+    }
+
+    /// A point in the video container, undone through the phone's zoom and pan, then
+    /// normalised to the encoded frame. `nil` outside the frame unless `clamped`, which a
+    /// drag uses so it can carry on to the edge of the Mac's screen.
+    private func normalizedStreamPoint(_ location: CGPoint, clamped: Bool = false) -> CGPoint? {
+        let container = CGRect(origin: .zero, size: videoContainerSize)
+        guard container.width > 0, container.height > 0 else { return nil }
+        let base = baseVideoRect(in: container)
+        guard base.width > 0, base.height > 0 else { return nil }
         let untransformed = inverseTransformedRect(CGRect(origin: location, size: .zero), in: container)
-        let x = (untransformed.minX - base.minX) / base.width
-        let y = (untransformed.minY - base.minY) / base.height
-        guard (0...1).contains(x), (0...1).contains(y) else { return }
+        var x = (untransformed.minX - base.minX) / base.width
+        var y = (untransformed.minY - base.minY) / base.height
+        if clamped {
+            x = min(max(x, 0), 1)
+            y = min(max(y, 0), 1)
+        }
+        guard (0...1).contains(x), (0...1).contains(y) else { return nil }
+        return CGPoint(x: x, y: y)
+    }
+
+    /// Click passthrough (BEAM-40): a tap in the video container, normalised to the
+    /// encoded frame. Beacon takes it from there. `count` 2/3 is a double/triple click.
+    private func sendClick(at location: CGPoint, count: Int = 1, right: Bool? = nil) {
+        guard let id = appState.clickControl?.controlID,
+              let point = normalizedStreamPoint(location) else { return }
+        let isRight = right ?? appState.clickModeRight
         appState.connectionManager?.sendMediaKey(
             .playPause, controlID: id,
-            click: Click(x: x, y: y, button: appState.clickModeRight ? "right" : "left")
+            click: Click(x: point.x, y: point.y, button: isRight ? "right" : "left",
+                         count: count > 1 ? count : nil)
         )
-        clickHaptic.toggle()
+    }
+
+    /// Press, drag, release or scroll. A press must land on the video; once pressed, a
+    /// drag may run off it and is pinned to the edge of the Mac's screen.
+    private func sendPointer(_ phase: PointerEvent.Phase, at location: CGPoint,
+                             dx: CGFloat? = nil, dy: CGFloat? = nil) {
+        guard let id = appState.clickControl?.controlID else { return }
+        switch phase {
+        case .down:
+            guard normalizedStreamPoint(location) != nil else { return }
+            isPointerDown = true
+        case .move, .up:
+            guard isPointerDown else { return }
+            if phase == .up { isPointerDown = false }
+        case .scroll:
+            break
+        }
+        guard let point = normalizedStreamPoint(location, clamped: true) else { return }
+        appState.connectionManager?.sendMediaKey(
+            .playPause, controlID: id,
+            pointer: PointerEvent(
+                phase: phase, x: point.x, y: point.y,
+                button: phase == .scroll ? nil : (appState.clickModeRight ? "right" : "left"),
+                dx: dx.map(Double.init), dy: dy.map(Double.init)
+            )
+        )
+    }
+
+    private var clickModeActions: ClickModeActions {
+        ClickModeActions(
+            click: { location, count, right in sendClick(at: location, count: count, right: right) },
+            pointer: { phase, location in
+                switch phase {
+                case .down: sendPointer(.down, at: location)
+                case .move: sendPointer(.move, at: location)
+                case .up: sendPointer(.up, at: location)
+                }
+            },
+            scroll: { location, dx, dy in
+                // Finger distance on the zoomed view is less distance on the Mac.
+                sendPointer(.scroll, at: location, dx: dx / videoScale, dy: dy / videoScale)
+            },
+            panView: { translation, ended in
+                guard videoScale > 1.0 else { return }
+                let maxX = videoContainerSize.width * (videoScale - 1) / 2
+                let maxY = videoContainerSize.height * (videoScale - 1) / 2
+                videoOffset = CGSize(
+                    width: (baseOffset.width + translation.width).clamped(to: -maxX...maxX),
+                    height: (baseOffset.height + translation.height).clamped(to: -maxY...maxY)
+                )
+                if ended { baseOffset = videoOffset }
+            },
+            zoomView: { scale, ended in
+                videoScale = max(1.0, min(baseScale * scale, 5.0))
+                clampVideoOffsetToScale()
+                if ended {
+                    baseScale = videoScale
+                    baseOffset = videoOffset
+                    if videoScale == 1.0 { withAnimation(.spring(duration: 0.3)) { resetZoom() } }
+                }
+            },
+            nudgeView: { delta in
+                guard videoScale > 1.0 else { return false }
+                let maxX = videoContainerSize.width * (videoScale - 1) / 2
+                let maxY = videoContainerSize.height * (videoScale - 1) / 2
+                let next = CGSize(
+                    width: (videoOffset.width + delta.width).clamped(to: -maxX...maxX),
+                    height: (videoOffset.height + delta.height).clamped(to: -maxY...maxY)
+                )
+                guard next != videoOffset else { return false }
+                videoOffset = next
+                baseOffset = next
+                return true
+            }
+        )
     }
 
     private func currentNormalizedViewportRect(for selectionFrame: CGRect) -> CGRect {
@@ -716,10 +873,11 @@ struct StreamView: View {
         let center = CGPoint(x: container.midX, y: container.midY)
         let scale = max(videoScale, 1)
 
+        let offsetY = videoOffset.height - keyboardLift
         let minX = center.x + (rect.minX - videoOffset.width - center.x) / scale
-        let minY = center.y + (rect.minY - videoOffset.height - center.y) / scale
+        let minY = center.y + (rect.minY - offsetY - center.y) / scale
         let maxX = center.x + (rect.maxX - videoOffset.width - center.x) / scale
-        let maxY = center.y + (rect.maxY - videoOffset.height - center.y) / scale
+        let maxY = center.y + (rect.maxY - offsetY - center.y) / scale
 
         return CGRect(
             x: min(minX, maxX),
@@ -772,7 +930,7 @@ struct StreamView: View {
         if UserDefaults.standard.bool(forKey: "beam.debug.pinOverlay") { return }
         #endif
         guard !showQualityPicker, !showStreamSettings, !showWindowPicker, textPromptControl == nil,
-              appState.activeControlMode == nil, !isSelectingViewportLock, !isAutoDetecting else { return }
+              !appState.isAnyControlModeActive, !isSelectingViewportLock, !isAutoDetecting else { return }
         overlayHideTask?.cancel()
         overlayHideTask = Task {
             try? await Task.sleep(for: .seconds(3))
@@ -1238,11 +1396,12 @@ struct TextPromptSheet: View {
 /// buffer. Dismissing the keyboard reports back so the toggle button can clear.
 struct KeyCaptureView: UIViewRepresentable {
     let isActive: Bool
+    let appState: BeamAppState
     let onKey: (String) -> Void
     let onDismissed: () -> Void
 
     func makeUIView(context: Context) -> KeyCaptureUIView {
-        let view = KeyCaptureUIView()
+        let view = KeyCaptureUIView(appState: appState)
         view.onKey = onKey
         view.onDismissed = onDismissed
         return view
@@ -1251,6 +1410,7 @@ struct KeyCaptureView: UIViewRepresentable {
     func updateUIView(_ view: KeyCaptureUIView, context: Context) {
         view.onKey = onKey
         view.onDismissed = onDismissed
+        view.updateAccessory(appState: appState)
         if isActive, !view.isFirstResponder {
             DispatchQueue.main.async { view.becomeFirstResponder() }
         } else if !isActive, view.isFirstResponder {
@@ -1259,11 +1419,113 @@ struct KeyCaptureView: UIViewRepresentable {
     }
 }
 
+final class KeyboardAccessoryInputView: UIInputView {
+    /// Called when the notch side changes (rotation), so the keys can move clear of it.
+    var onSafeAreaChange: (() -> Void)?
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        onSafeAreaChange?()
+    }
+
+    static let accessoryHeight: CGFloat = 52
+    /// Rounded shoulders so the bar reads as the top of the keyboard's shell. Concentric
+    /// with the corner keycaps (8 pt key radius + 6.5 pt inset), so the gap around the
+    /// esc and arrow keys stays even instead of the shoulder crowding them.
+    static let topCornerRadius: CGFloat = 14.5
+    /// The backing continues this far below the bar, behind the keyboard's own rounded
+    /// top corners, so those corners show the shell color instead of the black stream.
+    static let cornerExtension: CGFloat = 32
+
+    private let keyboardSurfaceLayer = CAShapeLayer()
+    /// The same faint rim the iOS 26 keyboard draws along its top edge, fading out down
+    /// the shoulders.
+    private let rimLayer = CAShapeLayer()
+    private let rimFade = CAGradientLayer()
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: Self.accessoryHeight)
+    }
+
+    override init(frame: CGRect, inputViewStyle: UIInputView.Style) {
+        super.init(frame: frame, inputViewStyle: inputViewStyle)
+        clipsToBounds = false
+        layer.masksToBounds = false
+        keyboardSurfaceLayer.fillColor = KeyboardShellSurface.uiColor.cgColor
+        layer.insertSublayer(keyboardSurfaceLayer, at: 0)
+
+        rimLayer.fillColor = nil
+        rimLayer.strokeColor = UIColor(white: 1, alpha: 0.15).cgColor
+        rimLayer.lineWidth = 1
+        rimFade.colors = [UIColor.black.cgColor, UIColor.clear.cgColor]
+        rimFade.locations = [0.3, 1]
+        rimLayer.mask = rimFade
+        layer.insertSublayer(rimLayer, above: keyboardSurfaceLayer)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+
+        let height = bounds.height
+        let width = bounds.width
+        let extensionHeight = Self.cornerExtension
+        let radius = Self.topCornerRadius
+        guard height > 0, width > 0 else {
+            keyboardSurfaceLayer.path = nil
+            rimLayer.path = nil
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        keyboardSurfaceLayer.frame = CGRect(x: 0, y: 0, width: width, height: height + extensionHeight)
+
+        let bottom = height + extensionHeight
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: 0, y: radius))
+        path.addArc(withCenter: CGPoint(x: radius, y: radius), radius: radius,
+                    startAngle: .pi, endAngle: .pi * 1.5, clockwise: true)
+        path.addLine(to: CGPoint(x: width - radius, y: 0))
+        path.addArc(withCenter: CGPoint(x: width - radius, y: radius), radius: radius,
+                    startAngle: .pi * 1.5, endAngle: 0, clockwise: true)
+        path.addLine(to: CGPoint(x: width, y: bottom))
+        path.addQuadCurve(
+            to: CGPoint(x: width - extensionHeight, y: height),
+            controlPoint: CGPoint(x: width, y: height)
+        )
+        path.addLine(to: CGPoint(x: extensionHeight, y: height))
+        path.addQuadCurve(to: CGPoint(x: 0, y: bottom), controlPoint: CGPoint(x: 0, y: height))
+        path.close()
+        keyboardSurfaceLayer.path = path.cgPath
+
+        let inset: CGFloat = 0.5
+        let rim = UIBezierPath()
+        rim.move(to: CGPoint(x: inset, y: radius + 8))
+        rim.addLine(to: CGPoint(x: inset, y: radius))
+        rim.addArc(withCenter: CGPoint(x: radius, y: radius), radius: radius - inset,
+                   startAngle: .pi, endAngle: .pi * 1.5, clockwise: true)
+        rim.addLine(to: CGPoint(x: width - radius, y: inset))
+        rim.addArc(withCenter: CGPoint(x: width - radius, y: radius), radius: radius - inset,
+                   startAngle: .pi * 1.5, endAngle: 0, clockwise: true)
+        rim.addLine(to: CGPoint(x: width - inset, y: radius + 8))
+        rimLayer.frame = bounds
+        rimLayer.path = rim.cgPath
+        rimFade.frame = CGRect(x: 0, y: 0, width: width, height: radius + 8)
+        CATransaction.commit()
+    }
+}
+
 final class KeyCaptureUIView: UIView, UIKeyInput {
     var onKey: ((String) -> Void)?
     var onDismissed: (() -> Void)?
+    private let accessoryInputView: UIInputView
+    private let accessoryHost: UIHostingController<KeyboardAccessoryView>
+    private weak var accessoryAppState: BeamAppState?
 
     override var canBecomeFirstResponder: Bool { true }
+    override var inputAccessoryView: UIView? { accessoryInputView }
     var hasText: Bool { true }
     var autocorrectionType: UITextAutocorrectionType = .no
     var spellCheckingType: UITextSpellCheckingType = .no
@@ -1272,10 +1534,50 @@ final class KeyCaptureUIView: UIView, UIKeyInput {
     var smartDashesType: UITextSmartDashesType = .no
     var keyboardType: UIKeyboardType = .default
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(appState: BeamAppState) {
+        let host = UIHostingController(rootView: KeyboardAccessoryView(appState: appState))
+        let inputView = KeyboardAccessoryInputView(
+            frame: CGRect(x: 0, y: 0, width: 0, height: KeyboardAccessoryInputView.accessoryHeight),
+            inputViewStyle: .keyboard
+        )
+        accessoryHost = host
+        accessoryInputView = inputView
+        accessoryAppState = appState
+        super.init(frame: .zero)
+        inputView.onSafeAreaChange = { [weak self] in
+            guard let self, let appState = self.accessoryAppState else { return }
+            self.updateAccessory(appState: appState)
+        }
+
+        // Let UIKit size this input view from its explicit intrinsic height.
+        // Keep its background transparent so the keyboard style supplies the shared
+        // translucent surface and the bar joins the keyboard's rounded shell.
+        inputView.allowsSelfSizing = true
+        inputView.backgroundColor = .clear
+        inputView.clipsToBounds = false
+        inputView.heightAnchor.constraint(equalToConstant: KeyboardAccessoryInputView.accessoryHeight).isActive = true
+        // The accessory lives inside the keyboard's own window, so the hosting controller
+        // would otherwise inherit the keyboard as a bottom safe-area inset and push the row
+        // up out of its own bounds, leaving an empty band above the keys.
+        if #available(iOS 16.4, *) { host.safeAreaRegions = [] }
+        host.view.backgroundColor = .clear
+        // Hold a modifier with one thumb and tap an arrow with the other.
+        host.view.isMultipleTouchEnabled = true
+        host.view.clipsToBounds = false
+        host.view.layer.masksToBounds = false
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        inputView.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: inputView.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: inputView.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: inputView.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: inputView.bottomAnchor)
+        ])
+
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardHidden),
                                                name: UIResponder.keyboardDidHideNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow),
+                                               name: UIResponder.keyboardWillShowNotification, object: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -1288,8 +1590,37 @@ final class KeyCaptureUIView: UIView, UIKeyInput {
         onKey?("\u{8}")
     }
 
+    func updateAccessory(appState: BeamAppState) {
+        accessoryAppState = appState
+        let insets = accessoryInputView.safeAreaInsets
+        accessoryHost.rootView = KeyboardAccessoryView(
+            appState: appState, sideInsets: (insets.left, insets.right)
+        )
+    }
+
+    /// A hide that turns out to be a dismissal, waiting to see whether the keyboard returns.
+    private var pendingDismissal: DispatchWorkItem?
+
     @objc private func keyboardHidden() {
-        if isFirstResponder { resignFirstResponder() }
-        onDismissed?()
+        guard isFirstResponder else {
+            onDismissed?()
+            return
+        }
+        // Rotation hides the keyboard and shows it again straight after; only a hide that
+        // stays hidden (the iPad's hide-keyboard key) ends live keyboard mode. Otherwise a
+        // rotation would switch it off, losing the page and modifier state.
+        pendingDismissal?.cancel()
+        let dismissal = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if self.isFirstResponder { self.resignFirstResponder() }
+            self.onDismissed?()
+        }
+        pendingDismissal = dismissal
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: dismissal)
+    }
+
+    @objc private func keyboardWillShow() {
+        pendingDismissal?.cancel()
+        pendingDismissal = nil
     }
 }

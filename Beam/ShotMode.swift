@@ -129,7 +129,8 @@ enum ShotMode {
         case "paywall":    PaywallView()
         case "features":
             WhatsNewView(
-                entries: WhatsNewManager.versionEntries,
+                sections: WhatsNewManager.unseenSections.isEmpty
+                    ? WhatsNewManager.allSections : WhatsNewManager.unseenSections,
                 subtitle: "Version \(WhatsNewManager.appVersion)"
             ) {}
         case "stream", "stream-teleprompter", "stream-remote", "stream-viewport-lock", "stream-window-picker": StreamView()

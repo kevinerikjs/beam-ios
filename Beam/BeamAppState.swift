@@ -5,6 +5,12 @@ import SwiftUI
 import Phoros
 import Network
 
+enum KeyboardModifierState: Equatable {
+    case off
+    case armed
+    case locked
+}
+
 final class BeamAppState: ObservableObject {
 
     // MARK: - Onboarding / Pairing
@@ -48,38 +54,125 @@ final class BeamAppState: ObservableObject {
     /// True once the connected Beacon said it can list windows and lock capture to one.
     /// Reset on every stream stop so a picker never shows against an older host.
     @Published var hostSupportsWindowSelection = false
+    /// The Mac takes drags, scrolls, multi-clicks and two-finger right-click (BEAM-70), so
+    /// click mode needs no separate right-click button or L/R switch.
+    @Published var hostSupportsPointer = false
     /// The host's active phone-control layout (BEAM-39), left to right, up to 7 buttons.
     /// Empty until an authSuccess carries one; the overlay then shows the built-in five.
     @Published var hostPhoneControls: [ControlButton] = []
-    /// A toggled phone-control mode (BEAM-40): live keyboard or click passthrough, by button id.
-    /// The overlay stays up while one is active.
-    @Published var activeControlMode: ActiveControlMode? = nil {
-        didSet { connectionManager?.setClickMode(activeControlMode?.isClick == true) }
+    /// Toggled phone-control modes (BEAM-40), by button id. Live keyboard and click
+    /// passthrough are independent, so both can be on at once: type on the keyboard while
+    /// tapping, dragging and scrolling on the picture above it. The overlay stays up while
+    /// either is on.
+    @Published var keyboardControlID: String? = nil {
+        didSet {
+            if oldValue != keyboardControlID { resetKeyboardAccessoryForPresentation() }
+        }
+    }
+    @Published var clickControl: ClickControl? = nil {
+        didSet { connectionManager?.setClickMode(clickControl != nil) }
+    }
+
+    /// A click-mode button. `fixed`: the host chose left or right for it, so no switch is shown.
+    struct ClickControl: Equatable {
+        let controlID: String
+        let fixed: Bool
+    }
+
+    var isKeyboardActive: Bool { keyboardControlID != nil }
+    var isClickActive: Bool { clickControl != nil }
+    var isAnyControlModeActive: Bool { isKeyboardActive || isClickActive }
+
+    /// Leaves both modes, as a disconnect or session teardown does.
+    func endControlModes() {
+        keyboardControlID = nil
+        clickControl = nil
     }
     /// Right-click instead of left while click mode is on.
     @Published var clickModeRight = false
-    /// Sticky modifiers armed by modifier buttons (BEAM-40), by control id → Carbon mask.
-    /// Folded into the next live keystroke, then cleared.
-    @Published var armedModifiers: [String: UInt32] = [:]
+    /// Shared one-shot/locked modifiers for native keyboard keys and the accessory row.
+    /// Keys are Carbon masks so multiple inputs can combine into one chord.
+    @Published var keyboardModifierStates: [UInt32: KeyboardModifierState] = [:]
+    @Published var keyboardAccessoryPage = 0
 
     /// Wire mask for a host modifier name (`KeyModifiers` carries the Carbon values).
     static func carbonMask(forModifier name: String) -> UInt32 {
         KeyModifiers(wireName: name)?.rawValue ?? 0
     }
 
-    enum ActiveControlMode: Equatable {
-        case keyboard(controlID: String)
-        /// `fixed`: the host chose left or right for this button, so no switch is shown.
-        case click(controlID: String, fixed: Bool)
-
-        var controlID: String {
-            switch self {
-            case .keyboard(let id), .click(let id, _): return id
-            }
-        }
-        var isClick: Bool { if case .click = self { return true } else { return false } }
-        var isKeyboard: Bool { if case .keyboard = self { return true } else { return false } }
+    func keyboardModifierState(for wireName: String) -> KeyboardModifierState {
+        guard let mask = KeyModifiers(wireName: wireName)?.rawValue else { return .off }
+        return keyboardModifierStates[mask] ?? .off
     }
+
+    /// Tap: off → on for the next key; on or locked → off.
+    @discardableResult
+    func tapKeyboardModifier(_ wireName: String) -> KeyboardModifierState {
+        guard let mask = KeyModifiers(wireName: wireName)?.rawValue else { return .off }
+        let next: KeyboardModifierState = (keyboardModifierStates[mask] ?? .off) == .off ? .armed : .off
+        setKeyboardModifier(mask, next)
+        return next
+    }
+
+    /// Long press: locked until tapped again, for any number of chords.
+    @discardableResult
+    func lockKeyboardModifier(_ wireName: String) -> KeyboardModifierState {
+        guard let mask = KeyModifiers(wireName: wireName)?.rawValue else { return .off }
+        let next: KeyboardModifierState = keyboardModifierStates[mask] == .locked ? .off : .locked
+        setKeyboardModifier(mask, next)
+        return next
+    }
+
+    private func setKeyboardModifier(_ mask: UInt32, _ state: KeyboardModifierState) {
+        if state == .off {
+            keyboardModifierStates.removeValue(forKey: mask)
+        } else {
+            keyboardModifierStates[mask] = state
+        }
+    }
+
+    var liveKeyboardModifierMask: UInt32 {
+        keyboardModifierStates.reduce(UInt32(0)) { mask, entry in
+            entry.value == .off ? mask : mask | entry.key
+        }
+    }
+
+    /// One-shot modifiers are consumed by the next native or accessory key;
+    /// locked modifiers remain active until explicitly turned off.
+    func consumeOneShotKeyboardModifiers() {
+        let armedMasks = keyboardModifierStates.compactMap { mask, state in
+            state == .armed ? mask : nil
+        }
+        for mask in armedMasks {
+            keyboardModifierStates.removeValue(forKey: mask)
+        }
+    }
+
+    func resetKeyboardAccessoryForPresentation() {
+        keyboardModifierStates.removeAll()
+        keyboardAccessoryPage = 0
+    }
+
+    func sendLiveKeyboardKeystroke(_ key: String) {
+        guard let controlID = keyboardControlID else { return }
+        let mask = liveKeyboardModifierMask
+        connectionManager?.sendMediaKey(
+            .playPause, controlID: controlID, keystroke: key,
+            keystrokeModifiers: mask == 0 ? nil : mask
+        )
+        consumeOneShotKeyboardModifiers()
+    }
+
+    func sendLiveKeyboardSpecialKey(_ key: SpecialKey) {
+        guard let controlID = keyboardControlID else { return }
+        let mask = liveKeyboardModifierMask
+        connectionManager?.sendMediaKey(
+            .playPause, controlID: controlID, specialKey: key,
+            keystrokeModifiers: mask == 0 ? nil : mask
+        )
+        consumeOneShotKeyboardModifiers()
+    }
+
     /// Windows the host offered in its last `window_list` reply. Ids are only valid until the
     /// next refresh, so the picker requests a fresh list every time it opens.
     @Published var hostWindows: [WindowInfo] = []
@@ -606,6 +699,8 @@ final class BeamAppState: ObservableObject {
         guard var host = discoveredHost, let mac = pairedMac else { return }
         guard isPurchased || sessionManager.isInTrial || !sessionManager.isInCooldown else { return }
 
+        // Replacing the host session releases every sticky modifier and temporary palette.
+        resetKeyboardAccessoryForPresentation()
         connectionManager?.disconnect()
 
         // Race the routes instead of guessing (BEAM-26). After a drop we do not know which
@@ -621,6 +716,7 @@ final class BeamAppState: ObservableObject {
 
         let manager = ConnectionManager(host: host, pairedMac: mac, appState: self)
         manager.onUnexpectedDisconnect = { [weak self] in
+            self?.resetKeyboardAccessoryForPresentation()
             self?.scheduleReconnect()
         }
         self.connectionManager = manager
@@ -639,9 +735,10 @@ final class BeamAppState: ObservableObject {
         connectionManager = nil
         isStreaming = false
         hostSupportsWindowSelection = false
+        hostSupportsPointer = false
         hostPhoneControls = []
-        activeControlMode = nil
-        armedModifiers = [:]
+        endControlModes()
+        resetKeyboardAccessoryForPresentation()
         videoAspect = 16.0 / 9.0
         hostWindows = []
         isLoadingHostWindows = false
@@ -772,6 +869,8 @@ final class BeamAppState: ObservableObject {
             connectionManager?.disconnect()
             connectionManager = nil
             isStreaming = false
+            endControlModes()
+            resetKeyboardAccessoryForPresentation()
         }
     }
 
