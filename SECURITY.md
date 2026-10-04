@@ -23,9 +23,19 @@ the Beam version, and your iOS version. A proof of concept helps but is not requ
   and `Streaming/VideoRenderer.swift`. Packet reassembly and decode run on data from the network,
   so malformed input handling and memory safety matter most here.
 - **Keychain handling.** How pairing credentials and session state are stored and scoped.
-- **Anything that sends stream content off-device.** Beam is supposed to talk only to a paired Mac
-  on the local network. A path that sends screen or audio content anywhere else is the most serious
-  class of bug this app can have.
+- **Anything that sends stream content somewhere it shouldn't go.** Beam should only ever talk to a
+  paired Mac, on the local network or over your own Tailscale network. A path that sends screen or
+  audio content anywhere else is the most serious kind of bug this app can have.
+
+## How the connection is encrypted
+
+Since Beam 3.6 and Beacon 1.9, the connection to Beacon is encrypted with keys derived from the pairing
+secret and a fresh X25519 exchange, then sealed with AES-256-GCM. The UDP media transport's DTLS
+fingerprint travels inside that connection, so its DTLS-SRTP is tied to the pairing too. The design and
+its limits are in [Phoros SECURITY.md](https://github.com/kevinerikjs/phoros/blob/main/SECURITY.md).
+Two limits you don't need to report: Beam still talks plaintext to a Beacon older than 1.9, and pairing
+itself has no secret to start from, so someone actively intercepting the connection during the pairing
+minute could still read the secret. Anything beyond that is very welcome.
 
 ## Out of scope
 

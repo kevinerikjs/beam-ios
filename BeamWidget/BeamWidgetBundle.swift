@@ -12,7 +12,5 @@ import SwiftUI
 struct BeamWidgetBundle: WidgetBundle {
     var body: some Widget {
         BeamWidget()
-        BeamWidgetControl()
-        BeamWidgetLiveActivity()
     }
 }
