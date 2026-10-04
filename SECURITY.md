@@ -23,9 +23,19 @@ the Beam version, and your iOS version. A proof of concept helps but is not requ
   and `Streaming/VideoRenderer.swift`. Packet reassembly and decode run on data from the network,
   so malformed input handling and memory safety matter most here.
 - **Keychain handling.** How pairing credentials and session state are stored and scoped.
-- **Anything that sends stream content off-device.** Beam is supposed to talk only to a paired Mac
-  on the local network. A path that sends screen or audio content anywhere else is the most serious
-  class of bug this app can have.
+- **Anything that sends stream content somewhere it shouldn't go.** Beam should only ever talk to a
+  paired Mac, on the local network or over your own Tailscale network. A path that sends screen or
+  audio content anywhere else is the most serious kind of bug this app can have.
+
+## Known limitation: the control connection is not encrypted
+
+You don't need to report this one. Beam's TCP control connection to Beacon has no transport encryption
+yet. On a shared network, someone else on that network can read the pairing secret, the phone controls
+(including what you type with the live keyboard), and the video and audio whenever the stream has fallen
+back to TCP or Legacy Transport is on. On the default UDP transport, video and audio are encrypted with
+DTLS and SRTP, but the keys for it are agreed over the same unencrypted connection. Over Tailscale,
+WireGuard encrypts all of it. Encrypting the control connection is planned work. Reports that go further
+than this, for example a way in that doesn't need someone on the same network, are very welcome.
 
 ## Out of scope
 

@@ -1,44 +1,62 @@
 # Beam
 
-**See and lightly control your Mac from your iPhone.**
+**Your Mac's screen and sound on your iPhone or iPad, with enough control to get things done.**
 
-Beam connects to a Mac running [Beacon](https://github.com/kevinerikjs/beacon-macos) and plays its
-screen and audio, over your local network or your own Tailscale network. It supports
-Picture-in-Picture, tap-to-click, live keyboard input with sticky modifiers, media controls, custom
-buttons, viewport locking, and quality selection. No cables, no Beam account, and no Beam relay.
+Beam is the iPhone and iPad half of a pair. It connects to [Beacon](https://github.com/kevinerikjs/beacon-macos),
+a small menu bar app on your Mac, and plays your Mac's screen with its audio. At home that happens over
+your own Wi-Fi. Away from home it can reach your Mac over your own Tailscale network. There is no Beam
+account and no Beam server in between.
 
 ### [Get Beam on the App Store](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962)
 
-You will also need **[Beacon](https://github.com/kevinerikjs/beacon-macos/releases/latest/download/Beacon.dmg)**,
-the free macOS companion app, on the Mac you want to stream from.
+You also need **[Beacon](https://github.com/kevinerikjs/beacon-macos/releases/latest/download/Beacon.dmg)**,
+the free Mac app, on the Mac you want to watch.
 
-## Why this exists: Apple doesn't do this direction
+## What it's for
 
-Getting a Mac screen onto an iPhone is the one mirroring direction Apple has never supported, and
-the features people find while looking all run the other way:
+Apple has no way to put a Mac screen on an iPhone. AirPlay can't send to a phone, Sidecar only works with
+an iPad, and iPhone Mirroring goes the other way (your phone on your Mac). Beam fills that gap.
 
-- **AirPlay** — iPhones send AirPlay, they never receive it. A Mac can AirPlay to an Apple TV, a
-  compatible TV, or another Mac, but not to a phone.
-- **Sidecar** — iPad only, always has been.
-- **iPhone Mirroring** — shows your *iPhone* on your *Mac*. The opposite of this.
+People use it to keep an eye on a render or a download from the couch, finish a film in bed, follow a
+livestream from the kitchen, answer a dialog on a Mac in another room, or play Mac games with a controller.
 
-So: no cables, no cloud, no account, and on your own WiFi nothing leaves your network.
+## What it does
 
-Beam is viewer-first with light control: tap to click, type with the iPhone keyboard, or use up to
-eight custom controls configured in Beacon. A game controller paired with the iPhone or iPad is
-forwarded to the Mac, where Beacon 1.5.0 or later presents it as an Xbox Wireless Controller, so
-Mac games play from the couch. It is not a full remote desktop: there is no pointer, dragging,
-file transfer, or clipboard sync.
+- **Whole screen or one window.** Stream the full display, or pick a single Mac window from the phone.
+  It stays locked to that window even when other windows cover it on the Mac.
+- **Sound included.** Mac system audio plays on the phone. Turn it off and the Mac stops sending it.
+- **Picture in Picture.** Keep watching while you use other apps. A tall window gets a tall PiP.
+- **Zoom and crop.** Pinch to zoom, or lock the view to one part of the screen. Hold to detect can find
+  the edges of a playing video for you.
+- **Quality you choose.** Auto, or a fixed preset from 360p up to 1080p. With Beam 3.5 and Beacon 1.8, also
+  1440p, 4K and your Mac display's native resolution, at 30 or 60 fps. Beam only lists sizes your Mac's
+  display can produce. On a 120 Hz iPhone or iPad, the 60 fps presets run at up to 120 fps when the Mac's
+  display refreshes that fast too.
+- **Stream modes.** Game favours response time, Video favours picture detail, Auto switches to Game when a
+  controller is attached or click mode is on.
+- **Click, drag, scroll.** In click mode, tap to click, tap twice to double-click, touch and hold then lift
+  to right-click, touch and hold then move to drag, and slide two fingers to scroll.
+- **Type on the Mac.** The live keyboard sends each key as you type, with a row of Mac keys on top: esc,
+  tab, the arrows, ⌃ ⌥ ⇧ ⌘, and a swipe away from home, end, page up and down, forward delete and F1 to F12.
+- **Your own buttons.** Build a bar of up to eight buttons in Beacon: keys, shortcuts, media keys, recorded
+  macros, a text box, the keyboard and click.
+- **Game controllers.** Pair a controller with the phone and the Mac sees a real gamepad, both sticks and
+  analog triggers included.
+- **Away from home.** With Beam Unlimited, Beam reaches your Mac over your Tailscale network when it isn't
+  on the same Wi-Fi.
 
-More detail: [can you AirPlay Mac to iPhone?](https://beamscreen.app/guide/airplay-mac-to-iphone) ·
-[using an iPhone as a Mac monitor](https://beamscreen.app/guide/iphone-as-mac-monitor) ·
-[streaming from away from home](https://beamscreen.app/guide/remote-streaming-tailscale) ·
+What Beam doesn't do: it isn't an extra display (you can't drag windows onto the phone), and it doesn't
+move files or sync the clipboard between the phone and the Mac.
+
+Guides with more detail:
+[can you AirPlay a Mac to an iPhone?](https://beamscreen.app/guide/airplay-mac-to-iphone) ·
+[iPhone as a Mac monitor](https://beamscreen.app/guide/iphone-as-mac-monitor) ·
+[streaming from anywhere](https://beamscreen.app/guide/remote-streaming-tailscale) ·
 [Mac games with a controller](https://beamscreen.app/guide/controller-passthrough)
 
-> **Why the source is here.** Beam is on the other end of a link that carries your Mac's screen and
-> audio. Publishing the code means you do not have to take our word for what it does with that.
-> For actually using it, the App Store build is the one you want: it is signed, it updates itself,
-> and building it yourself requires a paid Apple Developer account.
+> **Why the source is public.** Beam receives a live picture of your Mac. With the code in the open, you can
+> check what it does with that instead of taking anyone's word for it. To use Beam, get the App Store build:
+> it's signed, it updates itself, and building it yourself needs a paid Apple Developer account.
 
 ---
 
@@ -47,14 +65,21 @@ More detail: [can you AirPlay Mac to iPhone?](https://beamscreen.app/guide/airpl
 | | |
 | --- | --- |
 | **Discovery** | Bonjour, browsing for `_beam._tcp` on the local network |
-| **Transport** | Network.framework over TCP on your LAN or Tailscale network |
-| **Video** | `AVSampleBufferDisplayLayer` for low-latency rendering, which also drives PiP |
-| **Audio** | `AVAudioEngine`, Float32 PCM, A/V sync via host clock comparison |
-| **Controller** | GameController framework, sampled at 60 Hz, sent as 14-byte `.input` packets (`PhorosInput`) |
-| **Pairing** | Device keys held in the iOS Keychain |
+| **Control connection** | Network.framework TCP: pairing, sign-in with the paired secret, settings, phone controls |
+| **Media** | A UDP peer transport (ICE, DTLS, SRTP) from [Phoros](https://github.com/kevinerikjs/phoros), with loss repair and forward error correction. Falls back to the TCP connection on its own if the UDP path fails, or when Legacy Transport is on |
+| **Video** | HEVC or H.264, rendered with `AVSampleBufferDisplayLayer`, which also drives PiP |
+| **Audio** | `AVAudioEngine`, with a buffer that sizes itself to the network |
+| **Controller** | GameController framework, sent the moment the controller changes, at most 60 times a second (`PhorosInput`) |
+| **Pairing** | You pick your Mac, Beacon shows a 6-digit code, you type it in. The resulting secret lives in the iOS Keychain |
 | **Purchases** | StoreKit 2 |
 
-There is no server between your phone and your Mac. Beam talks to Beacon directly.
+Beam talks to Beacon directly. Beam runs no relay and no server in the stream path.
+
+**About encryption.** Video and audio on the default UDP transport are encrypted with DTLS and SRTP. The
+TCP control connection is not encrypted today, so on a shared network it can be read by others on that
+network. That includes the pairing secret, what you type with the live keyboard, and the video itself
+when Beam has fallen back to TCP. Over Tailscale, everything is encrypted end to end by WireGuard. Adding
+encryption to the control connection is tracked work. See [SECURITY.md](./SECURITY.md).
 
 ## Dependencies and what gets collected
 
@@ -62,42 +87,45 @@ Beam has three dependencies, all MIT licensed and all compatible with the AGPL:
 
 | Package | Why |
 | --- | --- |
-| [Phoros](https://github.com/kevinerikjs/phoros) | The wire protocol and plumbing Beam shares with Beacon: framing, handshake, session logic, the framed connection, decoders and controller sampling. Pinned to an exact version, because two apps on different release schedules must not float on a shared protocol. |
+| [Phoros](https://github.com/kevinerikjs/phoros) | The protocol and plumbing Beam shares with Beacon: framing, handshake, sessions, the TCP connection, the UDP media transport, decoders and controller sampling. Pinned to an exact version, because two apps that ship on different days must not drift apart on a shared protocol. |
 | [posthog-ios](https://github.com/PostHog/posthog-ios) | Anonymous product analytics |
-| [PLCrashReporter](https://github.com/microsoft/plcrashreporter) | Pulled in transitively by PostHog for crash reports |
+| [PLCrashReporter](https://github.com/microsoft/plcrashreporter) | Pulled in by PostHog for crash reports |
 
-Under Phoros, everything in the streaming path is Apple frameworks (Network.framework,
-VideoToolbox, AudioToolbox, AVFoundation). There are no third-party networking, video or audio
-libraries.
+Beyond Phoros, the streaming path is Apple frameworks: Network.framework, VideoToolbox, AudioToolbox and
+AVFoundation.
 
-The entire analytics surface is one small file, [`Beam/Analytics.swift`](./Beam/Analytics.swift),
-readable in a minute. What it does:
+All analytics code is in one short file, [`Beam/Analytics.swift`](./Beam/Analytics.swift). In short:
 
-- It is **anonymous**. No accounts, no email, no device identifiers, no PII.
-- **Screen view capture is off** (`captureScreenViews = false`).
-- Events are product counters like `stream_started` and `stream_ended`, with properties such as
-  session duration, quality preset, and whether the unlock was purchased.
-- **Nothing about what you are streaming is collected.** No screen contents, no audio, no
-  filenames, no window titles. Those never leave your local network at all.
-- Data goes to `w.beamscreen.app`, a self-hosted endpoint, not to PostHog's cloud.
+- Events are tied to a random anonymous ID. No account, no email, no name.
+- Screen view capture is off (`captureScreenViews = false`). App lifecycle events (opened, backgrounded,
+  installed, updated) are on.
+- The events are product counters such as `stream_started`, `stream_ended`, `pip_activated`,
+  `paywall_shown` and the purchase steps, with properties like session length, quality preset and
+  whether Beam Unlimited is unlocked.
+- Nothing about what you stream is collected: no picture, no audio, no window titles, no file names.
+- Simulator and Debug builds send nothing.
+- Events go to `w.beamscreen.app`, a proxy on Beam's own domain, which forwards them to PostHog.
+
+The in-app feedback form is separate. It sends your message, and your email and a diagnostic log only if
+you add them, to `beamscreen.app/api/feedback`.
 
 ## Requirements
 
-- iOS 16.0 or later (the optional home screen widget needs a newer iOS)
-- A Mac running [Beacon](https://github.com/kevinerikjs/beacon-macos) on the same network, or with
-  Tailscale configured for remote access
-- Xcode 15 or later, if you are building rather than installing
+- iPhone or iPad with iOS 16 or later. The Lock Screen widget needs a much newer iOS than the app.
+- A Mac running [Beacon](https://github.com/kevinerikjs/beacon-macos), on the same Wi-Fi, or on your
+  Tailscale network for remote streaming
+- Xcode 15 or later, if you're building it yourself
 
-## Free tier and unlocking
+## Free tier and Beam Unlimited
 
-Beam includes a three-day trial with no limits. After the trial, free use is up to 30 minutes total
-in each 24-hour window; time adds up across streams. A one-time in-app purchase
-(`com.beam.ios.unlimited`) removes the allowance and window restriction permanently. It is a
-purchase rather than a subscription, so you pay once and that is the end of it. Current pricing is
-on the [App Store listing](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962).
+Your first stream starts a three-day trial with no limits. After that, you can stream for up to 30 minutes
+in total in each 24-hour window, added up across streams. A one-time in-app purchase
+(`com.beam.ios.unlimited`) removes that limit for good and unlocks streaming from away from home. It's a
+purchase, not a subscription. The price is on the
+[App Store listing](https://apps.apple.com/us/app/beam-stream-your-screen/id6760154962).
 
-Session timing is stored in the Keychain so that it survives a reinstall. That code is in
-`Store/SessionManager.swift` and, like everything else here, you can read exactly what it does.
+Session timing is kept in the Keychain so it survives a reinstall. The code is in
+`Store/SessionManager.swift` if you want to read it.
 
 ## Building from source
 
@@ -107,118 +135,125 @@ cd beam-ios
 open Beam.xcodeproj
 ```
 
-Select the `Beam` scheme and a **real device** as the destination, then Run.
+Pick the `Beam` scheme and a device or simulator, then Run.
 
-> The simulator works for most development: it shares the host's network stack, so Bonjour
-> discovery, streaming from a Beacon host, and audio playback all function. Test on a physical
-> device before shipping anyway, since PiP behaviour, background audio, thermals, and real network
-> conditions are where simulator and device diverge.
+> The simulator is fine for most work. It shares your Mac's network, so Bonjour discovery, streaming from
+> Beacon and audio all work. Test on a real phone before shipping anything, though: PiP, background audio,
+> heat and real Wi-Fi are where the two differ.
 
-Note that running your own build on your own phone needs a paid Apple Developer account. With a
-free provisioning profile the app expires and has to be re-signed every seven days.
+Running your own build on your own phone needs a paid Apple Developer account. With a free account the
+app stops working after seven days and has to be signed again.
 
 ### The feedback secret
 
-`Info.plist` declares `BeamFeedbackSecret` as `$(BEAM_FEEDBACK_SECRET)`, which is empty unless you
-supply it. That is expected, and your build works fine without it: the feedback endpoint accepts
-unsigned reports and only uses this value to mark one as coming from an official build.
+`Info.plist` declares `BeamFeedbackSecret` as `$(BEAM_FEEDBACK_SECRET)`, which is empty unless you supply
+it. That's expected and your build works without it. The feedback endpoint accepts unsigned reports and
+only uses this value to mark a report as coming from an official build.
 
-Official builds supply it two ways:
+Official builds supply it in one of two ways:
 
 ```bash
 # local archive
 xcodebuild archive -scheme Beam ... BEAM_FEEDBACK_SECRET=<value>
 ```
 
-On Xcode Cloud it comes from a secret workflow environment variable of the same name, which
-`ci_scripts/ci_post_clone.sh` writes into `Info.plist` before the build. Xcode Cloud exposes
-workflow variables to that script but not to `xcodebuild`'s build settings, which is why the
-script exists rather than the substitution just working.
+On Xcode Cloud it comes from a secret workflow environment variable with the same name, which
+`ci_scripts/ci_post_clone.sh` writes into `Info.plist` before the build. Xcode Cloud passes workflow
+variables to that script but not to `xcodebuild`'s build settings, which is why the script exists.
 
 ## Project layout
 
 ```
 Beam/
 ├── BeamApp.swift
+├── BeamAppState.swift
+├── Analytics.swift
 ├── Views/
-│   ├── HomeView.swift          # Connection screen + start button
-│   ├── StreamView.swift        # Full-screen streaming view
-│   ├── StreamOverlay.swift     # Controls overlay (media keys, PiP, disconnect)
-│   ├── PairingView.swift       # Device pairing flow
-│   ├── PaywallView.swift       # Free tier limit / upgrade prompt
+│   ├── HomeView.swift            # Connection screen and Start Beam button
+│   ├── StreamView.swift          # Full-screen stream
+│   ├── StreamOverlay.swift       # Control bar, quality, window picker, in-stream settings
+│   ├── ClickModeSurface.swift    # Click, drag, scroll and zoom gestures
+│   ├── ClickModeGuide.swift      # The gesture help sheet
+│   ├── KeyboardAccessory.swift   # Mac key row above the keyboard
+│   ├── SettingsView.swift
+│   ├── PairingView.swift         # Find your Mac, enter the 6-digit code
+│   ├── PaywallView.swift
+│   ├── WhatsNewView.swift
+│   ├── FeedbackView.swift
 │   └── OnboardingView.swift
 ├── Streaming/
 │   ├── VideoRenderer.swift       # AVSampleBufferDisplayLayer wrapper
 │   ├── AudioPlayer.swift         # AVAudioEngine playback
-│   ├── StreamReceiver.swift      # Packet reassembly + video/audio dispatch
-│   ├── VideoMotionDetector.swift # Auto video region detection
-│   ├── PiPController.swift       # Picture-in-Picture management
-│   └── Protocol.swift            # Beam policy on top of the Phoros wire contract
+│   ├── StreamReceiver.swift      # Reassembly and video/audio dispatch
+│   ├── VideoMotionDetector.swift # Finds the playing video for the viewport lock
+│   ├── PiPController.swift
+│   ├── AdvancedSettings.swift
+│   ├── DiagnosticLogger.swift
+│   └── Protocol.swift            # Beam's policy on top of the Phoros wire contract
 ├── Network/
-│   ├── BonjourBrowser.swift    # Discover _beam._tcp
-│   └── ConnectionManager.swift # TCP connection lifecycle + auth
+│   ├── BonjourBrowser.swift      # Finds _beam._tcp
+│   ├── ConnectionManager.swift   # Connection lifecycle, sign-in, transport choice
+│   ├── ConnectionRacer.swift     # Local and Tailscale addresses tried side by side
+│   ├── ControlChannel.swift
+│   └── RemoteSetupProbe.swift    # The "Set Up Automatically" check for remote access
 ├── Pairing/
 │   ├── PairingManager.swift
-│   └── KeyStore.swift          # Keychain-stored pairing credentials
+│   └── KeyStore.swift            # Keychain-stored pairing secret
 └── Store/
-    ├── StoreManager.swift      # StoreKit 2 IAP
-    └── SessionManager.swift    # Free tier timer
+    ├── StoreManager.swift        # StoreKit 2
+    ├── SessionManager.swift      # Trial and free-tier timer
+    └── ReviewManager.swift
+BeamWidget/                       # Lock Screen widget that starts a stream
 ```
 
-Beam is built on [Phoros](https://github.com/kevinerikjs/phoros): the wire contract it shares
-with Beacon, plus frame reassembly, audio sequencing, the framed TCP connection, the pairing
-client, and the format-description and AAC decoding. What lives in this repo is Beam itself:
-the views, the audio player, the renderer, PiP, the Keychain, and the policy on top of the
-package (`Streaming/Protocol.swift`).
+Beam is built on [Phoros](https://github.com/kevinerikjs/phoros): the wire contract it shares with Beacon,
+plus frame reassembly, audio sequencing, the framed TCP connection, the UDP media transport, the pairing
+client and the decoders. This repo holds Beam itself: the screens, the audio player, the renderer, PiP,
+the Keychain, and the policy on top of the package (`Streaming/Protocol.swift`).
 
 ## Contributing
 
-Issues and pull requests are welcome. Before you start:
+Issues and pull requests are welcome. A few ground rules:
 
-- Apple frameworks for anything in the streaming path, reached through Phoros. No third-party
-  networking, video, or audio libraries. The dependencies above are the complete list and the bar
-  for adding another is high. A wire change starts in Phoros, with a pinned fixture test, and lands
-  here as a version bump.
-- Swift concurrency (`async`/`await`, actors) for asynchronous work.
-- Test on a real device with a real Beacon host. A PR that only compiles has not been tested.
-- User-facing strings should be localizable (`String(localized:)`) from the start.
-- Discuss larger changes in an issue first.
+- Anything in the streaming path uses Apple frameworks, through Phoros. No third-party networking, video
+  or audio libraries. The dependencies above are the complete list, and the bar for another one is high.
+  A wire change starts in Phoros, with a pinned fixture test, and lands here as a version bump.
+- Use Swift concurrency (`async`/`await`, actors) for asynchronous work.
+- Test on a real phone with a real Beacon. A PR that only compiles hasn't been tested.
+- Make user-facing strings localizable (`String(localized:)`) from the start.
+- Open an issue to talk through larger changes first.
 
-Contributions require agreeing to a short **[Contributor License Agreement](./CLA.md)**, which is
-one line in your PR description. [That document](./CLA.md) explains why, and the short version is
-that it is what keeps the dual licensing below possible.
+Contributions need a short **[Contributor License Agreement](./CLA.md)**: one line in your PR description.
+[The CLA](./CLA.md) explains why. In short, it's what makes the dual licensing below possible.
 
 ## Project documents
 
 | Document | What it covers |
 | --- | --- |
-| [SECURITY.md](./SECURITY.md) | How to report a vulnerability privately, and which parts of Beam are worth looking at |
+| [SECURITY.md](./SECURITY.md) | How to report a vulnerability privately, and what's in scope |
 | [LICENSE](./LICENSE) | The AGPL-3.0 text |
-| [COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md) | Using Beam without the AGPL obligations, and how to arrange that |
-| [CLA.md](./CLA.md) | The one line contributors add to a PR, and why it is needed |
-| [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) | How people are expected to behave here |
+| [COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md) | Using Beam without the AGPL obligations |
+| [CLA.md](./CLA.md) | The one line contributors add to a PR, and why |
+| [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) | How people are expected to treat each other here |
 | [CLAUDE.md](./CLAUDE.md) | Architecture rules and coding conventions |
 
-**Found a security problem? Do not open an issue.** Read [SECURITY.md](./SECURITY.md) and mail
-[support@beamscreen.app](mailto:support@beamscreen.app) instead.
+**Found a security problem? Please don't open an issue.** Read [SECURITY.md](./SECURITY.md) and email
+[support@beamscreen.app](mailto:support@beamscreen.app).
 
 ## License
 
 Beam is **dual licensed**.
 
-**By default it is [AGPL-3.0](./LICENSE).** You can use it, study it, modify it, and redistribute
-it, including commercially. What the AGPL asks in return is that if you distribute Beam or
-something derived from it, you publish your source under the AGPL too.
+**By default it's [AGPL-3.0](./LICENSE).** You can use, study, change and share it, commercially too. In
+return, if you distribute Beam or something built from it, you publish your source under the AGPL as well.
 
-**A commercial license is available** if you want to build on Beam without those source disclosure
-obligations, for instance inside a closed source product. Terms are negotiable.
+**A commercial license is available** if you want to build on Beam without that obligation, for example
+inside a closed-source product. Terms are open to discussion. Email
+**[support@beamscreen.app](mailto:support@beamscreen.app)** with the subject `Commercial license` and a
+paragraph about what you're building. [COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md) has the details.
 
-If that is you, mail **[support@beamscreen.app](mailto:support@beamscreen.app)** with the subject
-`Commercial license` and a paragraph on what you are building. See
-**[COMMERCIAL-LICENSE.md](./COMMERCIAL-LICENSE.md)** for the full picture.
-
-The **Beam** and **Beacon** names, logos, and icons are not covered by the AGPL grant. Fork the
-code freely, but please ship it under your own name.
+The **Beam** and **Beacon** names, logos and icons aren't part of the AGPL grant. Fork the code freely, but
+please ship it under your own name.
 
 Copyright © Kevin Erik Iin.
 
@@ -226,12 +261,9 @@ Copyright © Kevin Erik Iin.
 
 ## Maintainer notes
 
-| Branch | Purpose |
-| --- | --- |
-| `main` | Production. Any push triggers an Xcode Cloud build. |
-| `develop` | Active development. Feature work and fixes go here. |
+`main` is production. Any push to it starts an Xcode Cloud build, so feature work happens on branches
+and arrives by pull request.
 
-The Xcode Cloud workflow has a single `ARCHIVE` action and no post-actions, so a build produces an
-archive in App Store Connect and stops there. It does **not** submit anything for review, which
-still takes a deliberate step in App Store Connect. Worth knowing before you push to `main`, since
-the trigger is any ref change on that branch rather than a merge specifically.
+The Xcode Cloud workflow has one `ARCHIVE` action and no post-actions. A build produces an archive in App
+Store Connect and stops. It never submits anything for review; that's a separate, deliberate step in App
+Store Connect. Keep in mind that the trigger is any change to `main`, not only a merge.
