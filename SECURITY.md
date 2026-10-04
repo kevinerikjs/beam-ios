@@ -27,15 +27,15 @@ the Beam version, and your iOS version. A proof of concept helps but is not requ
   paired Mac, on the local network or over your own Tailscale network. A path that sends screen or
   audio content anywhere else is the most serious kind of bug this app can have.
 
-## Known limitation: the control connection is not encrypted
+## How the connection is encrypted
 
-You don't need to report this one. Beam's TCP control connection to Beacon has no transport encryption
-yet. On a shared network, someone else on that network can read the pairing secret, the phone controls
-(including what you type with the live keyboard), and the video and audio whenever the stream has fallen
-back to TCP or Legacy Transport is on. On the default UDP transport, video and audio are encrypted with
-DTLS and SRTP, but the keys for it are agreed over the same unencrypted connection. Over Tailscale,
-WireGuard encrypts all of it. Encrypting the control connection is planned work. Reports that go further
-than this, for example a way in that doesn't need someone on the same network, are very welcome.
+Since Beam 3.6 and Beacon 1.9, the connection to Beacon is encrypted with keys derived from the pairing
+secret and a fresh X25519 exchange, then sealed with AES-256-GCM. The UDP media transport's DTLS
+fingerprint travels inside that connection, so its DTLS-SRTP is tied to the pairing too. The design and
+its limits are in [Phoros SECURITY.md](https://github.com/kevinerikjs/phoros/blob/main/SECURITY.md).
+Two limits you don't need to report: Beam still talks plaintext to a Beacon older than 1.9, and pairing
+itself has no secret to start from, so someone actively intercepting the connection during the pairing
+minute could still read the secret. Anything beyond that is very welcome.
 
 ## Out of scope
 

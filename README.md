@@ -65,7 +65,7 @@ Guides with more detail:
 | | |
 | --- | --- |
 | **Discovery** | Bonjour, browsing for `_beam._tcp` on the local network |
-| **Control connection** | Network.framework TCP: pairing, sign-in with the paired secret, settings, phone controls |
+| **Control connection** | Network.framework TCP, encrypted with keys from the pairing secret (Phoros: X25519 and AES-256-GCM): pairing, sign-in, settings, phone controls |
 | **Media** | A UDP peer transport (ICE, DTLS, SRTP) from [Phoros](https://github.com/kevinerikjs/phoros), with loss repair and forward error correction. Falls back to the TCP connection on its own if the UDP path fails, or when Legacy Transport is on |
 | **Video** | HEVC or H.264, rendered with `AVSampleBufferDisplayLayer`, which also drives PiP |
 | **Audio** | `AVAudioEngine`, with a buffer that sizes itself to the network |
@@ -75,11 +75,9 @@ Guides with more detail:
 
 Beam talks to Beacon directly. Beam runs no relay and no server in the stream path.
 
-**About encryption.** Video and audio on the default UDP transport are encrypted with DTLS and SRTP. The
-TCP control connection is not encrypted today, so on a shared network it can be read by others on that
-network. That includes the pairing secret, what you type with the live keyboard, and the video itself
-when Beam has fallen back to TCP. Over Tailscale, everything is encrypted end to end by WireGuard. Adding
-encryption to the control connection is tracked work. See [SECURITY.md](./SECURITY.md).
+**Encryption.** Everything Beam and Beacon send each other is encrypted end to end, using the secret your
+two devices agree on when you pair: the picture, the sound, and every click and key press. Since Beam 3.6
+and Beacon 1.9. See [SECURITY.md](./SECURITY.md).
 
 ## Dependencies and what gets collected
 
@@ -111,7 +109,7 @@ you add them, to `beamscreen.app/api/feedback`.
 
 ## Requirements
 
-- iPhone or iPad with iOS 16 or later. The Lock Screen widget needs a much newer iOS than the app.
+- iPhone or iPad with iOS 16 or later
 - A Mac running [Beacon](https://github.com/kevinerikjs/beacon-macos), on the same Wi-Fi, or on your
   Tailscale network for remote streaming
 - Xcode 15 or later, if you're building it yourself
