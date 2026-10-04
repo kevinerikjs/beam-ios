@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/kevinerikjs/phoros.git",
       "state" : {
-        "revision" : "c1c25d1ae1e1226c0fec6cfd940b6949d0ddcbf5",
-        "version" : "1.5.0"
+        "revision" : "fc4a7dd308e91ded5298dae85ecea14849e46b1e",
+        "version" : "1.6.0"
       }
     },
     {

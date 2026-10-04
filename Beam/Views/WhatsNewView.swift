@@ -38,6 +38,12 @@ struct ChangeSection: Identifiable {
 /// all. Must NOT mention any feature that is still behind a flag.
 private let versionChangelog: [ChangeEntry] = [
     ChangeEntry(
+        icon: "viewfinder",
+        title: "More Resolution Choices",
+        detail: "Choose 1440p, 4K, or up to your Mac display's native resolution, at 30 or 60 fps. Beam only shows sizes your Mac display supports. Advanced settings can also force connections through your stored Tailscale address.",
+        release: "3.5"
+    ),
+    ChangeEntry(
         icon: "command",
         title: "Mac Keys Above Your Keyboard",
         detail: "Live keyboard now has a row of Mac keys on top: esc, tab, the arrows and ⌃ ⌥ ⇧ ⌘. Swipe it for home, end, page up and down, forward delete and F1 to F12. Tap a modifier for one key, or hold it to lock it for as many shortcuts as you like. Needs the latest Beacon, which updates itself.",

@@ -548,7 +548,7 @@ struct QualityPickerSheet: View {
                     .listRowBackground(Color.clear)
                 }
 
-                ForEach(QualityPreset.allCases) { preset in
+                ForEach(appState.availableQualityPresets) { preset in
                     qualityRow(preset)
                 }
             }
@@ -577,7 +577,9 @@ struct QualityPickerSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("\(preset.width)×\(preset.height) · \(String(format: "%.1f", preset.bitrateMbps)) Mbps")
+                    Text(isNativePreset(preset)
+                         ? "Up to Mac display native resolution · \(String(format: "%.1f", preset.bitrateMbps)) Mbps"
+                         : "\(preset.width)×\(preset.height) · \(String(format: "%.1f", preset.bitrateMbps)) Mbps")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -599,6 +601,10 @@ struct QualityPickerSheet: View {
             }
             dismiss()
         }
+    }
+
+    private func isNativePreset(_ preset: QualityPreset) -> Bool {
+        preset == .native_30 || preset == .native_60
     }
 }
 
@@ -748,7 +754,7 @@ struct StreamSettingsSheet: View {
                         get: { appState.preferredQualityPreset },
                         set: { appState.preferredQualityPreset = $0 }
                     )) {
-                        ForEach(QualityPreset.allCases) { preset in
+                        ForEach(appState.availableQualityPresets) { preset in
                             Text(preset.displayName).tag(preset)
                         }
                     }

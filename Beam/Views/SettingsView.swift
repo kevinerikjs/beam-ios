@@ -27,9 +27,7 @@ struct SettingsView: View {
     @AppStorage("beam.settings.advancedExpanded") private var advancedExpanded = false
     @AppStorage(ConnectionManager.legacyTransportKey) private var legacyTransport = false
     @AppStorage(AdvancedSettings.streamModeKey) private var streamMode = 0
-    #if DEBUG
     @AppStorage("beam.debug.forceRemoteHost") private var forceRemoteHost = false
-    #endif
     @AppStorage(ConnectionManager.highFrameRateDefaultsKey) private var highFrameRate = true
 
     var body: some View {
@@ -45,9 +43,9 @@ struct SettingsView: View {
                         // available to everyone.
                         subscriptionCard
                         remoteAccessCard
-                        advancedCard
                         supportCard
                         aboutCard
+                        advancedCard
                     }
                     .padding(.horizontal, 24)
                     .padding(.top, 24)
@@ -116,7 +114,7 @@ struct SettingsView: View {
                         get: { appState.preferredQualityPreset },
                         set: { appState.preferredQualityPreset = $0 }
                     )) {
-                        ForEach(QualityPreset.allCases) { preset in
+                        ForEach(appState.availableQualityPresets) { preset in
                             Text(preset.displayName).tag(preset)
                         }
                     }
@@ -255,8 +253,7 @@ struct SettingsView: View {
     // MARK: - Advanced card
 
     /// Knobs most people never need, collapsed by default: diagnostics and the escape
-    /// hatches for the defaults the stream engine picks. Development-only items sit at the
-    /// bottom in Debug builds.
+    /// hatches for the defaults the stream engine picks.
     private var advancedCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
@@ -366,6 +363,22 @@ struct SettingsView: View {
 
                     cardDivider
 
+                    Toggle(isOn: $forceRemoteHost) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Force Remote Host")
+                                .foregroundStyle(.white)
+                            Text("Skip Bonjour and connect using the stored Tailscale address")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .tint(.orange)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
+
+                    cardDivider
+
                     Toggle(isOn: $keepScreenAwake) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Keep Screen Awake")
@@ -454,23 +467,6 @@ struct SettingsView: View {
 
                     cardDivider
 
-                    // BEAM-19 debug aid: forces the Tailscale path while still on WiFi. The
-                    // connection genuinely routes over the tailnet, but the phone stays reachable
-                    // for log capture, which it isn't when actually off-network.
-                    Toggle(isOn: $forceRemoteHost) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Force Remote Host")
-                                .foregroundStyle(.white)
-                            Text("Skip Bonjour, always connect via the stored Tailscale address")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .tint(.yellow)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .onChange(of: forceRemoteHost) { _ in appState.startBrowsing() }
-
                     #endif
                 }
                 .background(Color.white.opacity(0.07))
@@ -547,7 +543,7 @@ struct SettingsView: View {
                                 get: { appState.remoteQualityPreset },
                                 set: { appState.remoteQualityPreset = $0 }
                             )) {
-                                ForEach(QualityPreset.allCases) { preset in
+                                ForEach(appState.availableQualityPresets) { preset in
                                     Text(preset.displayName).tag(preset)
                                 }
                             }

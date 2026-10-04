@@ -767,6 +767,7 @@ final class ConnectionManager {
                 appState?.hostSupportsWindowSelection = self.hostSupportsWindowSelection
                 appState?.hostSupportsPointer = self.hostSupportsPointer
                 appState?.hostPhoneControls = controls
+                appState?.hostMaximumVideoDimension = msg.maximumVideoDimension ?? 1920
             }
             if !isAudioEnabled, !hostSupportsAudioToggle {
                 DiagnosticLogger.shared.log("Audio off but host predates the audio toggle — muting locally only", category: "Audio")

@@ -44,6 +44,19 @@ final class BeamAppState: ObservableObject {
 
     /// The quality preset currently active on the host (set from .qualityChanged messages).
     @Published var currentQualityPreset: QualityPreset = .p1080_30
+    /// Longest native pixel edge advertised by the connected Mac. Legacy hosts
+    /// omit it, so keep their available options capped at 1080p.
+    @Published var hostMaximumVideoDimension: Int = 1920
+
+    var availableQualityPresets: [QualityPreset] {
+        QualityPreset.allCases.filter { preset in
+            switch preset {
+            case .auto: return true
+            case .native_30, .native_60: return hostMaximumVideoDimension > 2560
+            default: return max(preset.width, preset.height) <= hostMaximumVideoDimension
+            }
+        }
+    }
 
     /// Aspect of the frames the host is sending (width / height). 16:9 on a full display; a
     /// window's own aspect in window mode (BEAM-38). Drives every overlay geometry calculation.
@@ -444,16 +457,12 @@ final class BeamAppState: ObservableObject {
         isSearchingForMac = true
         remoteFallbackTask?.cancel()
 
-        // Debug escape hatch (BEAM-19): skip Bonjour entirely and go straight to the stored
-        // remote address. Lets the Tailscale path be exercised while still on WiFi — the
-        // connection genuinely routes over the tailnet, but the phone stays reachable for
-        // log capture, which it isn't when actually off-network.
-        #if DEBUG
+        // Advanced override: skip Bonjour and use the stored Tailscale address, even when
+        // the Mac is also reachable on the local network.
         if UserDefaults.standard.bool(forKey: "beam.debug.forceRemoteHost") {
             Task { @MainActor in activateRemoteHost(reason: "forced by debug setting") }
             return
         }
-        #endif
 
         bonjourBrowser.startBrowsing { [weak self] host in
             Task { @MainActor in
