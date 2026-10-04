@@ -78,3 +78,7 @@ beam-ios/
 - Naming: follow Swift API Design Guidelines exactly
 - No force unwraps (`!`) except for known-safe static resources
 - All user-facing strings should be localizable from day one (`String(localized:)`)
+
+## Website answer bot (BEAM-112)
+
+beamscreen.app's "Ask anything" box answers visitors from `beam-web/knowledge/SOURCE-OF-TRUTH.md` (in this workspace: `/Volumes/yuh/business/beam/beam-web/knowledge/SOURCE-OF-TRUTH.md`). **Any change here that users will see updates that file in the same piece of work**: features added or removed, new versions, limits, prices, privacy or security behaviour. Mark built-but-unreleased things `[PENDING]` and clear the mark when the release ships. The file is read live, so no site rebuild is needed.
