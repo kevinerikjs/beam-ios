@@ -30,7 +30,6 @@
 		5E496367CF5B6DD66C3FCFF7 /* BeamAppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2594BA6C3113019C21FE5EE /* BeamAppState.swift */; };
 		SHOT00000000000000000002 /* ShotMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHOT00000000000000000001 /* ShotMode.swift */; };
 		6278C33D41F85F23AF8D869B /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB8220BA909DEF51345ADED /* PairingView.swift */; };
-		67BDC1824E371459D5C9D21F /* QRScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99D553D14F9F3813CCB658A /* QRScanner.swift */; };
 		6AF1C01A96FB50D8F01E6BE5 /* PairingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6E4A914619A6B1C2E0BE06 /* PairingManager.swift */; };
 		7C743036B0276670D1288D7B /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9103D00A2163CA9E73231F09 /* AVKit.framework */; };
 		8D59715E934447A35F0995E3 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6532D3B9FE36DBFA3E19A7E /* HomeView.swift */; };
@@ -138,7 +137,6 @@
 		SHOT00000000000000000001 /* ShotMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShotMode.swift; path = Beam/ShotMode.swift; sourceTree = SOURCE_ROOT; };
 		C9135D65FDFD011183B89FF0 /* Beam.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = Beam.entitlements; path = Beam/Beam.entitlements; sourceTree = SOURCE_ROOT; };
 		D7E6B91AC4508F3700E1B045 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Beam/Views/SettingsView.swift; sourceTree = SOURCE_ROOT; };
-		D99D553D14F9F3813CCB658A /* QRScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QRScanner.swift; path = Beam/Pairing/QRScanner.swift; sourceTree = SOURCE_ROOT; };
 		DB2738F326A8777AAE99E234 /* StreamOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamOverlay.swift; path = Beam/Views/StreamOverlay.swift; sourceTree = SOURCE_ROOT; };
 		DE5D93CE4A074983AB6F606C /* FeedbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FeedbackView.swift; path = Beam/Views/FeedbackView.swift; sourceTree = SOURCE_ROOT; };
 		DL00000000000000FILEREF1 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiagnosticLogger.swift; path = Beam/Streaming/DiagnosticLogger.swift; sourceTree = SOURCE_ROOT; };
@@ -310,7 +308,6 @@
 			children = (
 				EB8AE8E491C431FF655FAEFA /* KeyStore.swift */,
 				6D6E4A914619A6B1C2E0BE06 /* PairingManager.swift */,
-				D99D553D14F9F3813CCB658A /* QRScanner.swift */,
 			);
 			name = Pairing;
 			sourceTree = "<group>";
@@ -484,7 +481,6 @@
 				BB51EECB7C9AA6E49128D959 /* ControlChannel.swift in Sources */,
 				149F3F329B89D0EF3DFAFDFF /* KeyStore.swift in Sources */,
 				6AF1C01A96FB50D8F01E6BE5 /* PairingManager.swift in Sources */,
-				67BDC1824E371459D5C9D21F /* QRScanner.swift in Sources */,
 				134C7563E5A112DB0FD5B9F3 /* StoreManager.swift in Sources */,
 				A3ADA28A0E5CC7F58B88246D /* SessionManager.swift in Sources */,
 				8D59715E934447A35F0995E3 /* HomeView.swift in Sources */,
@@ -546,7 +542,7 @@
 				INFOPLIST_FILE = BeamWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BeamWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -596,7 +592,7 @@
 				INFOPLIST_FILE = BeamWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BeamWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

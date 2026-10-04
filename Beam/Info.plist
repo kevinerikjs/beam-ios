@@ -54,8 +54,6 @@
 	<array>
 		<string>_beam._tcp</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Beam uses the camera to scan the QR code shown on your Mac during pairing.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Beam connects to your Mac over your local network to stream your screen.</string>
 	<key>UIAppFonts</key>
