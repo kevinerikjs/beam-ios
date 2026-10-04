@@ -49,7 +49,7 @@ enum RemoteSetupProbe {
     /// Throws `hostHasNoTailscale` when the Mac answers but has no tailnet address, which is a
     /// genuinely different problem from a failed connection and deserves its own message.
     static func fetchRemoteHosts(from host: DiscoveredHost, pairedMac: PairedMac) async throws -> [String] {
-        let link = PhorosConnection(to: host.endpoint, queue: .global(qos: .userInitiated))
+        let link = PhorosConnection(to: host.endpoint, security: host.authenticatedSecurity(for: pairedMac), queue: .global(qos: .userInitiated))
 
         return try await withThrowingTaskGroup(of: [String].self) { group in
             group.addTask {
@@ -116,7 +116,9 @@ enum RemoteSetupProbe {
             link.onEnd = { reason in
                 switch reason {
                 case .transportFailed(let error): finish(.failure(error))
-                case .closedByPeer, .protocolViolation, .cancelled: finish(.failure(Failure.timedOut))
+                case .secureChannelFailed(.unknownDevice):
+                    finish(.failure(Failure.rejected("This iPhone is no longer paired with your Mac.")))
+                case .closedByPeer, .protocolViolation, .secureChannelFailed, .cancelled: finish(.failure(Failure.timedOut))
                 }
             }
             link.start()

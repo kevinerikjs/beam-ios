@@ -38,6 +38,12 @@ struct ChangeSection: Identifiable {
 /// all. Must NOT mention any feature that is still behind a flag.
 private let versionChangelog: [ChangeEntry] = [
     ChangeEntry(
+        icon: "lock.fill",
+        title: "Encrypted Connection",
+        detail: "Everything between Beam and your Mac is now encrypted and locked to your pairing: the picture, the sound, and every click and key you type. Nobody else on your Wi-Fi can read it. Needs the latest Beacon, which updates itself.",
+        release: "3.6"
+    ),
+    ChangeEntry(
         icon: "viewfinder",
         title: "More Resolution Choices",
         detail: "Choose 1440p, 4K, or up to your Mac display's native resolution, at 30 or 60 fps. Beam only shows sizes your Mac display supports. Advanced settings can also force connections through your stored Tailscale address.",

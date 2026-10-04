@@ -3,6 +3,8 @@
 
 import SwiftUI
 import Phoros
+import PhorosNetwork
+import PhorosSession
 import Network
 
 enum KeyboardModifierState: Equatable {
@@ -590,9 +592,15 @@ final class BeamAppState: ObservableObject {
     /// Stores the host's self-reported remote addresses. Called on every successful auth so
     /// the stored copy tracks the Mac's current tailnet address.
     @MainActor
-    func updateRemoteHosts(_ hosts: [String]?, hostSupportsRemote: Bool? = nil) {
+    func updateRemoteHosts(_ hosts: [String]?, hostSupportsRemote: Bool? = nil, hostSupportsEncryption: Bool = false) {
         guard var mac = pairedMac else { return }
         var changed = false
+        // Only ever set, never cleared: an answer without the flag must not downgrade us.
+        if hostSupportsEncryption, mac.hostSupportsEncryption != true {
+            mac.hostSupportsEncryption = true
+            changed = true
+            DiagnosticLogger.shared.log("Mac supports encrypted connections; plaintext is off for it from now on", category: "Connection")
+        }
         if let hosts, !hosts.isEmpty, mac.remoteHosts != hosts {
             mac.remoteHosts = hosts
             changed = true
@@ -915,6 +923,11 @@ struct PairedMac: Codable {
     /// modern Beacon that simply has no Tailscale set up.
     var hostSupportsRemoteAccess: Bool?
 
+    /// The Mac has said it accepts an encrypted connection (BEAM-104). Once true, Beam
+    /// only ever connects to it encrypted, so nobody can downgrade the link by posing as
+    /// an older Beacon. nil for pairings stored before Beam 3.6.
+    var hostSupportsEncryption: Bool?
+
     /// Auto-reported addresses first, then the manual one, de-duplicated, in try order.
     var allRemoteHosts: [String] {
         var seen = Set<String>()
@@ -927,4 +940,25 @@ struct DiscoveredHost: Equatable {
     let name: String
     let endpoint: NWEndpoint
     let port: UInt16
+    /// Bonjour TXT `enc=1`: this Beacon accepts an encrypted connection (BEAM-104).
+    /// Always false for a Tailscale address, where `PairedMac.hostSupportsEncryption` decides.
+    var advertisesEncryption = false
+}
+
+// MARK: - Connection encryption (BEAM-104)
+
+extension DiscoveredHost {
+    /// Security for pairing with this host. A Beacon from before 1.9 doesn't advertise
+    /// encryption and gets the plaintext wire it understands.
+    var pairingSecurity: PhorosConnectionSecurity {
+        advertisesEncryption ? .client(.pair) : .none
+    }
+
+    /// Security for a paired client's connection: encrypted whenever this Mac has ever
+    /// said it can, so a Mac that supported encryption is never spoken to in plaintext.
+    func authenticatedSecurity(for mac: PairedMac) -> PhorosConnectionSecurity {
+        guard advertisesEncryption || mac.hostSupportsEncryption == true,
+              let secret = SharedSecret(bytes: mac.sharedSecret) else { return .none }
+        return .client(.authenticate(deviceID: KeyStore.shared.stableDeviceID, secret: secret))
+    }
 }

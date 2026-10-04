@@ -47,7 +47,7 @@ final class PairingManager: ObservableObject {
         isPairSuccess = false
         pairingHost = host
 
-        let link = PhorosConnection(to: host.endpoint, queue: .global(qos: .userInitiated))
+        let link = PhorosConnection(to: host.endpoint, security: host.pairingSecurity, queue: .global(qos: .userInitiated))
         self.link = link
         link.onReady = { [weak self] in
             guard let self else { return }
@@ -68,6 +68,7 @@ final class PairingManager: ObservableObject {
             switch reason {
             case .transportFailed(let error): self?.pairingFailed(error.localizedDescription)
             case .closedByPeer, .protocolViolation: self?.pairingFailed("The Mac closed the connection")
+            case .secureChannelFailed: self?.pairingFailed("Couldn't set up a secure connection to the Mac. Try again.")
             case .cancelled: break
             }
         }
@@ -114,7 +115,8 @@ final class PairingManager: ObservableObject {
                 // an address by hand from settings.
                 remoteHosts: host.remoteHosts.isEmpty ? nil : host.remoteHosts,
                 manualRemoteHost: nil,
-                hostSupportsRemoteAccess: host.supportsRemoteAccess
+                hostSupportsRemoteAccess: host.supportsRemoteAccess,
+                hostSupportsEncryption: host.supportsEncryption ? true : nil
             )
             let isFirstPairing = !UserDefaults.standard.bool(forKey: "hasEverPaired")
             KeyStore.shared.savePairedMac(mac)
