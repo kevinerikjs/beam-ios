@@ -262,7 +262,9 @@ final class ConnectionManager {
         lastMediaPacketReceivedAt = Date()
         streamReceiver.reset()
         DiagnosticLogger.shared.log("Connecting to \(host.name)", category: "Connection")
-        let transport = PhorosLegacyTransport(to: host.endpoint, queue: .global(qos: .userInteractive))
+        let security = host.authenticatedSecurity(for: pairedMac)
+        if case .client = security { DiagnosticLogger.shared.log("Connecting encrypted", category: "Connection") }
+        let transport = PhorosLegacyTransport(to: host.endpoint, security: security, queue: .global(qos: .userInteractive))
         self.transport = transport
         transport.onReady = { [weak self] in
             Task { @MainActor in self?.handleConnectionState(.ready) }
@@ -283,6 +285,13 @@ final class ConnectionManager {
                 self.triggerUnexpectedDisconnect()
             case .protocolViolation(let violation):
                 DiagnosticLogger.shared.log("Protocol violation from host: \(String(describing: violation))", category: "Connection")
+                self.triggerUnexpectedDisconnect()
+            case .secureChannelFailed(.unknownDevice):
+                // The encrypted form of "Device not paired".
+                DiagnosticLogger.shared.log("Mac no longer knows this device; clearing the pairing", category: "Connection")
+                self.forgetPairing()
+            case .secureChannelFailed(let error):
+                DiagnosticLogger.shared.log("Encrypted connection failed: \(String(describing: error))", category: "Connection")
                 self.triggerUnexpectedDisconnect()
             case .cancelled:
                 Task { @MainActor in self.appState?.isStreaming = false }
@@ -335,6 +344,16 @@ final class ConnectionManager {
     }
 
     // MARK: - Authentication
+
+    /// The Mac no longer knows this device: drop the stored pairing and go home.
+    private func forgetPairing() {
+        KeyStore.shared.clearPairedMac()
+        Task { @MainActor in
+            appState?.pairedMac = nil
+            appState?.isStreaming = false
+        }
+        disconnect()
+    }
 
     private func sendAuthRequest() {
         guard let secret = SharedSecret(bytes: pairedMac.sharedSecret) else {
@@ -778,7 +797,8 @@ final class ConnectionManager {
             // address changes (BEAM-19). Runs while we're on the LAN, so away-from-home works
             // later without the user configuring anything.
             Task { @MainActor in
-                appState?.updateRemoteHosts(msg.remoteHosts, hostSupportsRemote: msg.supportsRemoteAccess)
+                appState?.updateRemoteHosts(msg.remoteHosts, hostSupportsRemote: msg.supportsRemoteAccess,
+                                            hostSupportsEncryption: peer.supportsEncryption)
                 // Reconnected: close the hold window and let the overlay fade.
                 if appState?.isReconnecting == true { appState?.endReconnect(resumed: true) }
             }
@@ -860,11 +880,8 @@ final class ConnectionManager {
             logger.error("Auth failed: \(msg.error ?? "unknown")")
             if msg.error == "Device not paired" {
                 // Host no longer recognises this device — clear stale pairing data
-                KeyStore.shared.clearPairedMac()
-                Task { @MainActor in
-                    appState?.pairedMac = nil
-                    appState?.isStreaming = false
-                }
+                forgetPairing()
+                return
             }
             disconnect()
 

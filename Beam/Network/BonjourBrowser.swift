@@ -51,7 +51,8 @@ final class BonjourBrowser {
         // the Wi-Fi radio for ~90 ms every half second, for the whole stream (BEAM-47).
         params.includePeerToPeer = false
 
-        browser = NWBrowser(for: .bonjour(type: "_beam._tcp", domain: "local."), using: params)
+        // With the TXT record, so Beam sees `enc=1` from a Beacon that accepts encryption (BEAM-104).
+        browser = NWBrowser(for: .bonjourWithTXTRecord(type: "_beam._tcp", domain: "local."), using: params)
 
         browser?.stateUpdateHandler = { state in
             switch state {
@@ -105,7 +106,10 @@ final class BonjourBrowser {
                     connection.cancel()
                     return
                 }
-                let host = DiscoveredHost(name: serviceName, endpoint: result.endpoint, port: port.rawValue)
+                var encrypts = false
+                if case .bonjour(let txt) = result.metadata { encrypts = txt["enc"] == "1" }
+                let host = DiscoveredHost(name: serviceName, endpoint: result.endpoint, port: port.rawValue,
+                                          advertisesEncryption: encrypts)
                 logger.info("Discovered Beacon: \(serviceName) on port \(port.rawValue)")
                 self?.discoveredHosts[serviceName] = host
                 let allHosts = Array(self?.discoveredHosts.values ?? [:].values)
